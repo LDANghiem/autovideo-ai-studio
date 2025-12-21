@@ -1,3 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
+
 @import "tailwindcss";
 
 :root {
@@ -24,3 +38,29 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* ----------------------------------------
+   Custom Dark Theme Variables
+-----------------------------------------*/
+:root {
+  --bg-main: #f9fafb;
+  --bg-secondary: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --sidebar-bg: #0f172a;
+  --sidebar-hover: #1e293b;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+}
+
+/* DARK MODE */
+:root.dark {
+  --bg-main: #0f0f14;
+  --bg-secondary: #1a1a22;
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --sidebar-bg: #08090d;
+  --sidebar-hover: #111218;
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+}
+

@@ -2,67 +2,81 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export async function POST(req: Request) {
-  const authHeader = req.headers.get("authorization") ?? "";
+  try {
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!authHeader.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { error: "Auth session missing (no bearer token)" },
-      { status: 401 }
-    );
-  }
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return NextResponse.json(
+        { error: "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY" },
+        { status: 500 }
+      );
+    }
 
-  const token = authHeader.slice("Bearer ".length).trim();
-  if (!token) {
-    return NextResponse.json(
-      { error: "Auth session missing (empty token)" },
-      { status: 401 }
-    );
-  }
+    // Expect: Authorization: Bearer <access_token>
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : null;
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.json(
-      { error: "Server env missing Supabase URL/ANON key" },
-      { status: 500 }
-    );
-  }
+    if (!token) {
+      return NextResponse.json({ error: "Missing Authorization Bearer token" }, { status: 401 });
+    }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // User-scoped client (RLS applies)
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
 
-  // ✅ IMPORTANT: validate THIS token directly
-  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    // Verify user
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    const user = userData?.user;
 
-  const user = userData?.user;
-  if (userErr || !user) {
-    return NextResponse.json(
-      { error: "Auth session missing (invalid token)", details: userErr?.message },
-      { status: 401 }
-    );
-  }
+    if (userErr || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  const body = await req.json();
+    const body = await req.json().catch(() => ({}));
 
-  const { data, error } = await supabase
-    .from("projects")
-    .insert({
+    const topic = String(body?.topic || "").trim();
+    if (!topic) {
+      return NextResponse.json({ error: "Topic is required" }, { status: 400 });
+    }
+
+    const insertRow = {
       user_id: user.id,
-      topic: body.topic,
-      style: body.style,
-      voice: body.voice,
-      length: body.length,
-      resolution: body.resolution,
-      language: body.language,
-      tone: body.tone,
-      music: body.music,
+      topic,
       status: "queued",
-    })
-    .select("id")
-    .single();
+      style: body?.style ?? null,
+      voice: body?.voice ?? null,
+      length: body?.length ?? null,
+      resolution: body?.resolution ?? null,
+      language: body?.language ?? null,
+      tone: body?.tone ?? null,
+      music: body?.music ?? null,
+      error_message: null,
+      script: null,
+      video_url: null,
+      updated_at: new Date().toISOString(),
+    };
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const { data, error } = await supabase
+      .from("projects")
+      .insert(insertRow)
+      .select("id")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ id: data.id }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
   }
-
-  return NextResponse.json({ id: data.id });
 }

@@ -8,7 +8,7 @@ type Project = {
   id: string;
   user_id: string;
   topic: string | null;
-  status: "queued" | "processing" | "done" | "error" | string | null;
+  status: string | null;
 
   style: string | null;
   voice: string | null;
@@ -18,274 +18,333 @@ type Project = {
   tone: string | null;
   music: string | null;
 
-  script?: string | null;
-  video_url?: string | null;
-  error_message?: string | null;
+  script: string | null;
+  video_url: string | null;
+  error_message: string | null;
 
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-function StatusBadge({ status }: { status: string | null }) {
-  const label =
-    status === "queued"
-      ? "Queued"
-      : status === "processing"
-      ? "Rendering"
-      : status === "done"
-      ? "Done"
-      : status === "error"
-      ? "Error"
-      : status || "Unknown";
+function statusLabel(status?: string | null) {
+  if (!status) return "Unknown";
+  if (status === "queued") return "Queued";
+  if (status === "processing") return "Rendering";
+  if (status === "done") return "Done";
+  if (status === "error") return "Error";
+  return status;
+}
+
+function ProgressDots({ status }: { status?: string | null }) {
+  const s = status ?? "unknown";
+  const queuedOn = s === "queued" || s === "processing" || s === "done";
+  const renderingOn = s === "processing" || s === "done";
+  const doneOn = s === "done";
 
   return (
-    <span className="inline-flex items-center rounded-full border px-3 py-1 text-sm">
-      {label}
-    </span>
+    <div className="border rounded-lg p-4">
+      <h3 className="font-semibold mb-2">Progress</h3>
+      <div className="flex items-center gap-3 text-sm">
+        <span className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full border ${queuedOn ? "bg-black" : ""}`} />
+          Queued
+        </span>
+        <span className="text-gray-400">—</span>
+        <span className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full border ${renderingOn ? "bg-black" : ""}`} />
+          Rendering
+        </span>
+        <span className="text-gray-400">—</span>
+        <span className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full border ${doneOn ? "bg-black" : ""}`} />
+          Done
+        </span>
+      </div>
+    </div>
   );
 }
 
-function StepDot({ active }: { active: boolean }) {
-  return (
-    <span
-      className={[
-        "inline-block h-3 w-3 rounded-full border",
-        active ? "bg-black" : "bg-transparent",
-      ].join(" ")}
-    />
-  );
+function formatDate(iso?: string | null) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
 }
 
-export default function ProjectDetailsPage() {
-  const params = useParams<{ id: string }>();
+export default function ProjectDetailPage() {
   const router = useRouter();
-  const id = params?.id;
+  const params = useParams();
+
+  // ✅ Works for either folder name: [id] or [projectId]
+  const projectId = useMemo(() => {
+    const raw = (params as any)?.id ?? (params as any)?.projectId;
+    return Array.isArray(raw) ? raw[0] : raw;
+  }, [params]);
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [uiError, setUiError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
+  async function fetchProject() {
+    if (!projectId) return;
 
-
-  const steps = useMemo(
-    () => [
-      { key: "queued", label: "Queued" },
-      { key: "processing", label: "Rendering" },
-      { key: "done", label: "Done" },
-    ],
-    []
-  );
-
-  const currentStepIndex = useMemo(() => {
-    const s = project?.status ?? "";
-    if (s === "done") return 2;
-    if (s === "processing") return 1;
-    if (s === "queued") return 0;
-    return -1;
-  }, [project?.status]);
-
-  async function fetchProject(projectId: string) {
-    setErr(null);
+    setUiError(null);
     const { data, error } = await supabase
       .from("projects")
-      .select("*")
+      .select(
+        "id,user_id,topic,status,style,voice,length,resolution,language,tone,music,script,video_url,error_message,created_at,updated_at"
+      )
       .eq("id", projectId)
       .single();
 
     if (error) {
-      setErr(error.message);
+      setUiError(error.message);
       setProject(null);
     } else {
       setProject(data as Project);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    fetchProject(id);
-  }, [id]);
+    let cancelled = false;
 
-    async function handleRetryRender() {
-    if (!project?.id) return;
-
-    setRetrying(true);
-    setRetryError(null);
-
-    const { error } = await supabase.functions.invoke("retry-render", {
-      body: { project_id: project.id },
-    });
-
-    if (error) {
-      setRetryError(error.message);
-    }
-
-    setRetrying(false);
-  }
-
-
-  // Realtime subscription (best UX)
-  useEffect(() => {
-    if (!id) return;
-
-    const channel = supabase
-      .channel(`projects:detail:${id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "projects", filter: `id=eq.${id}` },
-        (payload) => {
-          // payload.new contains updated row
-          if (payload?.new) setProject(payload.new as Project);
-        }
-      )
-      .subscribe();
+    (async () => {
+      if (!projectId) return;
+      setLoading(true);
+      await fetchProject();
+      if (!cancelled) setLoading(false);
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
     };
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
-  // Optional fallback polling if you want extra safety:
-  // useEffect(() => {
-  //   if (!id) return;
-  //   const t = setInterval(() => fetchProject(id), 5000);
-  //   return () => clearInterval(t);
-  // }, [id]);
+  // Auto-refresh while queued/processing
+  useEffect(() => {
+    const s = project?.status;
+    if (!s) return;
+    if (s !== "queued" && s !== "processing") return;
 
-  if (loading) {
-    return <div className="p-6">Loading project…</div>;
+    const t = setInterval(() => {
+      fetchProject();
+    }, 2500);
+
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.status, projectId]);
+
+  async function retryRender() {
+    if (!projectId) return;
+
+    setBusy(true);
+    setUiError(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("retry-render", {
+        body: { project_id: projectId },
+      });
+
+      if (error) {
+        setUiError(error.message);
+      } else if ((data as any)?.error) {
+        setUiError((data as any).error);
+      } else {
+        await fetchProject();
+      }
+    } catch (e: any) {
+      setUiError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (err) {
+  async function copyToClipboard(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setUiError("Could not copy to clipboard (browser blocked).");
+    }
+  }
+
+  const videoUrl = project?.video_url ?? null;
+  const isDone = project?.status === "done";
+  const isRendering = project?.status === "queued" || project?.status === "processing";
+
+  if (!projectId) {
     return (
-      <div className="p-6 space-y-3">
-        <div className="text-lg font-semibold">Couldn’t load project</div>
-        <div className="text-sm opacity-80">{err}</div>
-        <button
-          className="rounded-lg border px-4 py-2"
-          onClick={() => router.push("/dashboard")}
-        >
-          Back to Dashboard
-        </button>
+      <div className="p-6">
+        <p className="text-red-600">Missing project ID in route.</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Make sure the URL looks like: <code>/dashboard/projects/&lt;uuid&gt;</code>
+        </p>
       </div>
     );
   }
 
-  if (!project) return <div className="p-6">No project found.</div>;
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="text-2xl font-semibold">
-            {project.topic || "Untitled project"}
-          </div>
-          <div className="text-sm opacity-70">Project ID: {project.id}</div>
+    <div className="p-6 max-w-3xl mx-auto">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h1 className="text-2xl font-bold">{project?.topic ?? "Project"}</h1>
+          <p className="text-sm text-gray-500">Project ID: {projectId}</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Created: {formatDate(project?.created_at)} · Updated: {formatDate(project?.updated_at)}
+          </p>
         </div>
-        <StatusBadge status={project.status} />
-      </div>
 
-      {/* Progress */}
-      <div className="rounded-xl border p-4 space-y-3">
-        <div className="font-semibold">Progress</div>
-        {project.status === "error" ? (
-          <div className="text-sm">
-            <div className="font-medium">Render failed</div>
-            <div className="opacity-80">{project.error_message || "Unknown error"}</div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-4">
-            {steps.map((s, idx) => (
-              <div key={s.key} className="flex items-center gap-2">
-                <StepDot active={idx <= currentStepIndex && currentStepIndex >= 0} />
-                <span className="text-sm">{s.label}</span>
-                {idx < steps.length - 1 && <span className="opacity-40">—</span>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Settings snapshot */}
-      <div className="rounded-xl border p-4 space-y-2">
-        <div className="font-semibold">Settings</div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><span className="opacity-70">Style:</span> {project.style || "-"}</div>
-          <div><span className="opacity-70">Voice:</span> {project.voice || "-"}</div>
-          <div><span className="opacity-70">Length:</span> {project.length || "-"}</div>
-          <div><span className="opacity-70">Resolution:</span> {project.resolution || "-"}</div>
-          <div><span className="opacity-70">Language:</span> {project.language || "-"}</div>
-          <div><span className="opacity-70">Tone:</span> {project.tone || "-"}</div>
-          <div><span className="opacity-70">Music:</span> {project.music || "-"}</div>
+        <div className="text-sm border rounded-full px-3 py-1">
+          {statusLabel(project?.status)}
         </div>
       </div>
 
-      {/* Script */}
-      <div className="rounded-xl border p-4 space-y-2">
-        <div className="font-semibold">Script</div>
-        {project.script ? (
-          <pre className="whitespace-pre-wrap text-sm leading-6 opacity-90">
-            {project.script}
-          </pre>
-        ) : (
-          <div className="text-sm opacity-70">
-            Script will appear here once generated.
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="border rounded-lg p-4 text-sm text-gray-600">Loading…</div>
+      ) : null}
 
-      {/* Video preview */}
-      <div className="rounded-xl border p-4 space-y-2">
-        <div className="font-semibold">Video</div>
-        {project.video_url ? (
-          <div className="space-y-3">
-            <video
-              className="w-full rounded-lg border"
-              controls
-              src={project.video_url}
-            />
-            <a className="underline text-sm" href={project.video_url} target="_blank">
-              Open video in new tab
-            </a>
-          </div>
-        ) : (
-          <div className="text-sm opacity-70">
-            Video will appear here when render is complete.
-          </div>
-        )}
-      </div>
+      {uiError ? (
+        <div className="border rounded-lg p-4 text-sm text-red-600 mb-4">
+          {uiError}
+        </div>
+      ) : null}
 
-      <div className="flex gap-3">
-        <button
-          className="rounded-lg border px-4 py-2"
-          onClick={() => router.push("/dashboard")}
-        >
-          Back
-        </button>
+      {project?.error_message ? (
+        <div className="border rounded-lg p-4 text-sm text-red-600 mb-4">
+          <div className="font-semibold mb-1">Render failed</div>
+          <div>{project.error_message}</div>
+        </div>
+      ) : null}
 
-        {/* D21+ will wire these up */}
+      <div className="space-y-4">
+        <ProgressDots status={project?.status} />
+
+        <div className="border rounded-lg p-4">
+          <h3 className="font-semibold mb-2">Settings</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-gray-500">Style</div>
+              <div className="font-medium">{project?.style ?? "-"}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Voice</div>
+              <div className="font-medium">{project?.voice ?? "-"}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Length</div>
+              <div className="font-medium">{project?.length ?? "-"}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Resolution</div>
+              <div className="font-medium">{project?.resolution ?? "-"}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Language</div>
+              <div className="font-medium">{project?.language ?? "-"}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Tone</div>
+              <div className="font-medium">{project?.tone ?? "-"}</div>
+            </div>
+            <div className="col-span-2">
+              <div className="text-gray-500">Music</div>
+              <div className="font-medium">{project?.music ?? "-"}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ✅ Script section */}
+        <div className="border rounded-lg p-4">
+          <h3 className="font-semibold mb-2">Script</h3>
+          {project?.script ? (
+            <pre className="text-sm whitespace-pre-wrap bg-gray-50 border rounded-md p-3 overflow-auto">
+              {project.script}
+            </pre>
+          ) : (
+            <p className="text-sm text-gray-500">
+              {isRendering ? "Script will appear here once generated." : "No script yet."}
+            </p>
+          )}
+        </div>
+
+        {/* ✅ Video section (D22-B) */}
+        <div className="border rounded-lg p-4">
+          <h3 className="font-semibold mb-2">Video</h3>
+
+          {!videoUrl ? (
+            <p className="text-sm text-gray-500">
+              {isRendering
+                ? "Video will appear here when render is complete."
+                : "No video URL yet."}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <a
+                  className="border rounded-md px-3 py-2 text-sm"
+                  href={videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open
+                </a>
+
+                <a className="border rounded-md px-3 py-2 text-sm" href={videoUrl} download>
+                  Download
+                </a>
+
                 <button
-          className="rounded-lg border px-4 py-2"
-          onClick={handleRetryRender}
-          disabled={retrying || !project?.id}
-          title={
-            project?.status === "error"
-              ? "Retry the render"
-              : "You can retry anytime"
-          }
-        >
-          {retrying ? "Retrying…" : "Retry Render"}
-        </button>
+                  className="border rounded-md px-3 py-2 text-sm"
+                  onClick={() => copyToClipboard(videoUrl)}
+                  type="button"
+                >
+                  {copied ? "Copied ✅" : "Copy URL"}
+                </button>
+              </div>
 
-          {retryError && (
-          <div className="text-sm text-red-600 self-center">
-            {retryError}
-          </div>
-        )}
+              {/* Video player */}
+              <div className="border rounded-lg overflow-hidden bg-black">
+                <video
+                  key={videoUrl} // forces refresh if url changes
+                  controls
+                  preload="metadata"
+                  className="w-full h-auto"
+                  src={videoUrl}
+                />
+              </div>
 
+              {!isDone ? (
+                <p className="text-xs text-gray-500">
+                  Note: video_url exists, but status is <b>{project?.status}</b>. If you want,
+                  click Refresh to re-check the row.
+                </p>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3">
+          <button className="border rounded-md px-4 py-2" onClick={() => router.back()}>
+            Back
+          </button>
+
+          <button
+            className="border rounded-md px-4 py-2"
+            onClick={retryRender}
+            disabled={busy}
+            title="Retry render via Supabase Edge Function"
+          >
+            {busy ? "Retrying..." : "Retry Render"}
+          </button>
+
+          <button className="border rounded-md px-4 py-2" onClick={fetchProject} disabled={busy}>
+            Refresh
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,19 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import { supabase } from "@/lib/supabaseClient";
-import { useUserPreferences } from "@/context/UserPreferencesContext";
 
-import StylePreview from "@/components/create/StylePreview";
-import TemplatePresets from "@/components/create/TemplatePresets";
-import VideoPreviewMock from "@/components/create/VideoPreviewMock";
-import QualityEstimate from "@/components/create/QualityEstimate";
-import FinalSummary from "@/components/create/FinalSummary";
-
-type FormState = {
+type CreatePayload = {
   topic: string;
   style: string;
   voice: string;
@@ -24,91 +15,52 @@ type FormState = {
   music: string;
 };
 
-const voiceSamples: Record<string, string> = {
-  "AI Voice": "https://www2.cs.uic.edu/~i101/SoundFiles/StarWars60.wav",
-  Narrator: "https://www2.cs.uic.edu/~i101/SoundFiles/ImperialMarch60.wav",
-  "Female Soft": "https://www2.cs.uic.edu/~i101/SoundFiles/Front_Center.wav",
-  "Male Deep": "https://www2.cs.uic.edu/~i101/SoundFiles/PinkPanther60.wav",
-};
-
 export default function CreateProjectPage() {
   const router = useRouter();
-  const { prefs, loading } = useUserPreferences();
 
-  const [submitting, setSubmitting] = useState(false);
+  // Form fields
+  const [topic, setTopic] = useState("3 tips to focus better");
+  const [style, setStyle] = useState("modern");
+  const [voice, setVoice] = useState("AI Voice");
+  const [length, setLength] = useState("30 seconds");
+  const [resolution, setResolution] = useState("720p");
+  const [language, setLanguage] = useState("English");
+  const [tone, setTone] = useState("friendly");
+  const [music, setMusic] = useState("ambient");
 
-  const [form, setForm] = useState<FormState>({
-    topic: "",
-    style: "modern",
-    voice: "AI Voice",
-    length: "60 seconds",
-    resolution: "1080p",
-    language: "English",
-    tone: "friendly",
-    music: "ambient",
-  });
+  // UI state
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Voice preview
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const payload: CreatePayload = useMemo(
+    () => ({
+      topic,
+      style,
+      voice,
+      length,
+      resolution,
+      language,
+      tone,
+      music,
+    }),
+    [topic, style, voice, length, resolution, language, tone, music]
+  );
 
-  // Apply saved user preferences once loaded
-  useEffect(() => {
-    if (!loading && prefs) {
-      setForm((prev) => ({
-        ...prev,
-        style: prefs.default_style ?? prev.style,
-        voice: prefs.default_voice ?? prev.voice,
-        length: prefs.default_video_length ?? prev.length,
-        resolution: prefs.default_resolution ?? prev.resolution,
-        language: prefs.default_language ?? prev.language,
-        tone: prefs.default_tone ?? prev.tone,
-        music: prefs.default_music ?? prev.music,
-      }));
-    }
-  }, [loading, prefs]);
-
-  // Template apply function
-  const applyTemplate = (tpl: any) => {
-    setForm((prev) => ({
-      ...prev,
-      topic: "",
-      style: tpl.style,
-      voice: tpl.voice,
-      length: tpl.length,
-      resolution: tpl.resolution,
-      language: tpl.language,
-      tone: tpl.tone,
-      music: tpl.music,
-    }));
-  };
-
-  // Create project row via API (Bearer token), then redirect
-  const handleSubmit = async () => {
-    if (submitting) return;
-
-    if (!form.topic.trim()) {
-      alert("Please enter a topic before generating.");
-      return;
-    }
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
 
     try {
-      setSubmitting(true);
+      // Get access token for authenticated requests
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
 
-       // Must be logged in (client-side auth)
-    const { data, error: sessionErr } = await supabase.auth.getSession();
-    if (sessionErr) throw sessionErr;
-
-    const token = data.session?.access_token;
-
-    console.log(
-    "ACCESS TOKEN:",
-    token ? token.slice(0, 40) + "..." : "❌ NO TOKEN"
-    );
-
-    if (!token) {
-    throw new Error("Auth session missing. Please log in again.");
-    }
+      if (!token) {
+        setError("You are not logged in. Please log in again.");
+        setBusy(false);
+        return;
+      }
 
       const res = await fetch("/api/projects/create", {
         method: "POST",
@@ -116,289 +68,197 @@ export default function CreateProjectPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
 
       if (!res.ok) {
-        throw new Error(json?.error || "Failed to create project");
+        setError(json?.error || "Failed to create project.");
+        setBusy(false);
+        return;
       }
 
+      // Redirect to project detail page
       router.push(`/dashboard/projects/${json.id}`);
     } catch (err: any) {
-      console.error("Create project error:", err);
-      alert(err?.message ?? "Failed to create project.");
+      setError(err?.message || "Something went wrong.");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
-  };
-
-  // Voice preview play
-  const handlePlayPreview = async () => {
-    const voiceKey = form.voice || prefs?.default_voice || "AI Voice";
-    const url = voiceSamples[voiceKey];
-
-    if (!url) {
-      alert("No sample audio set for this voice yet.");
-      return;
-    }
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    setIsPlaying(true);
-
-    audio.onended = () => setIsPlaying(false);
-    audio.onerror = () => setIsPlaying(false);
-
-    try {
-      await audio.play();
-    } catch (err) {
-      console.error("Error playing audio preview:", err);
-      setIsPlaying(false);
-    }
-  };
-
-  // Topic strength helper
-  const topicWords = form.topic.trim() ? form.topic.trim().split(/\s+/) : [];
-  const topicWordCount = topicWords.length;
-
-  let topicStrengthLabel = "Tip: aim for 8–16 words for best results.";
-  let topicStrengthClass = "text-gray-400";
-
-  if (topicWordCount > 0 && topicWordCount < 5) {
-    topicStrengthLabel = "A bit short — add a few more details.";
-    topicStrengthClass = "text-amber-500";
-  } else if (topicWordCount >= 5 && topicWordCount <= 18) {
-    topicStrengthLabel = "Nice — this is a strong, focused topic.";
-    topicStrengthClass = "text-emerald-500";
-  } else if (topicWordCount > 18) {
-    topicStrengthLabel = "Quite long — consider trimming for clarity.";
-    topicStrengthClass = "text-rose-500";
-  }
-
-  if (loading) {
-    return <p className="text-center mt-20 text-gray-500">Loading project creator…</p>;
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="max-w-5xl mx-auto px-4 py-10"
-    >
-      <h1 className="text-2xl font-bold mb-2">Create New Video</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Your default settings from <span className="font-semibold">Settings</span> are pre-applied.
-      </p>
+    <div className="max-w-3xl mx-auto p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Create Project</h1>
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="border rounded px-3 py-2"
+          type="button"
+        >
+          Back
+        </button>
+      </div>
 
-      <TemplatePresets onSelectTemplate={applyTemplate} />
+      {error && (
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">
+          {error}
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mt-6">
-        {/* LEFT */}
-        <div>
-          {/* Topic */}
-          <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Topic</label>
-            <input
-              type="text"
-              placeholder='e.g. "The Future of AI in Education"'
-              className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.topic}
-              onChange={(e) => setForm({ ...form, topic: e.target.value })}
-            />
-            <div className="mt-1 flex items-center justify-between text-xs">
-              <span className="text-gray-400">
-                {topicWordCount} word{topicWordCount === 1 ? "" : "s"}
-              </span>
-              <span className={topicStrengthClass}>{topicStrengthLabel}</span>
-            </div>
-          </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <label className="font-medium">Topic</label>
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. 3 tips to focus better"
+            required
+          />
+        </div>
 
-          {/* Style */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Style</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="space-y-2">
+            <label className="font-medium">Style</label>
             <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.style}
-              onChange={(e) => setForm({ ...form, style: e.target.value })}
+              value={style}
+              onChange={(e) => setStyle(e.target.value)}
+              className="w-full border rounded px-3 py-2"
             >
-              <option value="modern">Modern</option>
-              <option value="cinematic">Cinematic</option>
-              <option value="documentary">Documentary</option>
-              <option value="tiktok">TikTok</option>
-              <option value="retro">Retro</option>
-            </select>
-
-            <div className="mt-3">
-              <StylePreview selected={form.style} />
-            </div>
-          </div>
-
-          {/* Voice */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-medium text-gray-700">Voice</label>
-
-              <motion.button
-                type="button"
-                onClick={handlePlayPreview}
-                whileTap={{ scale: 0.9 }}
-                animate={
-                  isPlaying
-                    ? {
-                        scale: [1, 1.1, 1],
-                        boxShadow: [
-                          "0 0 0 0 rgba(34,197,94,0.5)",
-                          "0 0 0 8px rgba(34,197,94,0)",
-                          "0 0 0 0 rgba(34,197,94,0.5)",
-                        ],
-                      }
-                    : { scale: 1, boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
-                }
-                transition={isPlaying ? { duration: 1, repeat: Infinity } : { duration: 0.2 }}
-                className="h-8 w-8 flex items-center justify-center rounded-full border border-green-500 text-green-600 bg-white"
-              >
-                {isPlaying ? (
-                  <div className="flex gap-0.5">
-                    <span className="block w-1 h-3 bg-green-600 rounded-sm" />
-                    <span className="block w-1 h-3 bg-green-600 rounded-sm" />
-                  </div>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </motion.button>
-            </div>
-
-            <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.voice}
-              onChange={(e) => setForm({ ...form, voice: e.target.value })}
-            >
-              <option>AI Voice</option>
-              <option>Narrator</option>
-              <option>Female Soft</option>
-              <option>Male Deep</option>
+              <option value="modern">modern</option>
+              <option value="cinematic">cinematic</option>
+              <option value="minimal">minimal</option>
+              <option value="energetic">energetic</option>
             </select>
           </div>
 
-          {/* Length */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Video Length</label>
+          <div className="space-y-2">
+            <label className="font-medium">Voice</label>
             <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.length}
-              onChange={(e) => setForm({ ...form, length: e.target.value })}
+              value={voice}
+              onChange={(e) => setVoice(e.target.value)}
+              className="w-full border rounded px-3 py-2"
             >
-              <option>30 seconds</option>
-              <option>60 seconds</option>
-              <option>90 seconds</option>
-              <option>2 minutes</option>
-              <option>5 minutes</option>
-              <option>10 minutes</option>
-              <option>15 minutes</option>
-              <option>20 minutes</option>
-              <option>30 minutes</option>
+              <option value="AI Voice">AI Voice</option>
+              <option value="Narrator">Narrator</option>
+              <option value="Friendly">Friendly</option>
+              <option value="Serious">Serious</option>
             </select>
           </div>
 
-          {/* Resolution */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Resolution</label>
+          <div className="space-y-2">
+            <label className="font-medium">Video Length</label>
             <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.resolution}
-              onChange={(e) => setForm({ ...form, resolution: e.target.value })}
+              value={length}
+              onChange={(e) => setLength(e.target.value)}
+              className="w-full border rounded px-3 py-2"
             >
-              <option>720p</option>
-              <option>1080p</option>
-              <option>4K</option>
+              <option value="30 seconds">30 seconds</option>
+              <option value="60 seconds">60 seconds</option>
+              <option value="90 seconds">90 seconds</option>
+              <option value="2 minutes">2 minutes</option>
             </select>
           </div>
 
-          {/* Language */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
+          <div className="space-y-2">
+            <label className="font-medium">Resolution</label>
             <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.language}
-              onChange={(e) => setForm({ ...form, language: e.target.value })}
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value)}
+              className="w-full border rounded px-3 py-2"
             >
-              <option>English</option>
-              <option>Vietnamese</option>
-              <option>Spanish</option>
-              <option>Chinese</option>
-              <option>Korean</option>
+              <option value="720p">720p</option>
+              <option value="1080p">1080p</option>
             </select>
           </div>
 
-          {/* Tone */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tone</label>
+          <div className="space-y-2">
+            <label className="font-medium">Language</label>
             <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.tone}
-              onChange={(e) => setForm({ ...form, tone: e.target.value })}
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="w-full border rounded px-3 py-2"
             >
-              <option>friendly</option>
-              <option>professional</option>
-              <option>motivational</option>
-              <option>serious</option>
-              <option>fun</option>
+              <option value="English">English</option>
+              <option value="Vietnamese">Vietnamese</option>
+              <option value="Spanish">Spanish</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-medium">Tone</label>
+            <select
+              value={tone}
+              onChange={(e) => setTone(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="friendly">friendly</option>
+              <option value="professional">professional</option>
+              <option value="excited">excited</option>
+              <option value="calm">calm</option>
+            </select>
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="font-medium">Music</label>
+            <select
+              value={music}
+              onChange={(e) => setMusic(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="ambient">ambient</option>
+              <option value="uplifting">uplifting</option>
+              <option value="dramatic">dramatic</option>
+              <option value="none">none</option>
             </select>
           </div>
         </div>
 
-        {/* RIGHT */}
-        <div className="space-y-6">
-          <VideoPreviewMock
-            style={form.style}
-            resolution={form.resolution}
-            voice={form.voice}
-            tone={form.tone}
-            music={form.music}
-            length={form.length}
-          />
+        <div className="pt-2 flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={busy}
+            className="bg-black text-white rounded px-4 py-2 disabled:opacity-60"
+          >
+            {busy ? "Creating..." : "Create Project"}
+          </button>
 
-          <QualityEstimate style={form.style} resolution={form.resolution} length={form.length} />
+          <button
+            type="button"
+            onClick={() => {
+              setTopic("3 tips to focus better");
+              setStyle("modern");
+              setVoice("AI Voice");
+              setLength("30 seconds");
+              setResolution("720p");
+              setLanguage("English");
+              setTone("friendly");
+              setMusic("ambient");
+              setError(null);
+            }}
+            className="border rounded px-4 py-2"
+            disabled={busy}
+          >
+            Reset
+          </button>
+        </div>
+      </form>
 
-          <FinalSummary
-            topic={form.topic}
-            style={form.style}
-            voice={form.voice}
-            length={form.length}
-            resolution={form.resolution}
-            language={form.language}
-            tone={form.tone}
-            music={form.music}
-            onGenerate={handleSubmit}
-          />
-
-          {/* Music */}
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Music Style</label>
-            <select
-              className="border rounded-lg px-3 py-2 w-full bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={form.music}
-              onChange={(e) => setForm({ ...form, music: e.target.value })}
-            >
-              <option>ambient</option>
-              <option>cinematic</option>
-              <option>upbeat</option>
-              <option>emotional</option>
-              <option>minimal</option>
-            </select>
-          </div>
+      <div className="mt-8 rounded border p-4 bg-gray-50">
+        <h2 className="font-semibold mb-2">Final Project Summary</h2>
+        <div className="text-sm space-y-1">
+          <div><b>Topic:</b> {topic}</div>
+          <div><b>Style:</b> {style}</div>
+          <div><b>Voice:</b> {voice}</div>
+          <div><b>Video Length:</b> {length}</div>
+          <div><b>Resolution:</b> {resolution}</div>
+          <div><b>Language:</b> {language}</div>
+          <div><b>Tone:</b> {tone}</div>
+          <div><b>Music:</b> {music}</div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

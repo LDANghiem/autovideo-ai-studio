@@ -29,16 +29,19 @@ type Project = {
 function statusLabel(status?: string | null) {
   if (!status) return "Unknown";
   if (status === "queued") return "Queued";
-  if (status === "processing") return "Rendering";
+  if (status === "processing" || status === "rendering") return "Rendering"; // ✅ tolerate old value
   if (status === "done") return "Done";
   if (status === "error") return "Error";
   return status;
 }
 
+
 function ProgressDots({ status }: { status?: string | null }) {
   const s = status ?? "unknown";
-  const queuedOn = s === "queued" || s === "processing" || s === "done";
-  const renderingOn = s === "processing" || s === "done";
+  const isProcessing = s === "processing" || s === "rendering"; // ✅ tolerate old value
+
+  const queuedOn = s === "queued" || isProcessing || s === "done";
+  const renderingOn = isProcessing || s === "done";
   const doneOn = s === "done";
 
   return (
@@ -64,18 +67,57 @@ function ProgressDots({ status }: { status?: string | null }) {
   );
 }
 
-function formatDate(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+
+async function postStartRender(projectId: string) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
+  if (!token) throw new Error("Not logged in");
+
+  const payload = { project_id: projectId };
+
+  const urls = ["/api/projects/start-render", "/api/start-render"];
+
+  let lastErr = "Failed to start render";
+
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 404) {
+      lastErr = `Route not found: ${url}`;
+      continue;
+    }
+
+    const json = await res.json().catch(() => ({}));
+
+    // ✅ Special-case: 409 means "already queued/rendering" (A2)
+    if (res.status === 409) {
+      throw new Error(json?.error || "Render already in progress");
+    }
+
+    if (!res.ok) {
+      throw new Error(json?.error || `Start render failed (${res.status})`);
+    }
+
+    return json;
+  }
+
+  throw new Error(lastErr);
 }
 
 export default function ProjectDetailPage() {
   const router = useRouter();
   const params = useParams();
 
-  // ✅ Works for either folder name: [id] or [projectId]
   const projectId = useMemo(() => {
     const raw = (params as any)?.id ?? (params as any)?.projectId;
     return Array.isArray(raw) ? raw[0] : raw;
@@ -85,7 +127,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [uiError, setUiError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function fetchProject() {
     if (!projectId) return;
@@ -123,25 +165,70 @@ export default function ProjectDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Auto-refresh while queued/processing
+  // ✅ B) Auto-refresh while queued/processing/rendering
   useEffect(() => {
-    const s = project?.status;
-    if (!s) return;
-    if (s !== "queued" && s !== "processing") return;
+    if (!projectId) return;
 
-    const t = setInterval(() => {
-      fetchProject();
+    const s = project?.status ?? null;
+    const running = s === "queued" || s === "processing" || s === "rendering";
+    if (!running) return;
+
+    let mounted = true;
+
+    const t = setInterval(async () => {
+      try {
+        if (!mounted) return;
+        await fetchProject();
+      } catch {
+        // ignore polling errors
+      }
     }, 2500);
 
-    return () => clearInterval(t);
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.status, projectId]);
+
+  async function generateVideo() {
+    if (!projectId) return;
+
+    setBusy(true);
+    setUiError(null);
+    setToast(null);
+
+    try {
+      const json = await postStartRender(projectId);
+
+      if (json?.scriptGenerated) {
+        setToast("Script generated ✅ Starting render…");
+      } else {
+        setToast("Starting render…");
+      }
+
+      await fetchProject();
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+
+      // ✅ A2: if render is already in progress, show toast instead of scary red error
+      if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("in progress")) {
+        setToast("Already rendering… ✅");
+        await fetchProject();
+      } else {
+        setUiError(msg);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function retryRender() {
     if (!projectId) return;
 
     setBusy(true);
     setUiError(null);
+    setToast(null);
 
     try {
       const { data, error } = await supabase.functions.invoke("retry-render", {
@@ -153,6 +240,7 @@ export default function ProjectDetailPage() {
       } else if ((data as any)?.error) {
         setUiError((data as any).error);
       } else {
+        setToast("Retry queued ✅");
         await fetchProject();
       }
     } catch (e: any) {
@@ -162,19 +250,11 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function copyToClipboard(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      setUiError("Could not copy to clipboard (browser blocked).");
-    }
+  function copy(text: string) {
+    navigator.clipboard.writeText(text);
+    setToast("Copied ✅");
+    setTimeout(() => setToast(null), 1500);
   }
-
-  const videoUrl = project?.video_url ?? null;
-  const isDone = project?.status === "done";
-  const isRendering = project?.status === "queued" || project?.status === "processing";
 
   if (!projectId) {
     return (
@@ -187,15 +267,20 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const isDone = project?.status === "done";
+  const hasVideo = Boolean(project?.video_url);
+  const hasScript = Boolean(project?.script && project.script.trim().length > 0);
+
+  // ✅ A2: disable Generate while render is running
+  const isRunning =
+    project?.status === "queued" || project?.status === "processing" || project?.status === "rendering";
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold">{project?.topic ?? "Project"}</h1>
           <p className="text-sm text-gray-500">Project ID: {projectId}</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Created: {formatDate(project?.created_at)} · Updated: {formatDate(project?.updated_at)}
-          </p>
         </div>
 
         <div className="text-sm border rounded-full px-3 py-1">
@@ -207,10 +292,12 @@ export default function ProjectDetailPage() {
         <div className="border rounded-lg p-4 text-sm text-gray-600">Loading…</div>
       ) : null}
 
+      {toast ? (
+        <div className="border rounded-lg p-3 text-sm mb-4">{toast}</div>
+      ) : null}
+
       {uiError ? (
-        <div className="border rounded-lg p-4 text-sm text-red-600 mb-4">
-          {uiError}
-        </div>
+        <div className="border rounded-lg p-4 text-sm text-red-600 mb-4">{uiError}</div>
       ) : null}
 
       {project?.error_message ? (
@@ -257,79 +344,72 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        {/* ✅ Script section */}
+        {/* Script */}
         <div className="border rounded-lg p-4">
           <h3 className="font-semibold mb-2">Script</h3>
-          {project?.script ? (
-            <pre className="text-sm whitespace-pre-wrap bg-gray-50 border rounded-md p-3 overflow-auto">
-              {project.script}
-            </pre>
+          {hasScript ? (
+            <div className="text-sm whitespace-pre-wrap leading-relaxed">{project?.script}</div>
           ) : (
-            <p className="text-sm text-gray-500">
-              {isRendering ? "Script will appear here once generated." : "No script yet."}
-            </p>
+            <div className="text-sm text-gray-500">No script yet. Click “Generate Video”.</div>
           )}
         </div>
 
-        {/* ✅ Video section (D22-B) */}
+        {/* Video */}
         <div className="border rounded-lg p-4">
-          <h3 className="font-semibold mb-2">Video</h3>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="font-semibold">Video</h3>
 
-          {!videoUrl ? (
-            <p className="text-sm text-gray-500">
-              {isRendering
-                ? "Video will appear here when render is complete."
-                : "No video URL yet."}
-            </p>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <a
-                  className="border rounded-md px-3 py-2 text-sm"
-                  href={videoUrl}
-                  target="_blank"
-                  rel="noreferrer"
+            {hasVideo ? (
+              <div className="flex gap-2">
+                <button
+                  className="border rounded-md px-3 py-1 text-sm"
+                  onClick={() => window.open(project!.video_url!, "_blank")}
                 >
                   Open
-                </a>
+                </button>
 
-                <a className="border rounded-md px-3 py-2 text-sm" href={videoUrl} download>
+                <a className="border rounded-md px-3 py-1 text-sm" href={project!.video_url!} download>
                   Download
                 </a>
 
                 <button
-                  className="border rounded-md px-3 py-2 text-sm"
-                  onClick={() => copyToClipboard(videoUrl)}
-                  type="button"
+                  className="border rounded-md px-3 py-1 text-sm"
+                  onClick={() => copy(project!.video_url!)}
                 >
-                  {copied ? "Copied ✅" : "Copy URL"}
+                  Copy URL
                 </button>
               </div>
+            ) : null}
+          </div>
 
-              {/* Video player */}
-              <div className="border rounded-lg overflow-hidden bg-black">
-                <video
-                  key={videoUrl} // forces refresh if url changes
-                  controls
-                  preload="metadata"
-                  className="w-full h-auto"
-                  src={videoUrl}
-                />
-              </div>
-
-              {!isDone ? (
-                <p className="text-xs text-gray-500">
-                  Note: video_url exists, but status is <b>{project?.status}</b>. If you want,
-                  click Refresh to re-check the row.
-                </p>
-              ) : null}
+          {isDone && hasVideo ? (
+            <video src={project!.video_url!} controls className="w-full rounded-md border" />
+          ) : (
+            <div className="text-sm text-gray-500">
+              {isRunning
+                ? "Rendering… the video will appear here when complete."
+                : "No video yet. Click “Generate Video”."
+              }
             </div>
           )}
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <button className="border rounded-md px-4 py-2" onClick={() => router.back()}>
             Back
+          </button>
+
+          <button
+            className="border rounded-md px-4 py-2 font-medium"
+            onClick={generateVideo}
+            disabled={busy || isRunning}
+            title={
+              isRunning
+                ? "Render already in progress"
+                : "Generate script (if missing) and trigger render"
+            }
+          >
+            {isRunning ? "Rendering..." : busy ? "Working..." : "Generate Video"}
           </button>
 
           <button

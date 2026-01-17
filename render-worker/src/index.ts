@@ -82,16 +82,28 @@ app.post("/render", async (req, res) => {
     setImmediate(async () => {
       try {
         console.log("[render-worker] job start:", project_id);
-        await setStatus(project_id, "processing", { error_message: null });
+        await setStatus(project_id, "processing", {
+         render_started_at: nowIso(),
+         error_message: null,
+     });
+
 
         await renderWithRemotionAndUpload({
-          projectId: project_id,
-          supabase,
-          bucket: STORAGE_BUCKET,
-          compositionId: REMOTION_COMP_ID,
-        });
-       
+         projectId: project_id,
+         supabase,
+         bucket: STORAGE_BUCKET,
+         compositionId: REMOTION_COMP_ID,
+});
+
+   // ✅ Mark done (important)
+        await setStatus(project_id, "done", {
+        render_completed_at: nowIso(),
+        error_message: null,
+     });
+
         console.log("[render-worker] job done:", project_id);
+
+
       } catch (e: any) {
         const message = e?.message || String(e);
         await setStatus(project_id, "error", { error_message: message });

@@ -1,0 +1,21 @@
+# render.yaml — add this service to your Render dashboard
+# Or use the Render dashboard to create a new Web Service
+
+services:
+  - type: web
+    name: autovideo-worker
+    runtime: python
+    region: oregon
+    plan: starter  # $7/mo — needed for yt-dlp + ffmpeg
+    buildCommand: |
+      pip install -r requirements.txt
+      apt-get update && apt-get install -y ffmpeg
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 600 --workers 2
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+    healthCheckPath: /health

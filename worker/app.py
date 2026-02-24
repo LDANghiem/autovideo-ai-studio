@@ -724,22 +724,21 @@ def cleanup(project_id: str):
 # ═══════════════════════════════════════════════════════════
 # MAIN PIPELINE: /shorts endpoint
 # ═══════════════════════════════════════════════════════════
-@app.route("/shorts", methods=["POST"])
-def shorts_pipeline():
-    """Full AI Shorts generation pipeline."""
-    data = request.get_json(force=True)
-    project_id = data.get("project_id")
-    source_url = data.get("source_url")
+import threading
 
-    if not project_id or not source_url:
-        return jsonify({"error": "project_id and source_url required"}), 400
+def run_pipeline(project_id, source_url):
+    """Run the full shorts pipeline in a background thread."""
+    print(f"[Pipeline] Starting for project {project_id}", file=sys.stderr, flush=True)
 
     # Fetch project for user_id and settings
     try:
         result = get_sb().table("shorts_projects").select("*").eq("id", project_id).single().execute()
         project = result.data
+        print(f"[Pipeline] Fetched project: status={project['status']}", file=sys.stderr, flush=True)
     except Exception as e:
-        return jsonify({"error": f"Project not found: {e}"}), 404
+        print(f"[Pipeline] ERROR fetching project: {e}", file=sys.stderr, flush=True)
+        update_progress(project_id, 0, "error", error=f"Project not found: {e}")
+        return
 
     user_id = project["user_id"]
     max_clips = project.get("max_clips", 5)
@@ -749,11 +748,12 @@ def shorts_pipeline():
     do_thumbnails = project.get("generate_thumbnails", True)
     source_title = project.get("source_title", "")
 
-    # Run pipeline (synchronous — Render handles the long-running process)
     try:
         # Step 1: Download
+        print(f"[Pipeline] Step 1: Downloading {source_url}", file=sys.stderr, flush=True)
         update_progress(project_id, 5, "downloading")
         dl = download_video(source_url, project_id)
+        print(f"[Pipeline] Step 1 done: duration={dl['duration']}s, {dl['width']}x{dl['height']}", file=sys.stderr, flush=True)
 
         # Update source duration
         get_sb().table("shorts_projects").update({
@@ -761,50 +761,85 @@ def shorts_pipeline():
         }).eq("id", project_id).execute()
 
         # Step 2: Transcribe
+        print(f"[Pipeline] Step 2: Transcribing...", file=sys.stderr, flush=True)
         update_progress(project_id, 20, "transcribing")
         transcript = transcribe_audio(dl["audio_path"])
+        print(f"[Pipeline] Step 2 done: {len(transcript['segments'])} segments", file=sys.stderr, flush=True)
 
         # Step 3: Detect viral moments
+        print(f"[Pipeline] Step 3: Analyzing for {max_clips} viral moments...", file=sys.stderr, flush=True)
         update_progress(project_id, 40, "analyzing")
         moments = detect_viral_moments(transcript, max_clips, clip_length, dl["duration"])
+        print(f"[Pipeline] Step 3 done: found {len(moments)} moments", file=sys.stderr, flush=True)
 
         # Step 4: Extract clips + crop 9:16
+        print(f"[Pipeline] Step 4: Extracting clips...", file=sys.stderr, flush=True)
         update_progress(project_id, 55, "clipping")
         clips = extract_clips(dl["video_path"], moments, crop_mode,
                               dl["width"], dl["height"], project_id)
+        print(f"[Pipeline] Step 4 done: {len(clips)} clips", file=sys.stderr, flush=True)
 
         # Step 5: Add captions
+        print(f"[Pipeline] Step 5: Adding captions ({caption_style})...", file=sys.stderr, flush=True)
         update_progress(project_id, 70, "captioning")
         clips = add_captions(clips, transcript, caption_style, project_id)
+        print(f"[Pipeline] Step 5 done", file=sys.stderr, flush=True)
 
         # Step 6: Generate thumbnails
         if do_thumbnails:
+            print(f"[Pipeline] Step 6: Generating thumbnails...", file=sys.stderr, flush=True)
             update_progress(project_id, 80, "thumbnails")
             clips = generate_thumbnails(clips, project_id)
+            print(f"[Pipeline] Step 6 done", file=sys.stderr, flush=True)
 
         # Step 7: Generate titles & descriptions
+        print(f"[Pipeline] Step 7: Generating titles...", file=sys.stderr, flush=True)
         update_progress(project_id, 85, "analyzing")
         clips = generate_titles_descriptions(clips, transcript, source_title)
+        print(f"[Pipeline] Step 7 done", file=sys.stderr, flush=True)
 
         # Step 8: Upload to Supabase Storage
+        print(f"[Pipeline] Step 8: Uploading clips...", file=sys.stderr, flush=True)
         update_progress(project_id, 90, "uploading")
         clips = upload_to_storage(clips, project_id, user_id)
+        print(f"[Pipeline] Step 8 done", file=sys.stderr, flush=True)
 
         # Step 9: Finalize
+        print(f"[Pipeline] Step 9: Finalizing...", file=sys.stderr, flush=True)
         update_progress(project_id, 98, "done")
         finalize(project_id, clips, transcript["full_text"])
+        print(f"[Pipeline] COMPLETE! {len(clips)} clips generated.", file=sys.stderr, flush=True)
 
         # Cleanup temp files
         cleanup(project_id)
 
-        return jsonify({"status": "done", "clips": len(clips)}), 200
-
     except Exception as e:
         error_msg = str(e)
-        traceback.print_exc()
+        print(f"[Pipeline] ERROR: {error_msg}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
         update_progress(project_id, 0, "error", error=error_msg)
         cleanup(project_id)
-        return jsonify({"error": error_msg}), 500
+
+
+@app.route("/shorts", methods=["POST"])
+def shorts_endpoint():
+    """Receive request and run pipeline in background thread."""
+    data = request.get_json(force=True)
+    project_id = data.get("project_id")
+    source_url = data.get("source_url")
+
+    print(f"[/shorts] Received: project_id={project_id}, source_url={source_url}", file=sys.stderr, flush=True)
+
+    if not project_id or not source_url:
+        return jsonify({"error": "project_id and source_url required"}), 400
+
+    # Run pipeline in background thread so we can return immediately
+    thread = threading.Thread(target=run_pipeline, args=(project_id, source_url))
+    thread.daemon = True
+    thread.start()
+
+    print(f"[/shorts] Pipeline thread started for {project_id}", file=sys.stderr, flush=True)
+    return jsonify({"message": "Pipeline started", "project_id": project_id}), 200
 
 
 # ═══════════════════════════════════════════════════════════

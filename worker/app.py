@@ -77,6 +77,23 @@ app = Flask(__name__)
 WORK_DIR = Path(tempfile.gettempdir()) / "shorts_worker"
 WORK_DIR.mkdir(exist_ok=True)
 
+# ── YouTube cookies (decode from base64 env var if set) ──
+import base64
+COOKIES_PATH = str(WORK_DIR / "cookies.txt")
+_yt_cookies_b64 = os.environ.get("YT_COOKIES_BASE64", "")
+if _yt_cookies_b64:
+    try:
+        cookie_bytes = base64.b64decode(_yt_cookies_b64)
+        with open(COOKIES_PATH, "wb") as f:
+            f.write(cookie_bytes)
+        print(f"[init] YouTube cookies loaded ({len(cookie_bytes)} bytes)", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[init] Failed to decode YT_COOKIES_BASE64: {e}", file=sys.stderr, flush=True)
+        COOKIES_PATH = None
+else:
+    COOKIES_PATH = None
+    print("[init] No YT_COOKIES_BASE64 set — downloads may be blocked", file=sys.stderr, flush=True)
+
 
 # ═══════════════════════════════════════════════════════════
 # HELPER: Update project progress in Supabase
@@ -125,9 +142,15 @@ def download_video(source_url: str, project_id: str) -> dict:
         source_url,
     ]
 
-    # Add cookies file if provided via env var
+    # Add cookies if available
+    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+        ytdlp_cmd.insert(1, "--cookies")
+        ytdlp_cmd.insert(2, COOKIES_PATH)
+        print(f"[Step 1] Using cookies file", file=sys.stderr, flush=True)
+
+    # Also check env var path
     cookies_file = os.environ.get("YT_COOKIES_FILE")
-    if cookies_file and os.path.exists(cookies_file):
+    if cookies_file and os.path.exists(cookies_file) and not COOKIES_PATH:
         ytdlp_cmd.insert(1, "--cookies")
         ytdlp_cmd.insert(2, cookies_file)
 

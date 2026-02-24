@@ -42,11 +42,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Supabase client ──────────────────────────────────────
-from supabase import create_client
+# ── Supabase client (lazy init) ──────────────────────────
+from supabase import create_client as _create_sb_client
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+_sb_client = None
+
+def get_sb():
+    """Lazy-init Supabase client on first use."""
+    global _sb_client
+    if _sb_client is None:
+        url = SUPABASE_URL
+        key = SUPABASE_KEY
+        if not url or not key:
+            raise RuntimeError(
+                f"Missing Supabase config. SUPABASE_URL={'set' if url else 'EMPTY'}, "
+                f"SUPABASE_SERVICE_KEY={'set' if key else 'EMPTY'}. "
+                f"Check Render env vars."
+            )
+        print(f"[init] Supabase URL: {url[:30]}...", file=sys.stderr)
+        print(f"[init] Supabase KEY: {key[:20]}... (len={len(key)})", file=sys.stderr)
+        _sb_client = _create_sb_client(url, key)
+    return _sb_client
 
 # ── OpenAI client ────────────────────────────────────────
 from openai import OpenAI
@@ -75,7 +93,7 @@ def update_progress(project_id: str, pct: int, stage: str, clips=None, error=Non
         data["status"] = "error"
         data["error_message"] = error
     try:
-        sb.table("shorts_projects").update(data).eq("id", project_id).execute()
+        get_sb().table("shorts_projects").update(data).eq("id", project_id).execute()
     except Exception as e:
         print(f"[update_progress] Error: {e}", file=sys.stderr)
 
@@ -631,7 +649,7 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
         video_key = f"{user_id}/{project_id}/{clip['id']}.mp4"
         try:
             with open(clip["path"], "rb") as f:
-                sb.storage.from_(bucket).upload(
+                get_sb().storage.from_(bucket).upload(
                     video_key, f.read(),
                     file_options={"content-type": "video/mp4"}
                 )
@@ -645,7 +663,7 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
             thumb_key = f"{user_id}/{project_id}/{clip['id']}_thumb.jpg"
             try:
                 with open(clip["thumb_path"], "rb") as f:
-                    sb.storage.from_(bucket).upload(
+                    get_sb().storage.from_(bucket).upload(
                         thumb_key, f.read(),
                         file_options={"content-type": "image/jpeg"}
                     )
@@ -682,7 +700,7 @@ def finalize(project_id: str, clips: list, transcript_text: str):
             "status": clip["status"],
         })
 
-    sb.table("shorts_projects").update({
+    get_sb().table("shorts_projects").update({
         "status": "done",
         "progress_pct": 100,
         "progress_stage": "done",
@@ -718,7 +736,7 @@ def shorts_pipeline():
 
     # Fetch project for user_id and settings
     try:
-        result = sb.table("shorts_projects").select("*").eq("id", project_id).single().execute()
+        result = get_sb().table("shorts_projects").select("*").eq("id", project_id).single().execute()
         project = result.data
     except Exception as e:
         return jsonify({"error": f"Project not found: {e}"}), 404
@@ -738,7 +756,7 @@ def shorts_pipeline():
         dl = download_video(source_url, project_id)
 
         # Update source duration
-        sb.table("shorts_projects").update({
+        get_sb().table("shorts_projects").update({
             "source_duration_sec": int(dl["duration"])
         }).eq("id", project_id).execute()
 
@@ -794,7 +812,14 @@ def shorts_pipeline():
 # ═══════════════════════════════════════════════════════════
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "service": "autovideo-worker"}), 200
+    return jsonify({
+        "status": "ok",
+        "service": "autovideo-worker",
+        "supabase_url_set": bool(SUPABASE_URL),
+        "supabase_key_set": bool(SUPABASE_KEY),
+        "supabase_key_len": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
+        "openai_key_set": bool(os.environ.get("OPENAI_API_KEY")),
+    }), 200
 
 
 @app.route("/", methods=["GET"])

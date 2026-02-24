@@ -103,7 +103,7 @@ def update_progress(project_id: str, pct: int, stage: str, clips=None, error=Non
 # ═══════════════════════════════════════════════════════════
 def download_video(source_url: str, project_id: str) -> dict:
     """Download video + audio. Returns paths dict."""
-    print(f"[Step 1] Downloading: {source_url}")
+    print(f"[Step 1] Downloading: {source_url}", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id
     out_dir.mkdir(exist_ok=True)
@@ -111,16 +111,43 @@ def download_video(source_url: str, project_id: str) -> dict:
     video_path = str(out_dir / "source.mp4")
     audio_path = str(out_dir / "audio.mp3")
 
-    # Download best quality video (max 1080p to save time)
-    subprocess.run([
+    # Build yt-dlp command with bot-detection workarounds
+    ytdlp_cmd = [
         "yt-dlp",
         "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
         "--merge-output-format", "mp4",
         "-o", video_path,
         "--no-playlist",
         "--no-warnings",
+        "--extractor-args", "youtube:player_client=mediaconnect",
+        "--no-check-certificates",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         source_url,
-    ], check=True, timeout=300)
+    ]
+
+    # Add cookies file if provided via env var
+    cookies_file = os.environ.get("YT_COOKIES_FILE")
+    if cookies_file and os.path.exists(cookies_file):
+        ytdlp_cmd.insert(1, "--cookies")
+        ytdlp_cmd.insert(2, cookies_file)
+
+    try:
+        subprocess.run(ytdlp_cmd, check=True, timeout=300)
+    except subprocess.CalledProcessError:
+        # Retry with different client
+        print("[Step 1] First attempt failed, retrying with web client...", file=sys.stderr, flush=True)
+        ytdlp_cmd_retry = [
+            "yt-dlp",
+            "-f", "best[height<=1080][ext=mp4]/best",
+            "-o", video_path,
+            "--no-playlist",
+            "--no-warnings",
+            "--extractor-args", "youtube:player_client=web",
+            "--no-check-certificates",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            source_url,
+        ]
+        subprocess.run(ytdlp_cmd_retry, check=True, timeout=300)
 
     # Extract audio for Whisper
     subprocess.run([

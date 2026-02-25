@@ -142,9 +142,13 @@ def download_video(source_url: str, project_id: str) -> dict:
         print(f"[Step 1] Debug failed: {e}", file=sys.stderr, flush=True)
 
     # Base command — --js-runtimes node is the KEY FIX for YouTube JS challenge
+    # -f forces h264+aac to AVOID expensive AV1/VP9 decoding (causes OOM on 512MB)
+    # Max 720p — plenty for 1080x1920 vertical Shorts after cropping
     base_cmd = [
         "yt-dlp",
         "--js-runtimes", "node",
+        "-f", "bv[vcodec^=avc1][height<=720]+ba[acodec^=mp4a]/bv[vcodec^=avc1][height<=720]+ba/bv*[height<=720]+ba/b",
+        "--merge-output-format", "mp4",
         "-o", raw_output,
         "--no-playlist",
         "--no-check-certificates",
@@ -195,13 +199,15 @@ def download_video(source_url: str, project_id: str) -> dict:
 
     print(f"[Step 1] Downloaded file: {downloaded_file}", file=sys.stderr, flush=True)
 
-    # Convert to mp4 if needed
+    # Convert to mp4 if needed (should rarely happen now with h264 format selection)
     if not downloaded_file.endswith(".mp4"):
         print(f"[Step 1] Converting {Path(downloaded_file).name} to mp4...", file=sys.stderr, flush=True)
         subprocess.run([
             "ffmpeg", "-i", downloaded_file,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-vf", "scale=-2:720",
             "-c:a", "aac", "-b:a", "128k",
+            "-threads", "1",
             "-movflags", "+faststart",
             "-y", video_path,
         ], check=True, timeout=600)

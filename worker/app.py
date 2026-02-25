@@ -35,6 +35,8 @@ import math
 import subprocess
 import tempfile
 import traceback
+import threading
+import base64
 from pathlib import Path
 
 from flask import Flask, request, jsonify
@@ -49,6 +51,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABAS
 
 _sb_client = None
 
+
 def get_sb():
     """Lazy-init Supabase client on first use."""
     global _sb_client
@@ -61,10 +64,11 @@ def get_sb():
                 f"SUPABASE_SERVICE_KEY={'set' if key else 'EMPTY'}. "
                 f"Check Render env vars."
             )
-        print(f"[init] Supabase URL: {url[:30]}...", file=sys.stderr)
-        print(f"[init] Supabase KEY: {key[:20]}... (len={len(key)})", file=sys.stderr)
+        print(f"[init] Supabase URL: {url[:30]}...", file=sys.stderr, flush=True)
+        print(f"[init] Supabase KEY: {key[:20]}... (len={len(key)})", file=sys.stderr, flush=True)
         _sb_client = _create_sb_client(url, key)
     return _sb_client
+
 
 # ── OpenAI client ────────────────────────────────────────
 from openai import OpenAI
@@ -78,7 +82,6 @@ WORK_DIR = Path(tempfile.gettempdir()) / "shorts_worker"
 WORK_DIR.mkdir(exist_ok=True)
 
 # ── YouTube cookies (decode from base64 env var if set) ──
-import base64
 COOKIES_PATH = str(WORK_DIR / "cookies.txt")
 _yt_cookies_b64 = os.environ.get("YT_COOKIES_BASE64", "")
 if _yt_cookies_b64:
@@ -112,7 +115,7 @@ def update_progress(project_id: str, pct: int, stage: str, clips=None, error=Non
     try:
         get_sb().table("shorts_projects").update(data).eq("id", project_id).execute()
     except Exception as e:
-        print(f"[update_progress] Error: {e}", file=sys.stderr)
+        print(f"[update_progress] Error: {e}", file=sys.stderr, flush=True)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -146,17 +149,11 @@ def download_video(source_url: str, project_id: str) -> dict:
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
         ytdlp_cmd.insert(1, "--cookies")
         ytdlp_cmd.insert(2, COOKIES_PATH)
-        print(f"[Step 1] Using cookies file", file=sys.stderr, flush=True)
-
-    # Also check env var path
-    cookies_file = os.environ.get("YT_COOKIES_FILE")
-    if cookies_file and os.path.exists(cookies_file) and not COOKIES_PATH:
-        ytdlp_cmd.insert(1, "--cookies")
-        ytdlp_cmd.insert(2, cookies_file)
+        print("[Step 1] Using cookies file", file=sys.stderr, flush=True)
 
     try:
         subprocess.run(ytdlp_cmd, check=True, timeout=300)
-   except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError:
         # Retry with web client — keep cookies!
         print("[Step 1] First attempt failed, retrying with web client...", file=sys.stderr, flush=True)
         ytdlp_cmd_retry = [
@@ -213,12 +210,11 @@ def download_video(source_url: str, project_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════
 def transcribe_audio(audio_path: str) -> dict:
     """Transcribe audio using Whisper API with timestamps."""
-    print(f"[Step 2] Transcribing: {audio_path}")
+    print(f"[Step 2] Transcribing: {audio_path}", file=sys.stderr, flush=True)
 
     # Check file size — Whisper API limit is 25MB
     file_size = os.path.getsize(audio_path)
     if file_size > 25 * 1024 * 1024:
-        # Split into chunks if too large
         return transcribe_large_audio(audio_path)
 
     with open(audio_path, "rb") as f:
@@ -248,12 +244,11 @@ def transcribe_audio(audio_path: str) -> dict:
 
 def transcribe_large_audio(audio_path: str) -> dict:
     """Split large audio files and transcribe in chunks."""
-    print("[Step 2] Audio too large, splitting into 10-min chunks...")
+    print("[Step 2] Audio too large, splitting into 10-min chunks...", file=sys.stderr, flush=True)
 
     chunk_dir = Path(audio_path).parent / "audio_chunks"
     chunk_dir.mkdir(exist_ok=True)
 
-    # Split into 10-minute chunks
     subprocess.run([
         "ffmpeg", "-i", audio_path,
         "-f", "segment", "-segment_time", "600",
@@ -284,7 +279,6 @@ def transcribe_large_audio(audio_path: str) -> dict:
 
         full_text_parts.append(response.text if hasattr(response, "text") else "")
 
-        # Get chunk duration for offset
         result = subprocess.run([
             "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
             "-of", "json", str(chunk_file),
@@ -303,14 +297,12 @@ def transcribe_large_audio(audio_path: str) -> dict:
 # ═══════════════════════════════════════════════════════════
 def detect_viral_moments(transcript: dict, max_clips: int, clip_length: str, video_duration: float) -> list:
     """Use GPT-4o to analyze transcript and find the most viral-worthy moments."""
-    print(f"[Step 3] Detecting {max_clips} viral moments (clip_length={clip_length})...")
+    print(f"[Step 3] Detecting {max_clips} viral moments (clip_length={clip_length})...", file=sys.stderr, flush=True)
 
-    # Build segment text with timestamps
     segment_text = ""
     for seg in transcript["segments"]:
         segment_text += f"[{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}\n"
 
-    # Clip length guidance
     length_guidance = {
         "15-30": "Each clip should be 15-30 seconds long.",
         "30-60": "Each clip should be 30-60 seconds long.",
@@ -360,7 +352,6 @@ RESPOND ONLY WITH VALID JSON (no markdown, no backticks):
 
     content = response.choices[0].message.content.strip()
 
-    # Clean up response (remove markdown fences if present)
     if content.startswith("```"):
         content = content.split("\n", 1)[1] if "\n" in content else content[3:]
     if content.endswith("```"):
@@ -369,7 +360,6 @@ RESPOND ONLY WITH VALID JSON (no markdown, no backticks):
 
     moments = json.loads(content)
 
-    # Validate and clamp timestamps
     validated = []
     for m in moments[:max_clips]:
         start = max(0, float(m.get("start_time", 0)))
@@ -385,7 +375,6 @@ RESPOND ONLY WITH VALID JSON (no markdown, no backticks):
             "reason": m.get("reason", "High engagement potential"),
         })
 
-    # Sort by hook_score descending
     validated.sort(key=lambda x: x["hook_score"], reverse=True)
 
     return validated
@@ -397,21 +386,17 @@ RESPOND ONLY WITH VALID JSON (no markdown, no backticks):
 def extract_clips(video_path: str, moments: list, crop_mode: str,
                   width: int, height: int, project_id: str) -> list:
     """Extract each clip and crop to 9:16 vertical format."""
-    print(f"[Step 4] Extracting {len(moments)} clips (crop_mode={crop_mode})...")
+    print(f"[Step 4] Extracting {len(moments)} clips (crop_mode={crop_mode})...", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id / "clips"
     out_dir.mkdir(exist_ok=True)
 
-    # Calculate 9:16 crop dimensions from source
-    # Target: 9:16 aspect ratio
     target_ratio = 9 / 16
 
     if width / height > target_ratio:
-        # Source is wider than 9:16 — crop width
         crop_h = height
         crop_w = int(height * target_ratio)
     else:
-        # Source is taller or equal — crop height
         crop_w = width
         crop_h = int(width / target_ratio)
 
@@ -423,21 +408,15 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
         start = moment["start_time"]
         duration = moment["duration"]
 
-        # Crop filter based on mode
         if crop_mode == "center":
-            # Fixed center crop
             crop_filter = f"crop={crop_w}:{crop_h}:(iw-{crop_w})/2:(ih-{crop_h})/2"
         elif crop_mode == "dynamic":
-            # Dynamic: start center, slight pan (simulated)
             crop_filter = f"crop={crop_w}:{crop_h}:(iw-{crop_w})/2:(ih-{crop_h})/2"
         else:
-            # face-track: center crop (real face tracking requires ML model)
-            # For now, center crop with slight upward bias (faces are usually in upper third)
-            y_offset = max(0, int((height - crop_h) * 0.35))  # Bias upward
+            y_offset = max(0, int((height - crop_h) * 0.35))
             x_offset = int((width - crop_w) / 2)
             crop_filter = f"crop={crop_w}:{crop_h}:{x_offset}:{y_offset}"
 
-        # Scale to 1080x1920 (standard vertical)
         scale_filter = "scale=1080:1920"
 
         try:
@@ -465,7 +444,7 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
                 "status": "done",
             })
         except Exception as e:
-            print(f"[Step 4] Error extracting clip {clip_id}: {e}", file=sys.stderr)
+            print(f"[Step 4] Error extracting clip {clip_id}: {e}", file=sys.stderr, flush=True)
             clips.append({
                 "id": clip_id,
                 "index": i + 1,
@@ -487,10 +466,10 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
 def add_captions(clips: list, transcript: dict, caption_style: str, project_id: str) -> list:
     """Add captions to each clip using FFmpeg drawtext or ASS subtitles."""
     if caption_style == "none":
-        print("[Step 5] Skipping captions (none selected)")
+        print("[Step 5] Skipping captions (none selected)", file=sys.stderr, flush=True)
         return clips
 
-    print(f"[Step 5] Adding {caption_style} captions to {len(clips)} clips...")
+    print(f"[Step 5] Adding {caption_style} captions to {len(clips)} clips...", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id / "captioned"
     out_dir.mkdir(exist_ok=True)
@@ -499,7 +478,6 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
         if clip["status"] != "done" or not clip.get("path"):
             continue
 
-        # Find transcript segments that overlap with this clip
         clip_start = clip["start_time"]
         clip_end = clip["end_time"]
         clip_segments = []
@@ -514,7 +492,6 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
         if not clip_segments:
             continue
 
-        # Create SRT file for this clip
         srt_path = str(out_dir / f"{clip['id']}.srt")
         with open(srt_path, "w", encoding="utf-8") as f:
             for j, seg in enumerate(clip_segments):
@@ -532,11 +509,9 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
                         f"{end_h:02d}:{end_m:02d}:{end_s:02d},{end_ms:03d}\n")
                 f.write(f"{seg['text']}\n\n")
 
-        # Caption style settings
         captioned_path = str(out_dir / f"{clip['id']}_captioned.mp4")
 
         if caption_style == "centered":
-            # Big centered text
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
                 "'Alignment=5,FontSize=28,FontName=Arial,Bold=1,"
@@ -544,7 +519,6 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
                 "Outline=3,Shadow=1,MarginV=200'"
             )
         elif caption_style == "karaoke":
-            # Bottom with highlight effect (simulated with bold style)
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
                 "'Alignment=2,FontSize=24,FontName=Arial,Bold=1,"
@@ -552,7 +526,6 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
                 "Outline=2,Shadow=1,MarginV=80'"
             )
         else:
-            # block — standard bottom subtitles
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
                 "'Alignment=2,FontSize=22,FontName=Arial,Bold=1,"
@@ -572,8 +545,7 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
 
             clip["path"] = captioned_path
         except Exception as e:
-            print(f"[Step 5] Caption error for {clip['id']}: {e}", file=sys.stderr)
-            # Keep uncaptioned version
+            print(f"[Step 5] Caption error for {clip['id']}: {e}", file=sys.stderr, flush=True)
 
     return clips
 
@@ -583,7 +555,7 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
 # ═══════════════════════════════════════════════════════════
 def generate_thumbnails(clips: list, project_id: str) -> list:
     """Extract a thumbnail frame from the most engaging moment of each clip."""
-    print(f"[Step 6] Generating thumbnails for {len(clips)} clips...")
+    print(f"[Step 6] Generating thumbnails for {len(clips)} clips...", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id / "thumbnails"
     out_dir.mkdir(exist_ok=True)
@@ -593,8 +565,6 @@ def generate_thumbnails(clips: list, project_id: str) -> list:
             continue
 
         thumb_path = str(out_dir / f"{clip['id']}_thumb.jpg")
-
-        # Extract frame from 2 seconds in (past the hook moment)
         seek_time = min(2.0, clip["duration"] / 3)
 
         try:
@@ -609,7 +579,7 @@ def generate_thumbnails(clips: list, project_id: str) -> list:
 
             clip["thumb_path"] = thumb_path
         except Exception as e:
-            print(f"[Step 6] Thumbnail error for {clip['id']}: {e}", file=sys.stderr)
+            print(f"[Step 6] Thumbnail error for {clip['id']}: {e}", file=sys.stderr, flush=True)
 
     return clips
 
@@ -619,12 +589,10 @@ def generate_thumbnails(clips: list, project_id: str) -> list:
 # ═══════════════════════════════════════════════════════════
 def generate_titles_descriptions(clips: list, transcript: dict, source_title: str) -> list:
     """Use GPT-4o to generate catchy titles and descriptions for each clip."""
-    print(f"[Step 7] Generating titles & descriptions for {len(clips)} clips...")
+    print(f"[Step 7] Generating titles & descriptions for {len(clips)} clips...", file=sys.stderr, flush=True)
 
-    # Collect clip context
     clip_contexts = []
     for clip in clips:
-        # Find transcript text for this clip
         clip_text = ""
         for seg in transcript["segments"]:
             if seg["end"] > clip["start_time"] and seg["start"] < clip["end_time"]:
@@ -673,7 +641,6 @@ RESPOND ONLY WITH VALID JSON (no markdown):
 
     titles_data = json.loads(content.strip())
 
-    # Merge titles into clips
     titles_map = {t["id"]: t for t in titles_data}
     for clip in clips:
         if clip["id"] in titles_map:
@@ -691,7 +658,7 @@ RESPOND ONLY WITH VALID JSON (no markdown):
 # ═══════════════════════════════════════════════════════════
 def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
     """Upload clip videos and thumbnails to Supabase Storage."""
-    print(f"[Step 8] Uploading {len(clips)} clips to Supabase Storage...")
+    print(f"[Step 8] Uploading {len(clips)} clips to Supabase Storage...", file=sys.stderr, flush=True)
 
     bucket = "shorts"
 
@@ -699,7 +666,6 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
         if clip["status"] != "done" or not clip.get("path"):
             continue
 
-        # Upload video
         video_key = f"{user_id}/{project_id}/{clip['id']}.mp4"
         try:
             with open(clip["path"], "rb") as f:
@@ -710,9 +676,8 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
 
             clip["video_url"] = f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{video_key}"
         except Exception as e:
-            print(f"[Step 8] Upload error for {clip['id']} video: {e}", file=sys.stderr)
+            print(f"[Step 8] Upload error for {clip['id']} video: {e}", file=sys.stderr, flush=True)
 
-        # Upload thumbnail
         if clip.get("thumb_path"):
             thumb_key = f"{user_id}/{project_id}/{clip['id']}_thumb.jpg"
             try:
@@ -724,7 +689,7 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
 
                 clip["thumbnail_url"] = f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{thumb_key}"
             except Exception as e:
-                print(f"[Step 8] Upload error for {clip['id']} thumb: {e}", file=sys.stderr)
+                print(f"[Step 8] Upload error for {clip['id']} thumb: {e}", file=sys.stderr, flush=True)
 
     return clips
 
@@ -734,9 +699,8 @@ def upload_to_storage(clips: list, project_id: str, user_id: str) -> list:
 # ═══════════════════════════════════════════════════════════
 def finalize(project_id: str, clips: list, transcript_text: str):
     """Write final clips JSONB and mark project as done."""
-    print(f"[Step 9] Finalizing project {project_id}")
+    print(f"[Step 9] Finalizing project {project_id}", file=sys.stderr, flush=True)
 
-    # Clean clips for storage (remove local paths)
     clean_clips = []
     for clip in clips:
         clean_clips.append({
@@ -759,7 +723,7 @@ def finalize(project_id: str, clips: list, transcript_text: str):
         "progress_pct": 100,
         "progress_stage": "done",
         "clips": clean_clips,
-        "transcript": transcript_text[:50000],  # Limit transcript storage
+        "transcript": transcript_text[:50000],
     }).eq("id", project_id).execute()
 
 
@@ -772,19 +736,16 @@ def cleanup(project_id: str):
     project_dir = WORK_DIR / project_id
     if project_dir.exists():
         shutil.rmtree(project_dir, ignore_errors=True)
-    print(f"[Cleanup] Removed temp files for {project_id}")
+    print(f"[Cleanup] Removed temp files for {project_id}", file=sys.stderr, flush=True)
 
 
 # ═══════════════════════════════════════════════════════════
 # MAIN PIPELINE: /shorts endpoint
 # ═══════════════════════════════════════════════════════════
-import threading
-
 def run_pipeline(project_id, source_url):
     """Run the full shorts pipeline in a background thread."""
     print(f"[Pipeline] Starting for project {project_id}", file=sys.stderr, flush=True)
 
-    # Fetch project for user_id and settings
     try:
         result = get_sb().table("shorts_projects").select("*").eq("id", project_id).single().execute()
         project = result.data
@@ -809,13 +770,12 @@ def run_pipeline(project_id, source_url):
         dl = download_video(source_url, project_id)
         print(f"[Pipeline] Step 1 done: duration={dl['duration']}s, {dl['width']}x{dl['height']}", file=sys.stderr, flush=True)
 
-        # Update source duration
         get_sb().table("shorts_projects").update({
             "source_duration_sec": int(dl["duration"])
         }).eq("id", project_id).execute()
 
         # Step 2: Transcribe
-        print(f"[Pipeline] Step 2: Transcribing...", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 2: Transcribing...", file=sys.stderr, flush=True)
         update_progress(project_id, 20, "transcribing")
         transcript = transcribe_audio(dl["audio_path"])
         print(f"[Pipeline] Step 2 done: {len(transcript['segments'])} segments", file=sys.stderr, flush=True)
@@ -827,7 +787,7 @@ def run_pipeline(project_id, source_url):
         print(f"[Pipeline] Step 3 done: found {len(moments)} moments", file=sys.stderr, flush=True)
 
         # Step 4: Extract clips + crop 9:16
-        print(f"[Pipeline] Step 4: Extracting clips...", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 4: Extracting clips...", file=sys.stderr, flush=True)
         update_progress(project_id, 55, "clipping")
         clips = extract_clips(dl["video_path"], moments, crop_mode,
                               dl["width"], dl["height"], project_id)
@@ -837,34 +797,33 @@ def run_pipeline(project_id, source_url):
         print(f"[Pipeline] Step 5: Adding captions ({caption_style})...", file=sys.stderr, flush=True)
         update_progress(project_id, 70, "captioning")
         clips = add_captions(clips, transcript, caption_style, project_id)
-        print(f"[Pipeline] Step 5 done", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 5 done", file=sys.stderr, flush=True)
 
         # Step 6: Generate thumbnails
         if do_thumbnails:
-            print(f"[Pipeline] Step 6: Generating thumbnails...", file=sys.stderr, flush=True)
+            print("[Pipeline] Step 6: Generating thumbnails...", file=sys.stderr, flush=True)
             update_progress(project_id, 80, "thumbnails")
             clips = generate_thumbnails(clips, project_id)
-            print(f"[Pipeline] Step 6 done", file=sys.stderr, flush=True)
+            print("[Pipeline] Step 6 done", file=sys.stderr, flush=True)
 
         # Step 7: Generate titles & descriptions
-        print(f"[Pipeline] Step 7: Generating titles...", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 7: Generating titles...", file=sys.stderr, flush=True)
         update_progress(project_id, 85, "analyzing")
         clips = generate_titles_descriptions(clips, transcript, source_title)
-        print(f"[Pipeline] Step 7 done", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 7 done", file=sys.stderr, flush=True)
 
         # Step 8: Upload to Supabase Storage
-        print(f"[Pipeline] Step 8: Uploading clips...", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 8: Uploading clips...", file=sys.stderr, flush=True)
         update_progress(project_id, 90, "uploading")
         clips = upload_to_storage(clips, project_id, user_id)
-        print(f"[Pipeline] Step 8 done", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 8 done", file=sys.stderr, flush=True)
 
         # Step 9: Finalize
-        print(f"[Pipeline] Step 9: Finalizing...", file=sys.stderr, flush=True)
+        print("[Pipeline] Step 9: Finalizing...", file=sys.stderr, flush=True)
         update_progress(project_id, 98, "done")
         finalize(project_id, clips, transcript["full_text"])
         print(f"[Pipeline] COMPLETE! {len(clips)} clips generated.", file=sys.stderr, flush=True)
 
-        # Cleanup temp files
         cleanup(project_id)
 
     except Exception as e:
@@ -887,7 +846,6 @@ def shorts_endpoint():
     if not project_id or not source_url:
         return jsonify({"error": "project_id and source_url required"}), 400
 
-    # Run pipeline in background thread so we can return immediately
     thread = threading.Thread(target=run_pipeline, args=(project_id, source_url))
     thread.daemon = True
     thread.start()
@@ -908,6 +866,7 @@ def health():
         "supabase_key_set": bool(SUPABASE_KEY),
         "supabase_key_len": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
         "openai_key_set": bool(os.environ.get("OPENAI_API_KEY")),
+        "cookies_loaded": COOKIES_PATH is not None and os.path.exists(COOKIES_PATH) if COOKIES_PATH else False,
     }), 200
 
 

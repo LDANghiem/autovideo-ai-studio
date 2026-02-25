@@ -10,7 +10,7 @@ Endpoints:
   GET  /health  — Health check
 
 Pipeline Steps:
-  1. Download YouTube video via yt-dlp
+  1. Download YouTube video via yt-dlp (with Node.js JS runtime)
   2. Extract audio + transcribe via OpenAI Whisper API
   3. GPT-4o analyzes transcript → finds viral moments + scores them
   4. FFmpeg extracts each clip + crops to 9:16 (face-track/center/dynamic)
@@ -119,10 +119,10 @@ def update_progress(project_id: str, pct: int, stage: str, clips=None, error=Non
 
 
 # ═══════════════════════════════════════════════════════════
-# STEP 1: Download YouTube video via yt-dlp
+# STEP 1: Download YouTube video via yt-dlp (with Node.js)
 # ═══════════════════════════════════════════════════════════
 def download_video(source_url: str, project_id: str) -> dict:
-    """Download video + audio using multiple strategies. Returns paths dict."""
+    """Download video + audio using yt-dlp with Node.js JS runtime. Returns paths dict."""
     print(f"[Step 1] Downloading: {source_url}", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id
@@ -130,87 +130,51 @@ def download_video(source_url: str, project_id: str) -> dict:
 
     video_path = str(out_dir / "source.mp4")
     audio_path = str(out_dir / "audio.mp3")
-
-    # Strategies: ios/tv_embedded/mweb return actual video streams
-    # web client only returns storyboards with cookies
-    strategies = [
-        {
-            "label": "iOS client + auto format",
-            "client": "ios",
-            "format": None,
-        },
-        {
-            "label": "TV embedded client + auto format",
-            "client": "tv_embedded",
-            "format": None,
-        },
-        {
-            "label": "mweb client + auto format",
-            "client": "mweb",
-            "format": None,
-        },
-        {
-            "label": "Default client (no override)",
-            "client": None,
-            "format": None,
-        },
-        {
-            "label": "Web client + auto format",
-            "client": "web",
-            "format": None,
-        },
-    ]
-
-    # Use a temp output path — yt-dlp may add its own extension
     raw_output = str(out_dir / "source.%(ext)s")
 
-    # Debug: print yt-dlp version and list available formats
+    # Debug: print yt-dlp and Node.js versions
     try:
         ver = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=10)
         print(f"[Step 1] yt-dlp version: {ver.stdout.strip()}", file=sys.stderr, flush=True)
-
-        list_cmd = ["yt-dlp", "--list-formats", "--no-warnings", "--no-check-certificates",
-                     "--extractor-args", "youtube:player_client=ios",
-                     "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                     source_url]
-        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
-            list_cmd.insert(1, "--cookies")
-            list_cmd.insert(2, COOKIES_PATH)
-        fmt_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=60)
-        print(f"[Step 1] Available formats (ios client):\n{fmt_result.stdout}", file=sys.stderr, flush=True)
-        if fmt_result.stderr:
-            print(f"[Step 1] Format listing stderr:\n{fmt_result.stderr}", file=sys.stderr, flush=True)
+        node_ver = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
+        print(f"[Step 1] Node.js version: {node_ver.stdout.strip()}", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"[Step 1] Debug failed: {e}", file=sys.stderr, flush=True)
+
+    # Base command — --js-runtimes node is the KEY FIX for YouTube JS challenge
+    base_cmd = [
+        "yt-dlp",
+        "--js-runtimes", "node",
+        "-o", raw_output,
+        "--no-playlist",
+        "--no-check-certificates",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    ]
+    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+        base_cmd.extend(["--cookies", COOKIES_PATH])
+
+    # Download strategies — Node.js runtime handles JS challenge, so fewer needed
+    strategies = [
+        {"label": "Default + Node.js runtime", "extra_args": []},
+        {"label": "TV embedded client + Node.js", "extra_args": ["--extractor-args", "youtube:player_client=tv_embedded"]},
+        {"label": "Web client + Node.js", "extra_args": ["--extractor-args", "youtube:player_client=web"]},
+    ]
 
     downloaded = False
     for i, strat in enumerate(strategies):
         print(f"[Step 1] Attempt {i+1}/{len(strategies)}: {strat['label']}", file=sys.stderr, flush=True)
-        cmd = [
-            "yt-dlp",
-            "-o", raw_output,
-            "--no-playlist",
-            "--no-warnings",
-            "--no-check-certificates",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        ]
-        # Add format selector only if specified
-        if strat["format"]:
-            cmd.extend(["-f", strat["format"]])
-        if strat["client"]:
-            cmd.extend(["--extractor-args", f"youtube:player_client={strat['client']}"])
-        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
-            cmd.insert(1, "--cookies")
-            cmd.insert(2, COOKIES_PATH)
-        cmd.append(source_url)
+        cmd = base_cmd + strat["extra_args"] + [source_url]
 
         try:
-            subprocess.run(cmd, check=True, timeout=600)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+            if result.stderr:
+                print(f"[Step 1] stderr: {result.stderr[:500]}", file=sys.stderr, flush=True)
             downloaded = True
             print(f"[Step 1] SUCCESS with strategy {i+1}: {strat['label']}", file=sys.stderr, flush=True)
             break
         except subprocess.CalledProcessError as e:
-            print(f"[Step 1] Strategy {i+1} failed: {e}", file=sys.stderr, flush=True)
+            stderr_msg = e.stderr[:300] if e.stderr else str(e)
+            print(f"[Step 1] Strategy {i+1} failed: {stderr_msg}", file=sys.stderr, flush=True)
             # Clean up partial downloads
             for partial in out_dir.glob("source.*"):
                 if partial.suffix != ".mp3":
@@ -931,6 +895,26 @@ def shorts_endpoint():
 # ═══════════════════════════════════════════════════════════
 @app.route("/health", methods=["GET"])
 def health():
+    # Check if Node.js is available
+    node_available = False
+    node_version = "not found"
+    try:
+        result = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            node_available = True
+            node_version = result.stdout.strip()
+    except Exception:
+        pass
+
+    # Check yt-dlp version
+    ytdlp_version = "not found"
+    try:
+        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            ytdlp_version = result.stdout.strip()
+    except Exception:
+        pass
+
     return jsonify({
         "status": "ok",
         "service": "autovideo-worker",
@@ -939,6 +923,9 @@ def health():
         "supabase_key_len": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
         "openai_key_set": bool(os.environ.get("OPENAI_API_KEY")),
         "cookies_loaded": COOKIES_PATH is not None and os.path.exists(COOKIES_PATH) if COOKIES_PATH else False,
+        "node_available": node_available,
+        "node_version": node_version,
+        "ytdlp_version": ytdlp_version,
     }), 200
 
 

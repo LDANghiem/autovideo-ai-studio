@@ -131,12 +131,19 @@ def download_video(source_url: str, project_id: str) -> dict:
     video_path = str(out_dir / "source.mp4")
     audio_path = str(out_dir / "audio.mp3")
 
-    # Try multiple strategies — cookies work with web/default client, NOT mediaconnect
+    # Strategies ordered by likelihood of success:
+    # - Web client bypasses bot detection with cookies
+    # - "no_format" means don't pass -f at all, let yt-dlp auto-select
     strategies = [
         {
-            "label": "Default client + flexible format",
-            "client": None,
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "label": "Web client + auto format (no -f flag)",
+            "client": "web",
+            "format": None,
+        },
+        {
+            "label": "Web client + best format",
+            "client": "web",
+            "format": "best",
         },
         {
             "label": "Web client + flexible format",
@@ -144,30 +151,34 @@ def download_video(source_url: str, project_id: str) -> dict:
             "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         },
         {
-            "label": "Default client + any format",
+            "label": "Default client + auto format",
+            "client": None,
+            "format": None,
+        },
+        {
+            "label": "Default client + best format",
             "client": None,
             "format": "best",
         },
-        {
-            "label": "Web client + any format",
-            "client": "web",
-            "format": "best",
-        },
     ]
+
+    # Use a temp output path — yt-dlp may add its own extension
+    raw_output = str(out_dir / "source.%(ext)s")
 
     downloaded = False
     for i, strat in enumerate(strategies):
         print(f"[Step 1] Attempt {i+1}/{len(strategies)}: {strat['label']}", file=sys.stderr, flush=True)
         cmd = [
             "yt-dlp",
-            "-f", strat["format"],
-            "--merge-output-format", "mp4",
-            "-o", video_path,
+            "-o", raw_output,
             "--no-playlist",
             "--no-warnings",
             "--no-check-certificates",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         ]
+        # Add format selector only if specified
+        if strat["format"]:
+            cmd.extend(["-f", strat["format"]])
         if strat["client"]:
             cmd.extend(["--extractor-args", f"youtube:player_client={strat['client']}"])
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
@@ -176,18 +187,46 @@ def download_video(source_url: str, project_id: str) -> dict:
         cmd.append(source_url)
 
         try:
-            subprocess.run(cmd, check=True, timeout=300)
+            subprocess.run(cmd, check=True, timeout=600)
             downloaded = True
             print(f"[Step 1] SUCCESS with strategy {i+1}: {strat['label']}", file=sys.stderr, flush=True)
             break
         except subprocess.CalledProcessError as e:
             print(f"[Step 1] Strategy {i+1} failed: {e}", file=sys.stderr, flush=True)
-            # Clean up partial download
-            if os.path.exists(video_path):
-                os.remove(video_path)
+            # Clean up partial downloads
+            for partial in out_dir.glob("source.*"):
+                if partial.suffix != ".mp3":
+                    partial.unlink(missing_ok=True)
 
     if not downloaded:
         raise RuntimeError("All download strategies failed. YouTube may be blocking this server. Try re-exporting fresh cookies.")
+
+    # Find the downloaded file (could be .mp4, .webm, .mkv, etc.)
+    downloaded_file = None
+    for found in out_dir.glob("source.*"):
+        if found.suffix not in (".mp3", ".part"):
+            downloaded_file = str(found)
+            break
+
+    if not downloaded_file:
+        raise RuntimeError("Download appeared to succeed but no file found.")
+
+    print(f"[Step 1] Downloaded file: {downloaded_file}", file=sys.stderr, flush=True)
+
+    # Convert to mp4 if needed
+    if not downloaded_file.endswith(".mp4"):
+        print(f"[Step 1] Converting {Path(downloaded_file).name} to mp4...", file=sys.stderr, flush=True)
+        subprocess.run([
+            "ffmpeg", "-i", downloaded_file,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-y", video_path,
+        ], check=True, timeout=600)
+        os.remove(downloaded_file)
+    else:
+        if downloaded_file != video_path:
+            os.rename(downloaded_file, video_path)
 
     # Extract audio for Whisper
     subprocess.run([

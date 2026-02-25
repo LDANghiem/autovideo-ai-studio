@@ -1,14 +1,19 @@
-# worker/Dockerfile
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies including Node.js for yt-dlp JS challenge
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LATEST yt-dlp from GitHub (nightly) - force no cache
-RUN pip install --no-cache-dir --force-reinstall "yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz" \
-    && yt-dlp --version
+# Install LATEST yt-dlp from GitHub (nightly) + EJS plugin for JS challenge
+RUN pip install --no-cache-dir --force-reinstall \
+    "yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz" \
+    yt-dlp-ejs==0.5.0 \
+    && yt-dlp --version \
+    && node --version
 
 # Set working directory
 WORKDIR /app

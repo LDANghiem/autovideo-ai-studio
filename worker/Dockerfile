@@ -28,5 +28,6 @@ COPY app.py .
 # Expose port
 EXPOSE 10000
 
-# Run with gunicorn
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--timeout", "600", "--workers", "2"]
+# Run with gunicorn — 1 worker to stay within 512MB memory limit
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--timeout", "600", "--workers", "1"]
+        

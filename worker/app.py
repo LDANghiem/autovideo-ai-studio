@@ -158,7 +158,8 @@ def download_video(source_url: str, project_id: str) -> dict:
         print("[Step 1] First attempt failed, retrying with web client...", file=sys.stderr, flush=True)
         ytdlp_cmd_retry = [
             "yt-dlp",
-            "-f", "best[height<=1080][ext=mp4]/best",
+            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "--merge-output-format", "mp4",
             "-o", video_path,
             "--no-playlist",
             "--no-warnings",

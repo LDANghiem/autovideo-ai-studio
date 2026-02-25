@@ -122,7 +122,7 @@ def update_progress(project_id: str, pct: int, stage: str, clips=None, error=Non
 # STEP 1: Download YouTube video via yt-dlp
 # ═══════════════════════════════════════════════════════════
 def download_video(source_url: str, project_id: str) -> dict:
-    """Download video + audio. Returns paths dict."""
+    """Download video + audio using multiple strategies. Returns paths dict."""
     print(f"[Step 1] Downloading: {source_url}", file=sys.stderr, flush=True)
 
     out_dir = WORK_DIR / project_id
@@ -131,48 +131,63 @@ def download_video(source_url: str, project_id: str) -> dict:
     video_path = str(out_dir / "source.mp4")
     audio_path = str(out_dir / "audio.mp3")
 
-    # Build yt-dlp command with bot-detection workarounds
-    ytdlp_cmd = [
-        "yt-dlp",
-        "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
-        "--merge-output-format", "mp4",
-        "-o", video_path,
-        "--no-playlist",
-        "--no-warnings",
-        "--extractor-args", "youtube:player_client=mediaconnect",
-        "--no-check-certificates",
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        source_url,
+    # Try multiple strategies — cookies work with web/default client, NOT mediaconnect
+    strategies = [
+        {
+            "label": "Default client + flexible format",
+            "client": None,
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        },
+        {
+            "label": "Web client + flexible format",
+            "client": "web",
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        },
+        {
+            "label": "Default client + any format",
+            "client": None,
+            "format": "best",
+        },
+        {
+            "label": "Web client + any format",
+            "client": "web",
+            "format": "best",
+        },
     ]
 
-    # Add cookies if available
-    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
-        ytdlp_cmd.insert(1, "--cookies")
-        ytdlp_cmd.insert(2, COOKIES_PATH)
-        print("[Step 1] Using cookies file", file=sys.stderr, flush=True)
-
-    try:
-        subprocess.run(ytdlp_cmd, check=True, timeout=300)
-    except subprocess.CalledProcessError:
-        # Retry with web client — keep cookies!
-        print("[Step 1] First attempt failed, retrying with web client...", file=sys.stderr, flush=True)
-        ytdlp_cmd_retry = [
+    downloaded = False
+    for i, strat in enumerate(strategies):
+        print(f"[Step 1] Attempt {i+1}/{len(strategies)}: {strat['label']}", file=sys.stderr, flush=True)
+        cmd = [
             "yt-dlp",
-            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "-f", strat["format"],
             "--merge-output-format", "mp4",
             "-o", video_path,
             "--no-playlist",
             "--no-warnings",
-            "--extractor-args", "youtube:player_client=web",
             "--no-check-certificates",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            source_url,
         ]
-        # Add cookies to retry too!
+        if strat["client"]:
+            cmd.extend(["--extractor-args", f"youtube:player_client={strat['client']}"])
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
-            ytdlp_cmd_retry.insert(1, "--cookies")
-            ytdlp_cmd_retry.insert(2, COOKIES_PATH)
-        subprocess.run(ytdlp_cmd_retry, check=True, timeout=300)
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, COOKIES_PATH)
+        cmd.append(source_url)
+
+        try:
+            subprocess.run(cmd, check=True, timeout=300)
+            downloaded = True
+            print(f"[Step 1] SUCCESS with strategy {i+1}: {strat['label']}", file=sys.stderr, flush=True)
+            break
+        except subprocess.CalledProcessError as e:
+            print(f"[Step 1] Strategy {i+1} failed: {e}", file=sys.stderr, flush=True)
+            # Clean up partial download
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+    if not downloaded:
+        raise RuntimeError("All download strategies failed. YouTube may be blocking this server. Try re-exporting fresh cookies.")
 
     # Extract audio for Whisper
     subprocess.run([
@@ -213,7 +228,6 @@ def transcribe_audio(audio_path: str) -> dict:
     """Transcribe audio using Whisper API with timestamps."""
     print(f"[Step 2] Transcribing: {audio_path}", file=sys.stderr, flush=True)
 
-    # Check file size — Whisper API limit is 25MB
     file_size = os.path.getsize(audio_path)
     if file_size > 25 * 1024 * 1024:
         return transcribe_large_audio(audio_path)

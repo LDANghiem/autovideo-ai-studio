@@ -164,7 +164,24 @@ def download_video(source_url: str, project_id: str) -> dict:
 
     # Use a temp output path — yt-dlp may add its own extension
     raw_output = str(out_dir / "source.%(ext)s")
-
+    # Debug: print yt-dlp version and list available formats
+    try:
+        ver = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=10)
+        print(f"[Step 1] yt-dlp version: {ver.stdout.strip()}", file=sys.stderr, flush=True)
+        
+        list_cmd = ["yt-dlp", "--list-formats", "--no-warnings", "--no-check-certificates",
+                     "--extractor-args", "youtube:player_client=web",
+                     "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                     source_url]
+        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+            list_cmd.insert(1, "--cookies")
+            list_cmd.insert(2, COOKIES_PATH)
+        fmt_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=60)
+        print(f"[Step 1] Available formats:\n{fmt_result.stdout}", file=sys.stderr, flush=True)
+        if fmt_result.stderr:
+            print(f"[Step 1] Format errors:\n{fmt_result.stderr}", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[Step 1] Debug failed: {e}", file=sys.stderr, flush=True)
     downloaded = False
     for i, strat in enumerate(strategies):
         print(f"[Step 1] Attempt {i+1}/{len(strategies)}: {strat['label']}", file=sys.stderr, flush=True)

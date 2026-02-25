@@ -156,8 +156,8 @@ def download_video(source_url: str, project_id: str) -> dict:
 
     try:
         subprocess.run(ytdlp_cmd, check=True, timeout=300)
-    except subprocess.CalledProcessError:
-        # Retry with different client
+   except subprocess.CalledProcessError:
+        # Retry with web client — keep cookies!
         print("[Step 1] First attempt failed, retrying with web client...", file=sys.stderr, flush=True)
         ytdlp_cmd_retry = [
             "yt-dlp",
@@ -170,6 +170,10 @@ def download_video(source_url: str, project_id: str) -> dict:
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             source_url,
         ]
+        # Add cookies to retry too!
+        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+            ytdlp_cmd_retry.insert(1, "--cookies")
+            ytdlp_cmd_retry.insert(2, COOKIES_PATH)
         subprocess.run(ytdlp_cmd_retry, check=True, timeout=300)
 
     # Extract audio for Whisper

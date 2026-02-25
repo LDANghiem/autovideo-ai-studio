@@ -143,7 +143,7 @@ def download_video(source_url: str, project_id: str) -> dict:
 
     # Base command — --js-runtimes node is the KEY FIX for YouTube JS challenge
     # -f forces h264+aac to AVOID expensive AV1/VP9 decoding (causes OOM on 512MB)
-    # Max 720p — plenty for 1080x1920 vertical Shorts after cropping
+    # Max 720p — plenty for vertical Shorts after cropping
     base_cmd = [
         "yt-dlp",
         "--js-runtimes", "node",
@@ -424,6 +424,7 @@ RESPOND ONLY WITH VALID JSON (no markdown, no backticks):
 
 # ═══════════════════════════════════════════════════════════
 # STEP 4: FFmpeg extract clips + crop to 9:16
+#   MEMORY-OPTIMIZED: 720x1280 output, ultrafast, 1 thread
 # ═══════════════════════════════════════════════════════════
 def extract_clips(video_path: str, moments: list, crop_mode: str,
                   width: int, height: int, project_id: str) -> list:
@@ -459,7 +460,8 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
             x_offset = int((width - crop_w) / 2)
             crop_filter = f"crop={crop_w}:{crop_h}:{x_offset}:{y_offset}"
 
-        scale_filter = "scale=1080:1920"
+        # 720x1280 — HD vertical, uses much less memory than 1080x1920
+        scale_filter = "scale=720:1280"
 
         try:
             subprocess.run([
@@ -468,11 +470,12 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
                 "-i", video_path,
                 "-t", str(duration),
                 "-vf", f"{crop_filter},{scale_filter}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-threads", "1",
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart",
                 "-y", clip_path,
-            ], check=True, timeout=120)
+            ], check=True, timeout=180)
 
             clips.append({
                 "id": clip_id,
@@ -485,6 +488,7 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
                 "reason": moment["reason"],
                 "status": "done",
             })
+            print(f"[Step 4] Clip {clip_id} done ({duration:.1f}s)", file=sys.stderr, flush=True)
         except Exception as e:
             print(f"[Step 4] Error extracting clip {clip_id}: {e}", file=sys.stderr, flush=True)
             clips.append({
@@ -504,9 +508,10 @@ def extract_clips(video_path: str, moments: list, crop_mode: str,
 
 # ═══════════════════════════════════════════════════════════
 # STEP 5: Burn captions onto clips
+#   MEMORY-OPTIMIZED: ultrafast, 1 thread, delete old clips
 # ═══════════════════════════════════════════════════════════
 def add_captions(clips: list, transcript: dict, caption_style: str, project_id: str) -> list:
-    """Add captions to each clip using FFmpeg drawtext or ASS subtitles."""
+    """Add captions to each clip using FFmpeg subtitles filter."""
     if caption_style == "none":
         print("[Step 5] Skipping captions (none selected)", file=sys.stderr, flush=True)
         return clips
@@ -553,26 +558,27 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
 
         captioned_path = str(out_dir / f"{clip['id']}_captioned.mp4")
 
+        # Font sizes adjusted for 720x1280 output
         if caption_style == "centered":
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
-                "'Alignment=5,FontSize=28,FontName=Arial,Bold=1,"
+                "'Alignment=5,FontSize=22,FontName=Arial,Bold=1,"
                 "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-                "Outline=3,Shadow=1,MarginV=200'"
+                "Outline=3,Shadow=1,MarginV=150'"
             )
         elif caption_style == "karaoke":
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
-                "'Alignment=2,FontSize=24,FontName=Arial,Bold=1,"
+                "'Alignment=2,FontSize=20,FontName=Arial,Bold=1,"
                 "PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,"
-                "Outline=2,Shadow=1,MarginV=80'"
+                "Outline=2,Shadow=1,MarginV=60'"
             )
         else:
             sub_filter = (
                 f"subtitles={srt_path}:force_style="
-                "'Alignment=2,FontSize=22,FontName=Arial,Bold=1,"
+                "'Alignment=2,FontSize=18,FontName=Arial,Bold=1,"
                 "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-                "Outline=2,Shadow=1,MarginV=60,BackColour=&H80000000'"
+                "Outline=2,Shadow=1,MarginV=50,BackColour=&H80000000'"
             )
 
         try:
@@ -580,12 +586,20 @@ def add_captions(clips: list, transcript: dict, caption_style: str, project_id: 
                 "ffmpeg",
                 "-i", clip["path"],
                 "-vf", sub_filter,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-threads", "1",
                 "-c:a", "copy",
                 "-y", captioned_path,
-            ], check=True, timeout=120)
+            ], check=True, timeout=180)
 
+            # Delete the uncaptioned clip to free disk/memory
+            old_path = clip["path"]
             clip["path"] = captioned_path
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
+            print(f"[Step 5] Caption done for {clip['id']}", file=sys.stderr, flush=True)
         except Exception as e:
             print(f"[Step 5] Caption error for {clip['id']}: {e}", file=sys.stderr, flush=True)
 
@@ -822,6 +836,13 @@ def run_pipeline(project_id, source_url):
         transcript = transcribe_audio(dl["audio_path"])
         print(f"[Pipeline] Step 2 done: {len(transcript['segments'])} segments", file=sys.stderr, flush=True)
 
+        # Delete audio file — no longer needed, free memory
+        try:
+            os.remove(dl["audio_path"])
+            print("[Pipeline] Audio file deleted to free memory", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
         # Step 3: Detect viral moments
         print(f"[Pipeline] Step 3: Analyzing for {max_clips} viral moments...", file=sys.stderr, flush=True)
         update_progress(project_id, 40, "analyzing")
@@ -834,6 +855,13 @@ def run_pipeline(project_id, source_url):
         clips = extract_clips(dl["video_path"], moments, crop_mode,
                               dl["width"], dl["height"], project_id)
         print(f"[Pipeline] Step 4 done: {len(clips)} clips", file=sys.stderr, flush=True)
+
+        # Delete source video — clips extracted, source no longer needed
+        try:
+            os.remove(dl["video_path"])
+            print("[Pipeline] Source video deleted to free memory", file=sys.stderr, flush=True)
+        except Exception:
+            pass
 
         # Step 5: Add captions
         print(f"[Pipeline] Step 5: Adding captions ({caption_style})...", file=sys.stderr, flush=True)

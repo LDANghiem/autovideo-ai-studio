@@ -1,0 +1,221 @@
+const LANGUAGES: {
+  code: string;
+  name: string;
+  flag: string;
+  voices: { id: string; name: string; gender: string }[];
+}[] = [
+  {
+    code: "vi", name: "Vietnamese", flag: "🇻🇳",
+    voices: [
+      { id: "DvG3I1kDzdBY3u4EzYh6", name: "Ngân Nguyễn", gender: "Female" },
+      { id: "0ggMuQ1r9f9jqBu50nJn", name: "Thảm", gender: "Female" },
+      { id: "N0Z0aL8qHhzwUHwRBcVo", name: "Thanh", gender: "Female" },
+      { id: "DVQIYWzpAqd5qcoIlirg", name: "Duyên", gender: "Female" },
+      { id: "jdlxsPOZOHdGEfcItXVu", name: "Hiền", gender: "Female" },
+      { id: "ArosID24mP18TEiQpNhs", name: "Trang", gender: "Female" },
+      { id: "UsgbMVmY3U59ijwK5mdh", name: "Triệu Dương", gender: "Male" },
+      { id: "ywBZEqUhld86Jeajq94o", name: "Anh", gender: "Male" },
+      { id: "kPNz4WRTiKDplS7jAwHu", name: "Trấn Thành", gender: "Male" },
+      { id: "ipTvfDXAg1zowfF1rv9w", name: "Hoàng Đăng", gender: "Male" },
+      { id: "6adFm46eyy74snVn6YrT", name: "Nhật", gender: "Male" },
+      { id: "3VnrjnYrskPMDsapTr8X", name: "Tùng", gender: "Male" },
+    ],
+  },
+  {
+    code: "en", name: "English", flag: "🇺🇸",
+    voices: [
+      { id: "ZF6FPAbjXT4488VcRRnw", name: "Amelia - Enthusiastic and Expressive", gender: "female" },
+      { id: "kPzsL2i3teMYv0FxEYQ6", name: "Brittney - Social Media Voice - Fun, Youthful & Informative", gender: "female" },
+      { id: "tnSpp4vdxKPjI9w0GnoV", name: "Hope - upbeat and clear", gender: "female" },
+      { id: "UgBBYS2sOqTuMpoF3BR0", name: "Mark - Natural Conversations", gender: "male" },
+      { id: "1SM7GgM6IMuvQlz2BwM3", name: "Mark - Casual, Relaxed and Light", gender: "male" },
+      { id: "j9jfwdrw7BRfcR43Qohk", name: "Frederick Surrey - Smooth and Velvety", gender: "male" },
+    ],
+  },
+  {
+    code: "es", name: "Spanish", flag: "🇪🇸",
+    voices: [
+      { id: "CaJslL1xziwefCeTNzHv", name: "Cristina Campos - Friendly and Soft", gender: "female" },
+      { id: "kcQkGnn0HAT2JRDQ4Ljp", name: "Norah - Warm, Friendly and Clear", gender: "female" },
+      { id: "qHkrJuifPpn95wK3rm2A", name: "Andrea - Polite, Cheerful and Calm", gender: "female" },
+      { id: "dlGxemPxFMTY7iXagmOj", name: "Fernando Martínez - Rapid, Persuasive", gender: "male" },
+      { id: "l1zE9xgNpUTaQCZzpNJa", name: "Alberto Rodríguez - Serious, Narrative", gender: "male" },
+      { id: "9F4C8ztpNUmXkdDDbz3J", name: "Dan - Upbeat, Dynamic and Friendly", gender: "male" },
+    ],
+  },
+  {
+    code: "fr", name: "French", flag: "🇫🇷",
+    voices: [
+      { id: "McVZB9hVxVSk3Equu8EH", name: "Audrey - Energetic Commercial", gender: "female" },
+      { id: "6vTyAgAT8PncODBcLjRf", name: "Claire - Warm, Pretty and Charming", gender: "female" },
+      { id: "txtf1EDouKke753vN8SL", name: "Jeanne - Narrator", gender: "female" },
+      { id: "aQROLel5sQbj1vuIVi6B", name: "Nicolas - Narrator", gender: "male" },
+      { id: "NyxenPOqNyllHIzSoPbJ", name: "Theo - Warm and Young", gender: "male" },
+      { id: "ohItIVrXTBI80RrUECOD", name: "Guillaume - Narrator", gender: "male" },
+    ],
+  },
+  {
+    code: "pt", name: "Portuguese", flag: "🇧🇷",
+    voices: [
+      { id: "33B4UnXyTNbgLmdEDh5P", name: "Keren - Sweet, Vibrant and Rhythmic", gender: "female" },
+      { id: "MZxV5lN3cv7hi1376O0m", name: "Ana Dias - Engaging, Smooth and Forceful", gender: "female" },
+      { id: "r2fkFV8WAqXq2AqBpgJT", name: "Amandoca - Fun, Breathy and Vibrant", gender: "female" },
+      { id: "WFSxKvz27RguNRD3Phoq", name: "Wesley Bessa - Diplomatic and Cold", gender: "male" },
+      { id: "NGS0ZsC7j4t4dCWbPdgO", name: "Dhyogo Azevedo - Energetic and Confident", gender: "male" },
+      { id: "CstacWqMhJQlnfLPxRG4", name: "Will - Deep, Smooth and Affectionate", gender: "male" },
+    ],
+  },
+  {
+    code: "de", name: "German", flag: "🇩🇪",
+    voices: [
+      { id: "v3V1d2rk6528UrLKRuy8", name: "Susi - Effortless and Confident", gender: "female" },
+      { id: "7eVMgwCnXydb3CikjV7a", name: "Lea - Clear and Feminine", gender: "female" },
+      { id: "K75lPKuh15SyVhQC1LrE", name: "Carola - Sharp and Clear", gender: "female" },
+      { id: "FTNCalFNG5bRnkkaP5Ug", name: "Otto - Casual and Normal", gender: "male" },
+      { id: "r8MyP4qUsq5WFFSkPdfV", name: "Johannes - Clear and Neutral", gender: "male" },
+      { id: "bAFkvitDGeDMmqo9gJzO", name: "Niander Wallace ", gender: "male" },
+    ],
+  },
+  {
+    code: "it", name: "Italian", flag: "🇮🇹",
+    voices: [
+      { id: "gfKKsLN1k0oYYN9n2dXX", name: "Violetta - Ringing, Bright and Joyful", gender: "female" },
+      { id: "3DPhHWXDY263XJ1d2EPN", name: "Linda Fiore - Prickly, Cheerful and Full", gender: "female" },
+      { id: "fQmr8dTaOQq116mo2X7F", name: "Samanta - Reassuring, Warm and Deep", gender: "female" },
+      { id: "W71zT1VwIFFx3mMGH2uZ", name: "MarcoTrox - Warm, Balanced and Polished", gender: "male" },
+      { id: "fzDFBB4mgvMlL36gPXcz", name: "Giovanni Rossi - Deep and Sympathetic", gender: "male" },
+      { id: "13Cuh3NuYvWOVQtLbRN8", name: "Marco - Deep, Rich and Reflective", gender: "male" },
+    ],
+  },
+  {
+    code: "zh", name: "Chinese", flag: "🇨🇳",
+    voices: [
+      { id: "ByhETIclHirOlWnWKhHc", name: "Shan Shan - Young Energetic Female", gender: "female" },
+      { id: "hkfHEbBvdQFNX4uWHqRF", name: "Stacy - Young, Sweet and Cute", gender: "female" },
+      { id: "9lHjugDhwqoxA5MhX0az", name: "Anna Su - Casual, Friendly and Bright", gender: "female" },
+      { id: "4VZIsMPtgggwNg7OXbPY", name: "James Gao - Calm, Friendly and Warm", gender: "male" },
+      { id: "WuLq5z7nEcrhppO0ZQJw", name: "Martin Li - Raspy, Serious and Deep", gender: "male" },
+      { id: "BrbEfHMQu0fyclQR7lfh", name: "Kevin Tu - Natural, Steady and Calm", gender: "male" },
+    ],
+  },
+  {
+    code: "ja", name: "Japanese", flag: "🇯🇵",
+    voices: [
+      { id: "8EkOjt4xTPGMclNlh1pk", name: "Morioki - Calm, Measured and Muffled", gender: "female" },
+      { id: "RBnMinrYKeccY3vaUxlZ", name: "Sakura - Narrational", gender: "female" },
+      { id: "4lOQ7A2l7HPuG7UIHiKA", name: "Kyoko - Warm, Clear and Natural", gender: "female" },
+      { id: "3JDquces8E8bkmvbh6Bc", name: "Otani - Inviting, Clear and Measured", gender: "male" },
+      { id: "j210dv0vWm7fCknyQpbA", name: "Hinata - Inviting, Smooth and Measured", gender: "male" },
+      { id: "Mv8AjrYZCBkdsmDHNwcB", name: "Ishibashi - Inviting, Natural and Smoky", gender: "male" },
+    ],
+  },
+  {
+    code: "ko", name: "Korean", flag: "🇰🇷",
+    voices: [
+      { id: "uyVNoMrnUku1dZyVEXwD", name: "Anna Kim - Tender, Calm and Clear", gender: "female" },
+      { id: "z6Kj0hecH20CdetSElRT", name: "Jennie - Narrational", gender: "female" },
+      { id: "ksaI0TCD9BstzEzlxj4q", name: "Seulki - Inviting, Calm and Measured", gender: "female" },
+      { id: "ZJCNdZEjYwkOElxugmW2", name: "Hyuk - Cold and Clear", gender: "male" },
+      { id: "jB1Cifc2UQbq1gR3wnb0", name: "Bin - Measured and Serious", gender: "male" },
+      { id: "PDoCXqBQFGsvfO0hNkEs", name: "Chris - Warm and Clear", gender: "male" },
+    ],
+  },
+  {
+    code: "hi", name: "Hindi", flag: "🇮🇳",
+    voices: [
+      { id: "KYiVPerWcenyBTIvWbfY", name: "Sia - Friendly, Helpful and Reassuring", gender: "female" },
+      { id: "gHu9GtaHOXcSqFTK06ux", name: "Anjali - Warm, Cheerful and Clear", gender: "female" },
+      { id: "2bNrEsM0omyhLiEyOwqY", name: "Monika Sogam - Friendly and Reassuring", gender: "female" },
+      { id: "zT03pEAEi0VHKciJODfn", name: "Raju - Clear, Natural and Warm", gender: "male" },
+      { id: "zgqefOY5FPQ3bB7OZTVR", name: "Niraj - Romantic and Smooth", gender: "male" },
+      { id: "iWNf11sz1GrUE4ppxTOL", name: "Viraj - Warm, Energetic and Lively", gender: "male" },
+    ],
+  },
+  {
+    code: "ar", name: "Arabic", flag: "🇸🇦",
+    voices: [
+      { id: "u0TsaWvt0v8migutHM3M", name: "Ghizlane - Smooth, Distinctive and Calm", gender: "female" },
+      { id: "mRdG9GYEjJmIzqbYTidv", name: "Sana - Calm, Soft and Honest", gender: "female" },
+      { id: "a1KZUXKFVFDOb33I1uqr", name: "Salma - Positive, Professional and Warm", gender: "female" },
+      { id: "LXrTqFIgiubkrMkwvOUr", name: "Masry - Narrative, Clear and Strong", gender: "male" },
+      { id: "A9ATTqUUQ6GHu0coCz8t", name: "Hamid - Friendly, Natural and Positive", gender: "male" },
+      { id: "JjTirzdD7T3GMLkwdd3a", name: "Hamida - Professional and Positive", gender: "male" },
+    ],
+  },
+  {
+    code: "ru", name: "Russian", flag: "🇷🇺",
+    voices: [
+      { id: "ymDCYd8puC7gYjxIamPt", name: "Marina - Soft, Clear and Warm", gender: "female" },
+      { id: "EDpEYNf6XIeKYRzYcx4I", name: "Mariia - Measured, Calm and Engaging", gender: "female" },
+      { id: "AB9XsbSA4eLG12t2myjN", name: "Larisa Actrisa - Confident and Clear", gender: "female" },
+      { id: "gJEfHTTiifXEDmO687lC", name: "Prince Nur - Deep, Rich and Balanced", gender: "male" },
+      { id: "3EuKHIEZbSzrHGNmdYsx", name: "Nikolay - Confident, Clear and Engaging", gender: "male" },
+      { id: "txnCCHHGKmYIwrn7HfHQ", name: "Alexandr Vlasov - Vibrant and Energetic", gender: "male" },
+    ],
+  },
+  {
+    code: "th", name: "Thai", flag: "🇹🇭",
+    voices: [
+    ],
+  },
+  {
+    code: "id", name: "Indonesian", flag: "🇮🇩",
+    voices: [
+      { id: "iWydkXKoiVtvdn4vLKp9", name: "Cahaya - Youthful, Clear and Engaging", gender: "female" },
+      { id: "I7sakys8pBZ1Z5f0UhT9", name: "Putri Maharani - Neutral and WItty", gender: "female" },
+      { id: "gmnazjXOFoOcWA59sd5m", name: "Kira - Youthful, Clear and Friendly", gender: "female" },
+      { id: "X8n8hOy3e8VLQnHTUcc5", name: "Bram - Warm, Expressive and Welcoming", gender: "male" },
+      { id: "RWiGLY9uXI70QL540WNd", name: "Putra - Smooth, Clear and Engaging", gender: "male" },
+      { id: "TMvmhlKUioQA4U7LOoko", name: "Andi - Clear, Friendly and Calm", gender: "male" },
+    ],
+  },
+  {
+    code: "tl", name: "Filipino", flag: "🇵🇭",
+    voices: [
+    ],
+  },
+  {
+    code: "pl", name: "Polish", flag: "🇵🇱",
+    voices: [
+      { id: "N0GCuK2B0qwWozQNTS8F", name: "Magdalena - Mighty and Calm Wordsmith", gender: "female" },
+      { id: "W0sqKm1Sfw1EzlCH14FQ", name: "Beata - Stoic and Kind Philosopher", gender: "female" },
+      { id: "OOTZSkkPGHD1csczSCmT", name: "Lena Suzuki - Gentle and Meditative", gender: "female" },
+      { id: "hIssydxXZ1WuDorjx6Ic", name: "Adam - Serious, Rich, and Smoky", gender: "male" },
+      { id: "W3ryZpL8gFeUBUllKisa", name: "Maciej - Rich, Moody and Deep", gender: "male" },
+      { id: "H5xTcsAIeS5RAykjz57a", name: "Alex - Warm Storyteller", gender: "male" },
+    ],
+  },
+  {
+    code: "nl", name: "Dutch", flag: "🇳🇱",
+    voices: [
+      { id: "SXBL9NbvTrjsJQYay2kT", name: "Melanie - Engaging, Authentic Narrator", gender: "female" },
+      { id: "YUdpWWny7k5yb4QCeweX", name: "Ruth - Warm and Dynamic Narrator", gender: "female" },
+      { id: "ANHrhmaFeVN0QJaa0PhL", name: "Petra Vlaams - Energetic, Warm and Clear", gender: "female" },
+      { id: "AVIlLDn2TVmdaDycgbo3", name: "Eric Sijbesma - Natural and Authentic", gender: "male" },
+      { id: "UNBIyLbtFB9k7FKW8wJv", name: "Serge de Beer - Professional Narrator", gender: "male" },
+      { id: "s7Z6uboUuE4Nd8Q2nye6", name: "Hans Claesen - Professional Narrator", gender: "male" },
+    ],
+  },
+  {
+    code: "tr", name: "Turkish", flag: "🇹🇷",
+    voices: [
+      { id: "KbaseEXyT9EE0CQLEfbB", name: "Belma - Dynamic and Clear Narrator", gender: "female" },
+      { id: "PdYVUd1CAGSXsTvZZTNn", name: "Mia - Clear, Steady and Warm", gender: "female" },
+      { id: "EJGs6dWlD5VrB3llhBqB", name: "Cicek - Joyful and Dynamic Storyteller", gender: "female" },
+      { id: "IuRRIAcbQK5AQk1XevPj", name: "Doga - Upbeat and Rich", gender: "male" },
+      { id: "7VqWGAWwo2HMrylfKrcm", name: "Fatih Yıldırım - Deep, Clear and Rich", gender: "male" },
+      { id: "J17lijyP1BHYcM7ld0Rg", name: "Adam - Deep, Professional and Serious", gender: "male" },
+    ],
+  },
+  {
+    code: "sv", name: "Swedish", flag: "🇸🇪",
+    voices: [
+      { id: "aSLKtNoVBZlxQEMsnGL2", name: "Sanna Hartfield - Calm and Soothing", gender: "female" },
+      { id: "4xkUqaR9MYOJHoaC1Nak", name: "Sanna Hartfield - Direct and Natural", gender: "female" },
+      { id: "4Ct5uMEndw4cJ7q0Jx0l", name: "Elin - Neutral and Clear", gender: "female" },
+      { id: "x0u3EW21dbrORJzOq1m9", name: "Adam Composer - Resonant and Smooth", gender: "male" },
+      { id: "6eknYWL7D5Z4nRkDy15t", name: "Tommy Thunstroem - Warm and Informative", gender: "male" },
+      { id: "e6OiUVixGLmvtdn2GJYE", name: "Jonas - Calm and Informative", gender: "male" },
+    ],
+  },
+];

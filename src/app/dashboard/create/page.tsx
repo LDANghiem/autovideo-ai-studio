@@ -30,6 +30,7 @@ type CreatePayload = {
   language: string;
   tone: string;
   music: string;
+  caption_style: string;         // "none" | "block" | "karaoke" | "centered"
   image_source: string;
   elevenlabs_voice_id?: string;
   elevenlabs_voice_name?: string;
@@ -174,6 +175,7 @@ export default function CreateProjectPage() {
   const [language, setLanguage] = useState("English");
   const [tone, setTone] = useState("friendly");
   const [music, setMusic] = useState("ambient");
+  const [captionStyle, setCaptionStyle] = useState("none"); // 🆕 Caption style: none, block, karaoke, centered
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +234,7 @@ export default function CreateProjectPage() {
       language,
       tone,
       music,
+      caption_style: captionStyle,
       image_source: imageSource,
     };
 
@@ -241,7 +244,7 @@ export default function CreateProjectPage() {
     }
 
     return base;
-  }, [topic, topicInstructions, videoType, style, voice, length, resolution, language, tone, music, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
+  }, [topic, topicInstructions, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
 
   /* ----------------------------------------------------------
      Submit
@@ -479,7 +482,7 @@ export default function CreateProjectPage() {
           </div>
 
           {/* Music */}
-          <div className="space-y-2 md:col-span-2">
+          <div className="space-y-2">
             <label className="font-medium">Music</label>
             <select value={music} onChange={(e) => setMusic(e.target.value)} className="w-full border rounded px-3 py-2">
               <option value="ambient">ambient</option>
@@ -487,6 +490,24 @@ export default function CreateProjectPage() {
               <option value="dramatic">dramatic</option>
               <option value="none">none</option>
             </select>
+          </div>
+
+          {/* 🆕 Caption Style — burned-in subtitle style */}
+          <div className="space-y-2">
+            <label className="font-medium">Caption Style</label>
+            <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value)} className="w-full border rounded px-3 py-2">
+              <option value="none">None</option>
+              <option value="block">Block (Netflix-style)</option>
+              <option value="karaoke">Karaoke (word highlight)</option>
+              <option value="centered">Centered</option>
+            </select>
+            {captionStyle !== "none" && (
+              <div className="text-xs text-gray-500">
+                {captionStyle === "block" && "Semi-transparent background box with clean white text."}
+                {captionStyle === "karaoke" && "Words highlight one-by-one as the narrator speaks."}
+                {captionStyle === "centered" && "Simple centered white text at the bottom."}
+              </div>
+            )}
           </div>
         </div>
 
@@ -500,6 +521,7 @@ export default function CreateProjectPage() {
             setStyle("modern"); setVoice("Coral (warm female)"); setLength("5 minutes");
             setResolution("1080p"); setLanguage("English"); setTone("friendly");
             setMusic("ambient"); setImageSource("ai-art"); setError(null);
+            setCaptionStyle("none");
             setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
           }} className="border rounded px-4 py-2" disabled={busy}>
             Reset
@@ -532,6 +554,7 @@ export default function CreateProjectPage() {
             {imageSource === "real-photos" ? "📸 Real Photos (Pexels — free)" : "🎨 AI Art (DALL-E — $0.08/image)"}
           </div>
           <div><b>Music:</b> {music}</div>
+          <div><b>Captions:</b> {captionStyle === "none" ? "None" : captionStyle === "block" ? "📺 Block (Netflix-style)" : captionStyle === "karaoke" ? "🎤 Karaoke (word highlight)" : "📝 Centered"}</div>
         </div>
       </div>
     </div>

@@ -103,6 +103,9 @@ function lengthToSeconds(lengthStr) {
   if (secMatch) return clamp(Number(secMatch[1]), 10, 1800);
   const minMatch = s.match(/(\d+)\s*(min|mins|minute|minutes)\b/);
   if (minMatch) return clamp(Number(minMatch[1]) * 60, 10, 1800);
+  if (s.includes("2")) return 120;
+  if (s.includes("3")) return 180;
+  if (s.includes("4")) return 240;
   if (s.includes("5")) return 300;
   if (s.includes("8")) return 480;
   if (s.includes("12")) return 720;
@@ -636,7 +639,7 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
   const ttsDir = path.join(workDir, "tts-parts");
   fs.mkdirSync(ttsDir, { recursive: true });
 
-  const MAX_SPEEDUP = 1.12;       // Max 12% global speed-up
+  const MAX_SPEEDUP = 1.35;       // Max 35% global speed-up (Vietnamese can be 30-40% longer than English)
   const MAX_CHARS = 4000;          // ElevenLabs chunk limit
   const langCode = targetLanguageCode || "vi"; // Dynamic language code
 
@@ -793,14 +796,25 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
 
   try { fs.unlinkSync(rawNarration); } catch {}
 
-  /* ── Pad or trim to EXACT video duration ───────────────────── */
+  /* ── Pad or trim to EXACT video duration + fade out ────────── */
   if (targetDuration > 0) {
     const finalFile = path.join(workDir, "vietnamese-narration-final.wav");
-    // apad adds silence if narration is shorter; -t trims if longer
+    // afade: 2 second fade-out before the end for graceful ending
+    // -t: hard trim to exact video duration (safety net)
+    const fadeOutDur = 2.0;
+    const fadeOutStart = Math.max(0, targetDuration - fadeOutDur);
     await execAsync(
-      `ffmpeg -i "${narrationFile}" -af "apad" -t ${targetDuration.toFixed(2)} -ar 44100 -ac 1 -y "${finalFile}"`
+      `ffmpeg -i "${narrationFile}" -af "afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeOutDur},apad" -t ${targetDuration.toFixed(2)} -ar 44100 -ac 1 -y "${finalFile}"`
     );
     fs.renameSync(finalFile, narrationFile);
+
+    // Verify the trim worked
+    try {
+      const { stdout: durCheck } = await execAsync(
+        `ffprobe -v error -show_entries format=duration -of csv=p=0 "${narrationFile}"`
+      );
+      console.log("[dub] narration after trim+fade:", parseFloat(durCheck).toFixed(2), "s (target:", targetDuration.toFixed(2), "s)");
+    } catch {}
   }
 
   // Cleanup
@@ -879,7 +893,7 @@ async function dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegmen
 
 
 /* ── [DUB STEP 5] Mix audio tracks with ffmpeg ────────────── */
-async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, keepOriginal, originalVolume, workDir) {
+async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, keepOriginal, originalVolume, workDir, videoDurationSec) {
   await updateDubStatus(projectId, "assembling", 70);
 
   const finalAudioFile = path.join(workDir, "final-audio.mp3");
@@ -889,15 +903,23 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
     const vol = Math.max(0, Math.min(1, originalVolume || 0.15));
     console.log("[dub] mixing audio — original at", Math.round(vol * 100) + "% volume");
 
+    // Use -t to enforce video duration limit on mixed output
+    const durationFlag = videoDurationSec > 0 ? `-t ${videoDurationSec.toFixed(2)}` : "";
     await execAsync(
       `ffmpeg -i "${narrationFile}" -i "${originalAudioFile}" ` +
-      `-filter_complex "[1:a]volume=${vol}[quiet];[0:a][quiet]amix=inputs=2:duration=longest:dropout_transition=2" ` +
-      `-y "${finalAudioFile}"`
+      `-filter_complex "[1:a]volume=${vol}[quiet];[0:a][quiet]amix=inputs=2:duration=first:dropout_transition=2" ` +
+      `${durationFlag} -y "${finalAudioFile}"`
     );
   } else {
-    // Just use narration only
+    // Just use narration only — also enforce duration
     console.log("[dub] using narration only (no original audio mix)");
-    fs.copyFileSync(narrationFile, finalAudioFile);
+    if (videoDurationSec > 0) {
+      await execAsync(
+        `ffmpeg -i "${narrationFile}" -t ${videoDurationSec.toFixed(2)} -c copy -y "${finalAudioFile}"`
+      );
+    } else {
+      fs.copyFileSync(narrationFile, finalAudioFile);
+    }
   }
 
   if (!fs.existsSync(finalAudioFile)) {
@@ -969,48 +991,56 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
   const isVertical = videoHeight > videoWidth;
 
   // Caption font size — different for vertical vs landscape
-  // Vertical (1080x1920): FontSize=18 — readable on tall phone screens
-  // Landscape (1920x1080): FontSize=10 — compact for wide screens
-  // Landscape (1280x720):  FontSize=8  — compact for smaller wide screens
-  let fontSize, marginV, outlineSize;
+  // ASS/SSA subtitles scale FontSize relative to PlayResY (default 384px).
+  // We want REAL pixel sizes, so we scale up: desiredPx * (videoHeight / 384)
+  // Premium style: clean, readable, not overwhelming — like Netflix dubs
+  let desiredFontPx, marginV, outlineSize;
 
   if (isVertical) {
     // Vertical video (Shorts, TikTok, Reels)
-    // Readable captions above black bar
-    fontSize = Math.max(20, Math.round(videoWidth / 45));   // 1080/45=24
-    marginV = Math.round(videoHeight * 0.08);               // 8% from bottom
-    outlineSize = 3;
+    desiredFontPx = Math.max(28, Math.round(videoWidth / 36));   // 1080/36=30px
+    marginV = Math.round(videoHeight * 0.08);
+    outlineSize = 2;
   } else {
     // Landscape video (standard YouTube, TED talks, etc.)
-    // Proportional to video height — readable on any screen size
-    fontSize = Math.max(16, Math.round(videoHeight / 40));  // 720/40=18, 1080/40=27
-    marginV = Math.max(12, Math.round(barHeight * 0.35));   // inside black bar
-    outlineSize = 2;
+    // Netflix-style: ~26px on 1080p, ~20px on 720p
+    desiredFontPx = Math.max(18, Math.round(videoHeight / 42));  // 720→17→18px, 1080→26px
+    marginV = Math.max(10, Math.round(barHeight * 0.20));
+    outlineSize = 1.5;
   }
 
-  console.log("[dub] burning subtitles —", isVertical ? "VERTICAL" : "LANDSCAPE",
-    videoWidth, "x", videoHeight, "bar:", barHeight, "px, fontSize:", fontSize, "marginV:", marginV);
+  // Scale for ASS engine: FontSize is relative to 384px, not video height
+  const assScaleFactor = videoHeight / 384;
+  const fontSize = Math.round(desiredFontPx * assScaleFactor);
+  const scaledMarginV = Math.round(marginV * assScaleFactor);
+  const scaledOutline = Math.max(1, Math.round(outlineSize * assScaleFactor));
+  const scaledMarginLR = Math.round(50 * assScaleFactor);  // wider margins for centered look
 
-  // Build subtitle style
-  // - White text with dark outline for readability on any background
-  // - BorderStyle=4 gives a semi-transparent background box (nice on vertical)
-  // - BorderStyle=1 gives outline only (cleaner on landscape)
-  const borderStyle = isVertical ? 4 : 1;
-  const backColour = isVertical ? "&H80000000" : "&H00000000"; // semi-transparent bg for vertical
+  console.log("[dub] burning subtitles —", isVertical ? "VERTICAL" : "LANDSCAPE",
+    videoWidth, "x", videoHeight, "bar:", barHeight,
+    "px, desiredPx:", desiredFontPx, "assFontSize:", fontSize, "marginV:", scaledMarginV);
+
+  // Build subtitle style — Premium "Netflix dub" look:
+  // - Clean white text with soft dark outline + subtle shadow
+  // - Semi-transparent dark background box for readability
+  // - BorderStyle=3 (opaque box) with translucent BackColour
+  const backColour = "&H80000000"; // 50% transparent black background box
 
   const subtitleStyle = [
     `FontSize=${fontSize}`,
     `FontName=Arial`,
+    `Bold=0`,
     `PrimaryColour=&H00FFFFFF`,
     `OutlineColour=&H00000000`,
     `BackColour=${backColour}`,
-    `Outline=${outlineSize}`,
-    `Shadow=0`,
-    `MarginV=${marginV}`,
+    `Outline=${scaledOutline}`,
+    `Shadow=${Math.max(1, Math.round(1 * assScaleFactor))}`,
+    `MarginV=${scaledMarginV}`,
     `Alignment=2`,
-    `BorderStyle=${borderStyle}`,
-    `MarginL=40`,
-    `MarginR=40`,
+    `BorderStyle=4`,
+    `MarginL=${scaledMarginLR}`,
+    `MarginR=${scaledMarginLR}`,
+    `Spacing=${Math.max(0, Math.round(0.5 * assScaleFactor))}`,
   ].join(",");
 
   // Combined filter:
@@ -1145,7 +1175,7 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
 
     // [5] Mix audio (narration + original at low volume)
     const finalAudioFile =
-      await dubStep5_MixAudio(projectId, narrationFile, audioFile, keepOriginal, originalVolume, workDir);
+      await dubStep5_MixAudio(projectId, narrationFile, audioFile, keepOriginal, originalVolume, workDir, durationSec);
 
     // [6] Burn captions + replace audio (using SYNCED timestamps)
     const { finalOutputFile, srtFile } =
@@ -1535,21 +1565,30 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
   let baseFontSize, marginV, outlineSize, shadowSize;
   switch (captionStyle) {
     case "centered":
-      baseFontSize = 26; marginV = Math.round(outHeight * 0.30);
+      baseFontSize = 52; marginV = Math.round(outHeight * 0.30);
       outlineSize = 3; shadowSize = 2; break;
     case "karaoke":
-      baseFontSize = 22; marginV = Math.round(outHeight * 0.15);
+      baseFontSize = 44; marginV = Math.round(outHeight * 0.15);
       outlineSize = 2; shadowSize = 1; break;
     case "block":
-      baseFontSize = 20; marginV = Math.round(outHeight * 0.06);
+      baseFontSize = 40; marginV = Math.round(outHeight * 0.06);
       outlineSize = 2; shadowSize = 1; break;
     default:
-      baseFontSize = 22; marginV = Math.round(outHeight * 0.15);
+      baseFontSize = 44; marginV = Math.round(outHeight * 0.15);
       outlineSize = 2; shadowSize = 1;
   }
 
-  const finalFontSize = clamp(Math.round(baseFontSize * fontScale), 10, 30);
-  console.log("[shorts] captions:", captionStyle, "fontSize:", finalFontSize, "marginV:", marginV);
+  const finalFontSize = clamp(Math.round(baseFontSize * fontScale), 18, 60);
+
+  // Scale for ASS engine: FontSize is relative to PlayResY (384px), not actual video height
+  const shortsAssScale = outHeight / 384;
+  const scaledShortsFontSize = Math.round(finalFontSize * shortsAssScale);
+  const scaledShortsMarginV = Math.round(marginV * shortsAssScale);
+  const scaledShortsOutline = Math.max(1, Math.round(outlineSize * shortsAssScale));
+  const scaledShortsShadow = Math.max(1, Math.round(shadowSize * shortsAssScale));
+  const scaledShortsMarginLR = Math.round(60 * shortsAssScale);
+
+  console.log("[shorts] captions:", captionStyle, "desiredPx:", finalFontSize, "assFontSize:", scaledShortsFontSize, "marginV:", scaledShortsMarginV);
 
   // Audio buffer to prevent last-word cutoff
   const AUDIO_BUFFER = 0.5;
@@ -1595,17 +1634,17 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     if (captionStyle !== "none" && fs.existsSync(srtFile)) {
       // Motiversity-style: outline only, NO background box
       const style = [
-        `FontSize=${finalFontSize}`,
+        `FontSize=${scaledShortsFontSize}`,
         `FontName=Arial`,
         `Bold=1`,
         `PrimaryColour=&H00FFFFFF`,
         `OutlineColour=&H00000000`,
         `BackColour=&H00000000`,
-        `Outline=${outlineSize}`,
-        `Shadow=${shadowSize}`,
-        `MarginV=${marginV}`,
-        `MarginL=60`,
-        `MarginR=60`,
+        `Outline=${scaledShortsOutline}`,
+        `Shadow=${scaledShortsShadow}`,
+        `MarginV=${scaledShortsMarginV}`,
+        `MarginL=${scaledShortsMarginLR}`,
+        `MarginR=${scaledShortsMarginLR}`,
         `Alignment=2`,
         `BorderStyle=1`,
         `Spacing=1`,

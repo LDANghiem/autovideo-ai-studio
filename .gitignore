@@ -18,3 +18,7 @@ out
 
 # misc
 .DS_Store
+
+render-worker/node_modules
+render-worker/dist
+render-worker/.env

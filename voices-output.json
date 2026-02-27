@@ -1,0 +1,1342 @@
+{
+  "vi": {
+    "code": "vi",
+    "name": "Vietnamese",
+    "flag": "🇻🇳",
+    "voices": [
+      {
+        "id": "DvG3I1kDzdBY3u4EzYh6",
+        "name": "Ngân Nguyễn",
+        "gender": "Female"
+      },
+      {
+        "id": "0ggMuQ1r9f9jqBu50nJn",
+        "name": "Thảm",
+        "gender": "Female"
+      },
+      {
+        "id": "N0Z0aL8qHhzwUHwRBcVo",
+        "name": "Thanh",
+        "gender": "Female"
+      },
+      {
+        "id": "DVQIYWzpAqd5qcoIlirg",
+        "name": "Duyên",
+        "gender": "Female"
+      },
+      {
+        "id": "jdlxsPOZOHdGEfcItXVu",
+        "name": "Hiền",
+        "gender": "Female"
+      },
+      {
+        "id": "ArosID24mP18TEiQpNhs",
+        "name": "Trang",
+        "gender": "Female"
+      },
+      {
+        "id": "UsgbMVmY3U59ijwK5mdh",
+        "name": "Triệu Dương",
+        "gender": "Male"
+      },
+      {
+        "id": "ywBZEqUhld86Jeajq94o",
+        "name": "Anh",
+        "gender": "Male"
+      },
+      {
+        "id": "kPNz4WRTiKDplS7jAwHu",
+        "name": "Trấn Thành",
+        "gender": "Male"
+      },
+      {
+        "id": "ipTvfDXAg1zowfF1rv9w",
+        "name": "Hoàng Đăng",
+        "gender": "Male"
+      },
+      {
+        "id": "6adFm46eyy74snVn6YrT",
+        "name": "Nhật",
+        "gender": "Male"
+      },
+      {
+        "id": "3VnrjnYrskPMDsapTr8X",
+        "name": "Tùng",
+        "gender": "Male"
+      }
+    ],
+    "totalFound": 12
+  },
+  "en": {
+    "code": "en",
+    "name": "English",
+    "flag": "🇺🇸",
+    "voices": [
+      {
+        "id": "ZF6FPAbjXT4488VcRRnw",
+        "name": "Amelia - Enthusiastic and Expressive",
+        "gender": "female",
+        "accent": "british",
+        "age": "young",
+        "description": "upbeat",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 25782993529
+      },
+      {
+        "id": "kPzsL2i3teMYv0FxEYQ6",
+        "name": "Brittney - Social Media Voice - Fun, Youthful & Informative",
+        "gender": "female",
+        "accent": "american",
+        "age": "young",
+        "description": "upbeat",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 9660422416
+      },
+      {
+        "id": "tnSpp4vdxKPjI9w0GnoV",
+        "name": "Hope - upbeat and clear",
+        "gender": "female",
+        "accent": "american",
+        "age": "young",
+        "description": "upbeat",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 6953958852
+      },
+      {
+        "id": "UgBBYS2sOqTuMpoF3BR0",
+        "name": "Mark - Natural Conversations",
+        "gender": "male",
+        "accent": "american",
+        "age": "young",
+        "description": "casual",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 8715042301
+      },
+      {
+        "id": "1SM7GgM6IMuvQlz2BwM3",
+        "name": "Mark - Casual, Relaxed and Light",
+        "gender": "male",
+        "accent": "american",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 7278233202
+      },
+      {
+        "id": "j9jfwdrw7BRfcR43Qohk",
+        "name": "Frederick Surrey - Smooth and Velvety",
+        "gender": "male",
+        "accent": "british",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 5775014800
+      }
+    ],
+    "totalFound": 50
+  },
+  "es": {
+    "code": "es",
+    "name": "Spanish",
+    "flag": "🇪🇸",
+    "voices": [
+      {
+        "id": "CaJslL1xziwefCeTNzHv",
+        "name": "Cristina Campos - Friendly and Soft",
+        "gender": "female",
+        "accent": "latin american",
+        "age": "young",
+        "description": "casual",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 11252940044
+      },
+      {
+        "id": "kcQkGnn0HAT2JRDQ4Ljp",
+        "name": "Norah - Warm, Friendly and Clear",
+        "gender": "female",
+        "accent": "latin american",
+        "age": "young",
+        "description": "professional",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 10364299936
+      },
+      {
+        "id": "qHkrJuifPpn95wK3rm2A",
+        "name": "Andrea - Polite, Cheerful and Calm",
+        "gender": "female",
+        "accent": "latin american",
+        "age": "young",
+        "description": "casual",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 3594685147
+      },
+      {
+        "id": "dlGxemPxFMTY7iXagmOj",
+        "name": "Fernando Martínez - Rapid, Persuasive",
+        "gender": "male",
+        "accent": "latin american",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 8151975437
+      },
+      {
+        "id": "l1zE9xgNpUTaQCZzpNJa",
+        "name": "Alberto Rodríguez - Serious, Narrative",
+        "gender": "male",
+        "accent": "latin american",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 4754096584
+      },
+      {
+        "id": "9F4C8ztpNUmXkdDDbz3J",
+        "name": "Dan - Upbeat, Dynamic and Friendly",
+        "gender": "male",
+        "accent": "american",
+        "age": "young",
+        "description": "excited",
+        "use_case": "social_media",
+        "category": "professional",
+        "usage": 3728480301
+      }
+    ],
+    "totalFound": 50
+  },
+  "fr": {
+    "code": "fr",
+    "name": "French",
+    "flag": "🇫🇷",
+    "voices": [
+      {
+        "id": "McVZB9hVxVSk3Equu8EH",
+        "name": "Audrey - Energetic Commercial",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "professional",
+        "use_case": "advertisement",
+        "category": "high_quality",
+        "usage": 1527969391
+      },
+      {
+        "id": "6vTyAgAT8PncODBcLjRf",
+        "name": "Claire - Warm, Pretty and Charming",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 1441797016
+      },
+      {
+        "id": "txtf1EDouKke753vN8SL",
+        "name": "Jeanne - Narrator",
+        "gender": "female",
+        "accent": "parisian",
+        "age": "young",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 771276139
+      },
+      {
+        "id": "aQROLel5sQbj1vuIVi6B",
+        "name": "Nicolas - Narrator",
+        "gender": "male",
+        "accent": "parisian",
+        "age": "middle_aged",
+        "description": "professional",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 3635478379
+      },
+      {
+        "id": "NyxenPOqNyllHIzSoPbJ",
+        "name": "Theo - Warm and Young",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "gentle",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 2661214901
+      },
+      {
+        "id": "ohItIVrXTBI80RrUECOD",
+        "name": "Guillaume - Narrator",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 673846703
+      }
+    ],
+    "totalFound": 50
+  },
+  "pt": {
+    "code": "pt",
+    "name": "Portuguese",
+    "flag": "🇧🇷",
+    "voices": [
+      {
+        "id": "33B4UnXyTNbgLmdEDh5P",
+        "name": "Keren - Sweet, Vibrant and Rhythmic",
+        "gender": "female",
+        "accent": "brazilian",
+        "age": "young",
+        "description": "excited",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 2813076491
+      },
+      {
+        "id": "MZxV5lN3cv7hi1376O0m",
+        "name": "Ana Dias - Engaging, Smooth and Forceful",
+        "gender": "female",
+        "accent": "brazilian",
+        "age": "young",
+        "description": "formal",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 370980605
+      },
+      {
+        "id": "r2fkFV8WAqXq2AqBpgJT",
+        "name": "Amandoca - Fun, Breathy and Vibrant",
+        "gender": "female",
+        "accent": "brazilian",
+        "age": "middle_aged",
+        "description": "excited",
+        "use_case": "social_media",
+        "category": "professional",
+        "usage": 271253770
+      },
+      {
+        "id": "WFSxKvz27RguNRD3Phoq",
+        "name": "Wesley Bessa - Diplomatic and Cold",
+        "gender": "male",
+        "accent": "brazilian",
+        "age": "young",
+        "description": "Wesley Bessa  - A relaxed and confident voice. Good for narration or characters. ",
+        "use_case": "characters_animation",
+        "category": "professional",
+        "usage": 871399178
+      },
+      {
+        "id": "NGS0ZsC7j4t4dCWbPdgO",
+        "name": "Dhyogo Azevedo - Energetic and Confident",
+        "gender": "male",
+        "accent": "",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "",
+        "category": "professional",
+        "usage": 815142014
+      },
+      {
+        "id": "CstacWqMhJQlnfLPxRG4",
+        "name": "Will - Deep, Smooth and Affectionate",
+        "gender": "male",
+        "accent": "brazilian",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 485742845
+      }
+    ],
+    "totalFound": 50
+  },
+  "de": {
+    "code": "de",
+    "name": "German",
+    "flag": "🇩🇪",
+    "voices": [
+      {
+        "id": "v3V1d2rk6528UrLKRuy8",
+        "name": "Susi - Effortless and Confident",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 5029769240
+      },
+      {
+        "id": "7eVMgwCnXydb3CikjV7a",
+        "name": "Lea - Clear and Feminine",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1191571583
+      },
+      {
+        "id": "K75lPKuh15SyVhQC1LrE",
+        "name": "Carola - Sharp and Clear",
+        "gender": "female",
+        "accent": "",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "informative_educational",
+        "category": "professional",
+        "usage": 1163034941
+      },
+      {
+        "id": "FTNCalFNG5bRnkkaP5Ug",
+        "name": "Otto - Casual and Normal",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1337013277
+      },
+      {
+        "id": "r8MyP4qUsq5WFFSkPdfV",
+        "name": "Johannes - Clear and Neutral",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "neutral",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 901379922
+      },
+      {
+        "id": "bAFkvitDGeDMmqo9gJzO",
+        "name": "Niander Wallace ",
+        "gender": "male",
+        "accent": "german",
+        "age": "middle_aged",
+        "description": "a mature, male voice with a lot of depth and a desire to play with the language",
+        "use_case": "",
+        "category": "professional",
+        "usage": 851206096
+      }
+    ],
+    "totalFound": 50
+  },
+  "it": {
+    "code": "it",
+    "name": "Italian",
+    "flag": "🇮🇹",
+    "voices": [
+      {
+        "id": "gfKKsLN1k0oYYN9n2dXX",
+        "name": "Violetta - Ringing, Bright and Joyful",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "professional",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 335859804
+      },
+      {
+        "id": "3DPhHWXDY263XJ1d2EPN",
+        "name": "Linda Fiore - Prickly, Cheerful and Full",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "gentle",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 263121047
+      },
+      {
+        "id": "fQmr8dTaOQq116mo2X7F",
+        "name": "Samanta - Reassuring, Warm and Deep",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 244847746
+      },
+      {
+        "id": "W71zT1VwIFFx3mMGH2uZ",
+        "name": "MarcoTrox - Warm, Balanced and Polished",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "intense",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1641368979
+      },
+      {
+        "id": "fzDFBB4mgvMlL36gPXcz",
+        "name": "Giovanni Rossi - Deep and Sympathetic",
+        "gender": "male",
+        "accent": "standard",
+        "age": "young",
+        "description": "serious",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1070464567
+      },
+      {
+        "id": "13Cuh3NuYvWOVQtLbRN8",
+        "name": "Marco - Deep, Rich and Reflective",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "classy",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 738945457
+      }
+    ],
+    "totalFound": 50
+  },
+  "zh": {
+    "code": "zh",
+    "name": "Chinese",
+    "flag": "🇨🇳",
+    "voices": [
+      {
+        "id": "ByhETIclHirOlWnWKhHc",
+        "name": "Shan Shan - Young Energetic Female",
+        "gender": "female",
+        "accent": "beijing mandarin",
+        "age": "young",
+        "description": "calm",
+        "use_case": "social_media",
+        "category": "professional",
+        "usage": 285209260
+      },
+      {
+        "id": "hkfHEbBvdQFNX4uWHqRF",
+        "name": "Stacy - Young, Sweet and Cute",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "pleasant",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 48983319
+      },
+      {
+        "id": "9lHjugDhwqoxA5MhX0az",
+        "name": "Anna Su - Casual, Friendly and Bright",
+        "gender": "female",
+        "accent": "taiwan mandarin",
+        "age": "young",
+        "description": "casual",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 32307862
+      },
+      {
+        "id": "4VZIsMPtgggwNg7OXbPY",
+        "name": "James Gao - Calm, Friendly and Warm",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 108657368
+      },
+      {
+        "id": "WuLq5z7nEcrhppO0ZQJw",
+        "name": "Martin Li - Raspy, Serious and Deep",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "deep",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 56831140
+      },
+      {
+        "id": "BrbEfHMQu0fyclQR7lfh",
+        "name": "Kevin Tu - Natural, Steady and Calm",
+        "gender": "male",
+        "accent": "taiwan mandarin",
+        "age": "middle_aged",
+        "description": "mature",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 55919049
+      }
+    ],
+    "totalFound": 50
+  },
+  "ja": {
+    "code": "ja",
+    "name": "Japanese",
+    "flag": "🇯🇵",
+    "voices": [
+      {
+        "id": "8EkOjt4xTPGMclNlh1pk",
+        "name": "Morioki - Calm, Measured and Muffled",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "soft",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 459416366
+      },
+      {
+        "id": "RBnMinrYKeccY3vaUxlZ",
+        "name": "Sakura - Narrational",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "calm",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 96130447
+      },
+      {
+        "id": "4lOQ7A2l7HPuG7UIHiKA",
+        "name": "Kyoko - Warm, Clear and Natural",
+        "gender": "female",
+        "accent": "kanto",
+        "age": "young",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 84376497
+      },
+      {
+        "id": "3JDquces8E8bkmvbh6Bc",
+        "name": "Otani - Inviting, Clear and Measured",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 739844975
+      },
+      {
+        "id": "j210dv0vWm7fCknyQpbA",
+        "name": "Hinata - Inviting, Smooth and Measured",
+        "gender": "male",
+        "accent": "standard",
+        "age": "young",
+        "description": "confident",
+        "use_case": "entertainment_tv",
+        "category": "high_quality",
+        "usage": 222079431
+      },
+      {
+        "id": "Mv8AjrYZCBkdsmDHNwcB",
+        "name": "Ishibashi - Inviting, Natural and Smoky",
+        "gender": "male",
+        "accent": "kanto",
+        "age": "young",
+        "description": "deep",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 125116168
+      }
+    ],
+    "totalFound": 50
+  },
+  "ko": {
+    "code": "ko",
+    "name": "Korean",
+    "flag": "🇰🇷",
+    "voices": [
+      {
+        "id": "uyVNoMrnUku1dZyVEXwD",
+        "name": "Anna Kim - Tender, Calm and Clear",
+        "gender": "female",
+        "accent": "seoul",
+        "age": "young",
+        "description": "formal",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 874233749
+      },
+      {
+        "id": "z6Kj0hecH20CdetSElRT",
+        "name": "Jennie - Narrational",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 340545641
+      },
+      {
+        "id": "ksaI0TCD9BstzEzlxj4q",
+        "name": "Seulki - Inviting, Calm and Measured",
+        "gender": "female",
+        "accent": "seoul",
+        "age": "middle_aged",
+        "description": "mature",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 237118202
+      },
+      {
+        "id": "ZJCNdZEjYwkOElxugmW2",
+        "name": "Hyuk - Cold and Clear",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "relaxed",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1774646016
+      },
+      {
+        "id": "jB1Cifc2UQbq1gR3wnb0",
+        "name": "Bin - Measured and Serious",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "relaxed",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 549380863
+      },
+      {
+        "id": "PDoCXqBQFGsvfO0hNkEs",
+        "name": "Chris - Warm and Clear",
+        "gender": "male",
+        "accent": "seoul",
+        "age": "young",
+        "description": "casual",
+        "use_case": "informative_educational",
+        "category": "professional",
+        "usage": 389465900
+      }
+    ],
+    "totalFound": 49
+  },
+  "hi": {
+    "code": "hi",
+    "name": "Hindi",
+    "flag": "🇮🇳",
+    "voices": [
+      {
+        "id": "KYiVPerWcenyBTIvWbfY",
+        "name": "Sia - Friendly, Helpful and Reassuring",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "pleasant",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 5533826553
+      },
+      {
+        "id": "gHu9GtaHOXcSqFTK06ux",
+        "name": "Anjali - Warm, Cheerful and Clear",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "soft",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 4643061735
+      },
+      {
+        "id": "2bNrEsM0omyhLiEyOwqY",
+        "name": "Monika Sogam - Friendly and Reassuring",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "pleasant",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 2067114255
+      },
+      {
+        "id": "zT03pEAEi0VHKciJODfn",
+        "name": "Raju - Clear, Natural and Warm",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "modulated",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 2749561391
+      },
+      {
+        "id": "zgqefOY5FPQ3bB7OZTVR",
+        "name": "Niraj - Romantic and Smooth",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "deep",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 1378001513
+      },
+      {
+        "id": "iWNf11sz1GrUE4ppxTOL",
+        "name": "Viraj - Warm, Energetic and Lively",
+        "gender": "male",
+        "accent": "standard",
+        "age": "young",
+        "description": "formal",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 879903892
+      }
+    ],
+    "totalFound": 50
+  },
+  "ar": {
+    "code": "ar",
+    "name": "Arabic",
+    "flag": "🇸🇦",
+    "voices": [
+      {
+        "id": "u0TsaWvt0v8migutHM3M",
+        "name": "Ghizlane - Smooth, Distinctive and Calm",
+        "gender": "female",
+        "accent": "modern standard",
+        "age": "middle_aged",
+        "description": "GHIZLANE - A smooth, balanced, and tranquil female voice, perfectly suited for podcasts, YouTube content, and news broadcasts. Its clear and pristine quality is paired with an exceptional ability to communicate information with precision and professionalism. Versatile for a diverse range of content, including educational, news, and entertainment, this voice brings a calming, refined touch to any Arabic audio endeavor.",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 219692799
+      },
+      {
+        "id": "mRdG9GYEjJmIzqbYTidv",
+        "name": "Sana - Calm, Soft and Honest",
+        "gender": "female",
+        "accent": "modern standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 161421917
+      },
+      {
+        "id": "a1KZUXKFVFDOb33I1uqr",
+        "name": "Salma - Positive, Professional and Warm",
+        "gender": "female",
+        "accent": "levantine",
+        "age": "young",
+        "description": "pleasant",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 130302658
+      },
+      {
+        "id": "LXrTqFIgiubkrMkwvOUr",
+        "name": "Masry - Narrative, Clear and Strong",
+        "gender": "male",
+        "accent": "egyptian",
+        "age": "middle_aged",
+        "description": "neutral",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 3055141598
+      },
+      {
+        "id": "A9ATTqUUQ6GHu0coCz8t",
+        "name": "Hamid - Friendly, Natural and Positive",
+        "gender": "male",
+        "accent": "moroccan",
+        "age": "young",
+        "description": "pleasant",
+        "use_case": "entertainment_tv",
+        "category": "high_quality",
+        "usage": 802223458
+      },
+      {
+        "id": "JjTirzdD7T3GMLkwdd3a",
+        "name": "Hamida - Professional and Positive",
+        "gender": "male",
+        "accent": "modern standard",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "entertainment_tv",
+        "category": "professional",
+        "usage": 386348007
+      }
+    ],
+    "totalFound": 50
+  },
+  "ru": {
+    "code": "ru",
+    "name": "Russian",
+    "flag": "🇷🇺",
+    "voices": [
+      {
+        "id": "ymDCYd8puC7gYjxIamPt",
+        "name": "Marina - Soft, Clear and Warm",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 422100514
+      },
+      {
+        "id": "EDpEYNf6XIeKYRzYcx4I",
+        "name": "Mariia - Measured, Calm and Engaging",
+        "gender": "female",
+        "accent": "moscow",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 382644809
+      },
+      {
+        "id": "AB9XsbSA4eLG12t2myjN",
+        "name": "Larisa Actrisa - Confident and Clear",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "upbeat",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 281869828
+      },
+      {
+        "id": "gJEfHTTiifXEDmO687lC",
+        "name": "Prince Nur - Deep, Rich and Balanced",
+        "gender": "male",
+        "accent": "standard",
+        "age": "young",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 2600359918
+      },
+      {
+        "id": "3EuKHIEZbSzrHGNmdYsx",
+        "name": "Nikolay - Confident, Clear and Engaging",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "social_media",
+        "category": "professional",
+        "usage": 2382594896
+      },
+      {
+        "id": "txnCCHHGKmYIwrn7HfHQ",
+        "name": "Alexandr Vlasov - Vibrant and Energetic",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "deep",
+        "use_case": "entertainment_tv",
+        "category": "professional",
+        "usage": 910796705
+      }
+    ],
+    "totalFound": 50
+  },
+  "th": {
+    "code": "th",
+    "name": "Thai",
+    "flag": "🇹🇭",
+    "voices": [],
+    "totalFound": 0
+  },
+  "id": {
+    "code": "id",
+    "name": "Indonesian",
+    "flag": "🇮🇩",
+    "voices": [
+      {
+        "id": "iWydkXKoiVtvdn4vLKp9",
+        "name": "Cahaya - Youthful, Clear and Engaging",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "cute",
+        "use_case": "social_media",
+        "category": "professional",
+        "usage": 431865276
+      },
+      {
+        "id": "I7sakys8pBZ1Z5f0UhT9",
+        "name": "Putri Maharani - Neutral and WItty",
+        "gender": "female",
+        "accent": "javanese",
+        "age": "middle_aged",
+        "description": "cute",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 253536490
+      },
+      {
+        "id": "gmnazjXOFoOcWA59sd5m",
+        "name": "Kira - Youthful, Clear and Friendly",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 164957813
+      },
+      {
+        "id": "X8n8hOy3e8VLQnHTUcc5",
+        "name": "Bram - Warm, Expressive and Welcoming",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 11268776669
+      },
+      {
+        "id": "RWiGLY9uXI70QL540WNd",
+        "name": "Putra - Smooth, Clear and Engaging",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "excited",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 940726180
+      },
+      {
+        "id": "TMvmhlKUioQA4U7LOoko",
+        "name": "Andi - Clear, Friendly and Calm",
+        "gender": "male",
+        "accent": "standard",
+        "age": "young",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 862738943
+      }
+    ],
+    "totalFound": 50
+  },
+  "tl": {
+    "code": "tl",
+    "name": "Filipino",
+    "flag": "🇵🇭",
+    "voices": [],
+    "totalFound": 0
+  },
+  "pl": {
+    "code": "pl",
+    "name": "Polish",
+    "flag": "🇵🇱",
+    "voices": [
+      {
+        "id": "N0GCuK2B0qwWozQNTS8F",
+        "name": "Magdalena - Mighty and Calm Wordsmith",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "classy",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 188856650
+      },
+      {
+        "id": "W0sqKm1Sfw1EzlCH14FQ",
+        "name": "Beata - Stoic and Kind Philosopher",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "gentle",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 104470596
+      },
+      {
+        "id": "OOTZSkkPGHD1csczSCmT",
+        "name": "Lena Suzuki - Gentle and Meditative",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "gentle",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 72275979
+      },
+      {
+        "id": "hIssydxXZ1WuDorjx6Ic",
+        "name": "Adam - Serious, Rich, and Smoky",
+        "gender": "male",
+        "accent": "mazovian",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 2630086056
+      },
+      {
+        "id": "W3ryZpL8gFeUBUllKisa",
+        "name": "Maciej - Rich, Moody and Deep",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "deep",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 772546326
+      },
+      {
+        "id": "H5xTcsAIeS5RAykjz57a",
+        "name": "Alex - Warm Storyteller",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "classy",
+        "use_case": "informative_educational",
+        "category": "high_quality",
+        "usage": 623342014
+      }
+    ],
+    "totalFound": 50
+  },
+  "nl": {
+    "code": "nl",
+    "name": "Dutch",
+    "flag": "🇳🇱",
+    "voices": [
+      {
+        "id": "SXBL9NbvTrjsJQYay2kT",
+        "name": "Melanie - Engaging, Authentic Narrator",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 309904706
+      },
+      {
+        "id": "YUdpWWny7k5yb4QCeweX",
+        "name": "Ruth - Warm and Dynamic Narrator",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "professional",
+        "use_case": "informative_educational",
+        "category": "high_quality",
+        "usage": 123622807
+      },
+      {
+        "id": "ANHrhmaFeVN0QJaa0PhL",
+        "name": "Petra Vlaams - Energetic, Warm and Clear",
+        "gender": "female",
+        "accent": "flemish",
+        "age": "young",
+        "description": "casual",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 82773347
+      },
+      {
+        "id": "AVIlLDn2TVmdaDycgbo3",
+        "name": "Eric Sijbesma - Natural and Authentic",
+        "gender": "male",
+        "accent": "",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "conversational",
+        "category": "professional",
+        "usage": 119578073
+      },
+      {
+        "id": "UNBIyLbtFB9k7FKW8wJv",
+        "name": "Serge de Beer - Professional Narrator",
+        "gender": "male",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "informative_educational",
+        "category": "professional",
+        "usage": 108695176
+      },
+      {
+        "id": "s7Z6uboUuE4Nd8Q2nye6",
+        "name": "Hans Claesen - Professional Narrator",
+        "gender": "male",
+        "accent": "flemish",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 86945785
+      }
+    ],
+    "totalFound": 49
+  },
+  "tr": {
+    "code": "tr",
+    "name": "Turkish",
+    "flag": "🇹🇷",
+    "voices": [
+      {
+        "id": "KbaseEXyT9EE0CQLEfbB",
+        "name": "Belma - Dynamic and Clear Narrator",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "casual",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 252361415
+      },
+      {
+        "id": "PdYVUd1CAGSXsTvZZTNn",
+        "name": "Mia - Clear, Steady and Warm",
+        "gender": "female",
+        "accent": "standard",
+        "age": "middle_aged",
+        "description": "professional",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 213193311
+      },
+      {
+        "id": "EJGs6dWlD5VrB3llhBqB",
+        "name": "Cicek - Joyful and Dynamic Storyteller",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "casual",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 174679910
+      },
+      {
+        "id": "IuRRIAcbQK5AQk1XevPj",
+        "name": "Doga - Upbeat and Rich",
+        "gender": "male",
+        "accent": "istanbul",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 606300375
+      },
+      {
+        "id": "7VqWGAWwo2HMrylfKrcm",
+        "name": "Fatih Yıldırım - Deep, Clear and Rich",
+        "gender": "male",
+        "accent": "istanbul",
+        "age": "middle_aged",
+        "description": "casual",
+        "use_case": "social_media",
+        "category": "high_quality",
+        "usage": 271985883
+      },
+      {
+        "id": "J17lijyP1BHYcM7ld0Rg",
+        "name": "Adam - Deep, Professional and Serious",
+        "gender": "male",
+        "accent": "istanbul",
+        "age": "middle_aged",
+        "description": "deep",
+        "use_case": "informative_educational",
+        "category": "professional",
+        "usage": 179843481
+      }
+    ],
+    "totalFound": 50
+  },
+  "sv": {
+    "code": "sv",
+    "name": "Swedish",
+    "flag": "🇸🇪",
+    "voices": [
+      {
+        "id": "aSLKtNoVBZlxQEMsnGL2",
+        "name": "Sanna Hartfield - Calm and Soothing",
+        "gender": "female",
+        "accent": "stockholm",
+        "age": "middle_aged",
+        "description": "calm",
+        "use_case": "narrative_story",
+        "category": "high_quality",
+        "usage": 212773846
+      },
+      {
+        "id": "4xkUqaR9MYOJHoaC1Nak",
+        "name": "Sanna Hartfield - Direct and Natural",
+        "gender": "female",
+        "accent": "stockholm",
+        "age": "middle_aged",
+        "description": "modulated",
+        "use_case": "conversational",
+        "category": "high_quality",
+        "usage": 136381036
+      },
+      {
+        "id": "4Ct5uMEndw4cJ7q0Jx0l",
+        "name": "Elin - Neutral and Clear",
+        "gender": "female",
+        "accent": "standard",
+        "age": "young",
+        "description": "neutral",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 43869805
+      },
+      {
+        "id": "x0u3EW21dbrORJzOq1m9",
+        "name": "Adam Composer - Resonant and Smooth",
+        "gender": "male",
+        "accent": "stockholm",
+        "age": "middle_aged",
+        "description": "confident",
+        "use_case": "narrative_story",
+        "category": "professional",
+        "usage": 85256889
+      },
+      {
+        "id": "6eknYWL7D5Z4nRkDy15t",
+        "name": "Tommy Thunstroem - Warm and Informative",
+        "gender": "male",
+        "accent": "stockholm",
+        "age": "middle_aged",
+        "description": "professional",
+        "use_case": "informative_educational",
+        "category": "professional",
+        "usage": 26929725
+      },
+      {
+        "id": "e6OiUVixGLmvtdn2GJYE",
+        "name": "Jonas - Calm and Informative",
+        "gender": "male",
+        "accent": "",
+        "age": "middle_aged",
+        "description": "upbeat",
+        "use_case": "advertisement",
+        "category": "high_quality",
+        "usage": 26026140
+      }
+    ],
+    "totalFound": 50
+  }
+}

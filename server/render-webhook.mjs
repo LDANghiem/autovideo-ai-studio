@@ -1445,11 +1445,13 @@ STRICT DURATION RULES (NON-NEGOTIABLE):
 5. start_time / end_time are SECONDS (numbers).
 6. No overlapping clips.
 7. Clips must END at a natural sentence boundary — NEVER mid-word or mid-sentence.
+8. CRITICAL: Set end_time 2 seconds AFTER the last word finishes speaking. This prevents audio cutoff.
+9. start_time should begin 1-2 seconds BEFORE the speaker starts (breathing room).
 
 CONTENT RULES:
 - Strong hook in first 3 seconds
 - Emotional peaks, surprising statements, quotable moments
-- Must work as standalone content
+- Must work as standalone content — each clip must feel COMPLETE, not a fragment
 
 Return ONLY a JSON array:
 [{"index":1,"title":"...","description":"...","start_time":<sec>,"end_time":<sec>,"hook_score":<0-100>,"reason":"..."}]
@@ -1590,8 +1592,19 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
   console.log("[shorts] captions:", captionStyle, "desiredPx:", finalFontSize, "assFontSize:", scaledShortsFontSize, "marginV:", scaledShortsMarginV);
 
-  // Audio buffer to prevent last-word cutoff
-  const AUDIO_BUFFER = 0.5;
+  // ═══════════════════════════════════════════════════════════
+  // SMART AUDIO BUFFER v3 — Two-layer approach:
+  //   Layer 1: Use Whisper SEGMENTS to find sentence boundaries
+  //            (segments are aligned to natural speech boundaries)
+  //   Layer 2: Use Whisper WORDS to find the precise end timestamp
+  //            of the last word in that segment
+  //
+  // This avoids the false-boundary problem where individual words
+  // like "the" or "But" were detected as sentence endings.
+  // ═══════════════════════════════════════════════════════════
+  const POST_SENTENCE_PAD = 2.5;  // 2.5s silence after last sentence ends
+  const FADE_OUT_DURATION = 1.0;  // 1s gentle audio fade-out at clip end
+  const PRE_START_PAD = 1.0;      // 1s before clip start for breathing room
 
   const processedClips = [];
 
@@ -1603,19 +1616,90 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     const pctBase = 45 + Math.round((i / clips.length) * 40);
     await updateShortsStatus(projectId, "clipping", pctBase);
 
-    const ffmpegDuration = clip.duration + AUDIO_BUFFER;
-    console.log(`[shorts] clip #${clip.index}: ${clip.start_time}→${clip.end_time}s (${clip.duration}s +${AUDIO_BUFFER}s buffer)`);
+    // ── Smart end-time v3: segment-based sentence boundary + word-level precision ──
+    //
+    // Step 1: Find the last Whisper SEGMENT that overlaps or starts near clip.end_time
+    //         Segments are natural sentence boundaries (much more reliable than word gaps)
+    // Step 2: Use word timestamps to find the precise end of that segment's last word
+    // Step 3: Add generous padding for silence after speech
+    //
+    // This ensures we always capture the complete final sentence.
+
+    let smartEndTime = clip.end_time + 3.0; // Minimum: 3s past GPT's end_time
+
+    // --- Layer 1: Find the segment that contains or follows clip.end_time ---
+    const overlappingSegs = segments.filter(
+      (seg) => seg.start < (clip.end_time + 6) && seg.end > (clip.end_time - 3)
+    );
+
+    let targetSegEnd = clip.end_time;
+    if (overlappingSegs.length > 0) {
+      // Find the segment that the speech is "in the middle of" at clip.end_time
+      // This is the one we need to let finish
+      const activeAtEnd = overlappingSegs.find(
+        (seg) => seg.start <= clip.end_time && seg.end > clip.end_time
+      );
+
+      if (activeAtEnd) {
+        // Speech is ongoing at clip.end_time — extend to end of this segment
+        targetSegEnd = activeAtEnd.end;
+        console.log(`[shorts]   #${clip.index}: active segment ends@${activeAtEnd.end.toFixed(1)}s: "${(activeAtEnd.text || "").trim().slice(-40)}"`);
+      } else {
+        // clip.end_time falls in a gap between segments — check if the next segment starts very soon
+        const nextSeg = overlappingSegs.find((seg) => seg.start > clip.end_time && seg.start < clip.end_time + 2);
+        if (nextSeg) {
+          // A segment starts within 2s — might be the continuation, include it
+          targetSegEnd = nextSeg.end;
+          console.log(`[shorts]   #${clip.index}: next segment (${nextSeg.start.toFixed(1)}→${nextSeg.end.toFixed(1)}s): "${(nextSeg.text || "").trim().slice(-40)}"`);
+        }
+      }
+    }
+
+    // --- Layer 2: Use word timestamps for precise end of the target segment ---
+    if (Array.isArray(words) && words.length > 0) {
+      // Find the last word that falls within the target segment
+      const segWords = words.filter(
+        (w) => w.start >= (clip.start_time - 1) && w.start < (targetSegEnd + 1)
+      );
+      if (segWords.length > 0) {
+        const lastWord = segWords[segWords.length - 1];
+        const preciseEnd = lastWord.end || (lastWord.start + 0.5);
+        // Use the later of: segment end or last word end (Whisper sometimes disagrees)
+        targetSegEnd = Math.max(targetSegEnd, preciseEnd);
+        console.log(`[shorts]   #${clip.index}: lastWord="${(lastWord.word || "").trim()}" preciseEnd=${preciseEnd.toFixed(2)}s`);
+      }
+    }
+
+    // --- Final smartEndTime: target segment end + generous padding ---
+    smartEndTime = Math.max(smartEndTime, targetSegEnd + POST_SENTENCE_PAD);
+
+    // --- Hard cap: Don't let the total clip (including padding) exceed max duration + tolerance ---
+    const MAX_TOTAL_DURATION = (clip.duration || 60) + 8; // clip.duration from GPT + 8s max extension
+    const ffmpegStartRaw = Math.max(0, clip.start_time - PRE_START_PAD);
+    if ((smartEndTime - ffmpegStartRaw) > MAX_TOTAL_DURATION) {
+      smartEndTime = ffmpegStartRaw + MAX_TOTAL_DURATION;
+      console.log(`[shorts]   #${clip.index}: CAPPED total duration to ${MAX_TOTAL_DURATION.toFixed(0)}s`);
+    }
+
+    console.log(`[shorts]   #${clip.index}: GPT=${clip.end_time}s → segEnd=${targetSegEnd.toFixed(1)}s → smartEnd=${smartEndTime.toFixed(1)}s (+${POST_SENTENCE_PAD}s pad)`);
+
+    // Calculate actual duration for FFmpeg
+    const ffmpegStart = ffmpegStartRaw;
+    const ffmpegDuration = smartEndTime - ffmpegStart;
+
+    console.log(`[shorts] clip #${clip.index}: ${ffmpegStart.toFixed(2)}→${smartEndTime.toFixed(2)}s (${ffmpegDuration.toFixed(1)}s total)`);
 
     // Generate SRT with UPPERCASE text
     if (captionStyle !== "none") {
       let srtContent = "";
       let idx = 1;
 
-      const clipSegs = segments.filter((seg) => seg.end > clip.start_time && seg.start < clip.end_time);
+      // Include segments that overlap the full smart range
+      const clipSegs = segments.filter((seg) => seg.end > ffmpegStart && seg.start < smartEndTime);
 
       for (const seg of clipSegs) {
-        const relStart = Math.max(0, seg.start - clip.start_time);
-        const relEnd = Math.min(clip.duration + AUDIO_BUFFER, seg.end - clip.start_time);
+        const relStart = Math.max(0, seg.start - ffmpegStart);
+        const relEnd = Math.min(ffmpegDuration, seg.end - ffmpegStart);
         const rawText = (seg.text || "").trim();
 
         if (rawText && relEnd > relStart) {
@@ -1628,10 +1712,33 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     }
 
     // Build filter chain
-    const escapedSrt = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+    // Step 1: Crop to 9:16 and scale to 1080x1920
+    // Step 2: Draw black bar at bottom to COVER original hardcoded captions
+    // Step 3: Burn our styled captions on top
+
+    // Black bar covers bottom 12% of video (where original subs usually sit)
+    const barHeight = Math.round(outHeight * 0.12); // ~230px on 1920h
+
     let filter = `crop=${cropW}:${cropH}:${cropX}:0,scale=${outWidth}:${outHeight}:flags=lanczos`;
+    filter += `,drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill`;
 
     if (captionStyle !== "none" && fs.existsSync(srtFile)) {
+      // Windows FFmpeg subtitle path fix:
+      // The subtitles filter on Windows requires very specific path escaping.
+      let srtPath;
+
+      if (process.platform === "win32") {
+        // Convert to forward slashes: C:\Users\... → C:/Users/...
+        srtPath = srtFile.replace(/\\/g, "/");
+        // Escape ALL colons: C:/Users → C\\:/Users
+        srtPath = srtPath.replace(/:/g, "\\\\:");
+      } else {
+        srtPath = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+      }
+
+      console.log(`[shorts]   #${clip.index}: SRT path: ${srtPath}`);
+      console.log(`[shorts]   #${clip.index}: SRT exists: ${fs.existsSync(srtFile)}, size: ${fs.statSync(srtFile).size} bytes`);
+
       // Motiversity-style: outline only, NO background box
       const style = [
         `FontSize=${scaledShortsFontSize}`,
@@ -1650,19 +1757,49 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
         `Spacing=1`,
       ].join(",");
 
-      filter += `,subtitles='${escapedSrt}':force_style='${style}'`;
+      filter += `,subtitles='${srtPath}':force_style='${style}'`;
+    } else {
+      console.log(`[shorts]   #${clip.index}: ⚠ NO SRT FILE — captionStyle=${captionStyle}, srtExists=${fs.existsSync(srtFile)}`);
     }
 
     try {
-      await execAsync(
-        `ffmpeg -ss ${clip.start_time} -i "${videoFile}" -t ${ffmpegDuration.toFixed(2)} ` +
+      // Audio fade-out for graceful ending (last FADE_OUT_DURATION seconds)
+      const fadeStart = Math.max(0, ffmpegDuration - FADE_OUT_DURATION);
+      const ffmpegCmd = `ffmpeg -ss ${ffmpegStart.toFixed(2)} -i "${videoFile}" -t ${ffmpegDuration.toFixed(2)} ` +
         `-vf "${filter}" ` +
+        `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=${FADE_OUT_DURATION}" ` +
         `-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k ` +
-        `-movflags +faststart -y "${clipFile}"`
-      );
+        `-movflags +faststart -y "${clipFile}"`;
+
+      console.log(`[shorts]   #${clip.index}: FFmpeg filter: ${filter.slice(0, 200)}...`);
+
+      await execAsync(ffmpegCmd);
     } catch (e) {
-      console.warn(`[shorts] ⚠ clip #${clip.index} FFmpeg error:`, e.message);
-      continue;
+      const errMsg = e?.stderr || e?.message || String(e);
+      console.warn(`[shorts] ⚠ clip #${clip.index} FFmpeg error:`, errMsg.slice(0, 500));
+
+      // If subtitle filter failed, retry WITHOUT subtitles
+      if (errMsg.includes("subtitles") || errMsg.includes("Subtitle") || errMsg.includes("srt")) {
+        console.log(`[shorts]   #${clip.index}: retrying WITHOUT subtitles...`);
+        try {
+          const fallbackFilter = `crop=${cropW}:${cropH}:${cropX}:0,scale=${outWidth}:${outHeight}:flags=lanczos` +
+            `,drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill`;
+          const fadeStart2 = Math.max(0, ffmpegDuration - FADE_OUT_DURATION);
+          await execAsync(
+            `ffmpeg -ss ${ffmpegStart.toFixed(2)} -i "${videoFile}" -t ${ffmpegDuration.toFixed(2)} ` +
+            `-vf "${fallbackFilter}" ` +
+            `-af "afade=t=out:st=${fadeStart2.toFixed(2)}:d=${FADE_OUT_DURATION}" ` +
+            `-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k ` +
+            `-movflags +faststart -y "${clipFile}"`
+          );
+          console.log(`[shorts]   #${clip.index}: ✅ fallback (no subs) succeeded`);
+        } catch (e2) {
+          console.warn(`[shorts]   #${clip.index}: fallback also failed:`, e2?.message);
+          continue;
+        }
+      } else {
+        continue;
+      }
     }
 
     if (!fs.existsSync(clipFile)) continue;
@@ -1809,8 +1946,421 @@ app.post("/shorts", async (req, res) => {
 });
 
 
+// ============================================================
+// 🆕 REPURPOSE PIPELINE — "Auto-Repurpose" feature
+// ============================================================
+// Turn one long YouTube video → 3-5 ready-to-post vertical shorts
+// Reuses existing shorts infrastructure + adds enhanced metadata
+// ============================================================
+
+const REPURPOSE_BUCKET = (process.env.REPURPOSE_BUCKET || "repurpose").trim();
+
+async function updateRepurposeStatus(projectId, status, progressPct, extra = {}) {
+  await admin
+    .from("repurpose_projects")
+    .update({
+      status,
+      progress_pct: progressPct,
+      progress_stage: status,
+      updated_at: new Date().toISOString(),
+      ...extra,
+    })
+    .eq("id", projectId);
+  console.log(`[repurpose] status → ${status} (${progressPct}%)`);
+}
+
+/* ── [STEP 1] Download — wrapper that updates repurpose_projects ── */
+async function repurposeStep1_Download(projectId, sourceUrl, workDir) {
+  await updateRepurposeStatus(projectId, "downloading", 5);
+  const videoFile = path.join(workDir, "source-video.mp4");
+  const audioFile = path.join(workDir, "source-audio.mp3");
+  const ytdlp = (await import("youtube-dl-exec")).default;
+
+  console.log("[repurpose] downloading video...");
+  await ytdlp(sourceUrl, {
+    format: "best[height<=720][ext=mp4]/best[height<=720]/best",
+    output: videoFile,
+    noPlaylist: true,
+    noWriteSub: true,
+    noWriteAutoSub: true,
+    noEmbedSubs: true,
+  });
+  if (!fs.existsSync(videoFile)) throw new Error("Video download failed");
+
+  console.log("[repurpose] extracting audio...");
+  await execAsync(`ffmpeg -i "${videoFile}" -q:a 0 -map a -y "${audioFile}"`);
+  if (!fs.existsSync(audioFile)) throw new Error("Audio extraction failed");
+
+  let durationSec = null;
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v error -show_entries format=duration -of csv=p=0 "${videoFile}"`
+    );
+    durationSec = parseFloat(stdout.trim());
+  } catch {}
+
+  let title = null, channel = null, thumbnailUrl = null;
+  try {
+    const info = await ytdlp(sourceUrl, { dumpSingleJson: true, noPlaylist: true });
+    title = info?.title || null;
+    channel = info?.uploader || info?.channel || null;
+    thumbnailUrl = info?.thumbnail || null;
+    durationSec = durationSec || info?.duration || null;
+  } catch {}
+
+  await admin.from("repurpose_projects").update({
+    source_title: title, source_channel: channel,
+    source_thumbnail: thumbnailUrl, source_duration_sec: durationSec,
+  }).eq("id", projectId);
+
+  await updateRepurposeStatus(projectId, "downloading", 10);
+  console.log("[repurpose] ✅ step 1 — dur:", durationSec);
+  return { videoFile, audioFile, durationSec };
+}
+
+/* ── [STEP 2] Transcribe — wrapper that updates repurpose_projects ── */
+async function repurposeStep2_Transcribe(projectId, audioFile) {
+  await updateRepurposeStatus(projectId, "transcribing", 15);
+  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+
+  const audioBuffer = fs.readFileSync(audioFile);
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  const fd = new FormData();
+  fd.append("file", blob, "audio.mp3");
+  fd.append("model", "whisper-1");
+  fd.append("response_format", "verbose_json");
+  fd.append("timestamp_granularities[]", "word");
+  fd.append("timestamp_granularities[]", "segment");
+
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: fd,
+  });
+  if (!res.ok) throw new Error(`Whisper error (${res.status}): ${await res.text()}`);
+
+  const result = await res.json();
+  await admin.from("repurpose_projects").update({ transcript: result.text || "" }).eq("id", projectId);
+
+  console.log("[repurpose] ✅ step 2 — segments:", result.segments?.length);
+  await updateRepurposeStatus(projectId, "transcribing", 25);
+  return { segments: result.segments || [], words: result.words || [] };
+}
+
+/* ── [STEP 3] Enhanced AI viral moment detection + SEO metadata ── */
+/* KEY INSIGHT: Instead of asking GPT to pick raw timestamps (which it     */
+/* does poorly), we give it NUMBERED SEGMENTS and ask it to pick           */
+/* start_segment and end_segment indices. Since Whisper segments are       */
+/* sentence-aligned, this GUARANTEES clips start/end on complete sentences.*/
+async function repurposeStep3_Analyze(projectId, segments, durationSec, options) {
+  await updateRepurposeStatus(projectId, "analyzing", 30);
+  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+
+  const { maxClips, clipMinSeconds, clipMaxSeconds } = options;
+
+  // Build numbered transcript with segment indices
+  // This gives GPT clear sentence boundaries to work with
+  const numberedTranscript = segments.map((s, i) => {
+    const m = Math.floor(s.start / 60);
+    const sec = Math.floor(s.start % 60);
+    return `[SEG ${i} | ${m}:${String(sec).padStart(2, "0")} → ${Math.floor(s.end / 60)}:${String(Math.floor(s.end % 60)).padStart(2, "0")}] ${s.text}`;
+  }).join("\n");
+
+  const prompt = `You are an expert viral content creator. Analyze this transcript and find the ${maxClips} most viral, self-contained moments for YouTube Shorts / TikTok / Reels.
+
+VIDEO DURATION: ${Math.round(durationSec || 0)} seconds
+TOTAL SEGMENTS: ${segments.length}
+
+Each line below is ONE SENTENCE with its segment number and time range:
+${numberedTranscript}
+
+YOUR TASK: Pick ${maxClips} clips by choosing START and END SEGMENT numbers.
+
+RULES:
+1. Each clip = a range of consecutive segments (e.g., segments 5 through 12)
+2. The clip duration (from start of first segment to end of last segment) should be between ${clipMinSeconds} and ${Math.max(clipMinSeconds, clipMaxSeconds - 8)} seconds (we add a few seconds of buffer in post-processing, so AIM SHORTER)
+3. Each clip must tell a COMPLETE STORY — the first segment should set up the idea and the last segment should CONCLUDE it
+4. The LAST SEGMENT of each clip must be a COMPLETE SENTENCE that concludes the thought. NEVER end on a sentence that leads into the next idea (e.g., ending with "and that's when..." or "because..." or a comma)
+5. No overlapping segment ranges between clips
+6. Prefer moments with: strong opening hook, emotional peaks, surprising statements, quotable conclusions
+7. Each clip must work STANDALONE — a viewer with no context should understand it
+
+FOR EACH CLIP, RETURN:
+- start_segment: The segment number where the clip begins
+- end_segment: The segment number where the clip ends (MUST be a concluding sentence)
+- hook_score: 0-100 (how viral is this moment?)
+- reason: Why this moment is viral
+- suggested_title: Click-worthy title (max 60 chars, 1 emoji)
+- suggested_description: 1-2 sentence post description
+- suggested_hashtags: Array of 5-7 hashtags (always include #shorts)
+- emotional_hook: What emotion drives this clip (curiosity, inspiration, shock, etc.)
+
+Return ONLY a JSON array:
+[{"index":1,"start_segment":<num>,"end_segment":<num>,"hook_score":<0-100>,"reason":"...","suggested_title":"...","suggested_description":"...","suggested_hashtags":["#shorts","..."],"emotional_hook":"curiosity"}]
+
+VERIFY each clip:
+1. end_segment > start_segment
+2. Duration (end of last segment - start of first segment) is between ${clipMinSeconds} and ${Math.max(clipMinSeconds, clipMaxSeconds - 8)} seconds. AIM for ${Math.max(clipMinSeconds, clipMaxSeconds - 10)}-${Math.max(clipMinSeconds, clipMaxSeconds - 5)} seconds as the sweet spot.
+3. The text of end_segment is a COMPLETE concluding sentence — it must END the thought, not lead into the next one
+4. Segment numbers are between 0 and ${segments.length - 1}
+No markdown, no explanation.`;
+
+  console.log("[repurpose] GPT prompt length:", prompt.length, "chars");
+
+  const gptRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 12000,
+    }),
+  });
+  if (!gptRes.ok) throw new Error(`GPT error (${gptRes.status}): ${await gptRes.text()}`);
+
+  const gptResult = await gptRes.json();
+  let text = (gptResult.choices?.[0]?.message?.content || "[]")
+    .replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+
+  let rawClips;
+  try { rawClips = JSON.parse(text); } catch { throw new Error("GPT returned invalid JSON"); }
+  if (!Array.isArray(rawClips) || rawClips.length === 0) throw new Error("GPT returned no clips");
+
+  // Convert segment indices to timestamps
+  const videoDur = durationSec || 9999;
+  let clips = rawClips.map((clip, i) => {
+    let startSeg = Math.max(0, Math.min(segments.length - 1, Number(clip.start_segment) || 0));
+    let endSeg = Math.max(startSeg, Math.min(segments.length - 1, Number(clip.end_segment) || startSeg));
+
+    const startTime = segments[startSeg].start;
+    const endTime = segments[endSeg].end;
+    let dur = endTime - startTime;
+
+    // Duration enforcement — adjust segment range if needed
+    // Use effectiveMax that's shorter than clipMaxSeconds because the smart buffer
+    // in step 4 will add ~5-8s (PRE_START_PAD + POST_SENTENCE_PAD + next segment)
+    const effectiveMax = Math.max(clipMinSeconds, clipMaxSeconds - 8);
+
+    if (dur < clipMinSeconds) {
+      // Extend end segments until we reach minimum duration
+      while (endSeg < segments.length - 1 && dur < clipMinSeconds) {
+        endSeg++;
+        dur = segments[endSeg].end - startTime;
+      }
+      console.log(`[repurpose]   #${i+1}: SHORT (${(endTime - startTime).toFixed(0)}s) → extended to seg ${endSeg} (${dur.toFixed(0)}s)`);
+    }
+    if (dur > effectiveMax) {
+      // Trim end segments to fit within effective max
+      while (endSeg > startSeg + 1 && (segments[endSeg].end - startTime) > effectiveMax) {
+        endSeg--;
+      }
+      dur = segments[endSeg].end - startTime;
+      console.log(`[repurpose]   #${i+1}: LONG → trimmed to seg ${endSeg} (${dur.toFixed(0)}s, effectiveMax=${effectiveMax}s)`);
+    }
+
+    const finalStart = Math.max(0, segments[startSeg].start);
+    const finalEnd = Math.min(videoDur, segments[endSeg].end);
+    const finalDur = finalEnd - finalStart;
+
+    // Log the actual content boundaries for debugging
+    const firstSentence = (segments[startSeg].text || "").trim().slice(0, 50);
+    const lastSentence = (segments[endSeg].text || "").trim().slice(-50);
+    console.log(`[repurpose]   #${i+1}: segs ${startSeg}→${endSeg} | ${finalStart.toFixed(1)}→${finalEnd.toFixed(1)}s (${finalDur.toFixed(0)}s)`);
+    console.log(`[repurpose]     STARTS: "${firstSentence}..."`);
+    console.log(`[repurpose]     ENDS:   "...${lastSentence}"`);
+
+    // Skip clips that are still too short after adjustment
+    if (finalDur < clipMinSeconds * 0.8) {
+      console.log(`[repurpose]   #${i+1}: SKIPPED — too short (${finalDur.toFixed(0)}s)`);
+      return null;
+    }
+
+    return {
+      ...clip, index: i + 1,
+      start_time: Math.round(finalStart * 100) / 100,
+      end_time: Math.round(finalEnd * 100) / 100,
+      duration: Math.round(finalDur * 100) / 100,
+      start_segment: startSeg,
+      end_segment: endSeg,
+      title: clip.suggested_title || `Clip ${i + 1}`,
+      hook_score: clamp(Number(clip.hook_score) || 50, 0, 100),
+      suggested_title: clip.suggested_title || `Clip ${i + 1}`,
+      suggested_hashtags: Array.isArray(clip.suggested_hashtags) ? clip.suggested_hashtags : ["#shorts"],
+    };
+  }).filter(Boolean);
+
+  clips.sort((a, b) => b.hook_score - a.hook_score);
+  clips = clips.slice(0, maxClips);
+
+  await admin.from("repurpose_projects").update({ detected_moments: clips }).eq("id", projectId);
+  console.log("[repurpose] ✅ step 3 —", clips.length, "clips with metadata");
+  await updateRepurposeStatus(projectId, "analyzing", 40);
+  return clips;
+}
+
+/* ── [STEP 7] Upload to repurpose bucket + insert clips table ── */
+async function repurposeStep7_Upload(projectId, userId, processedClips) {
+  await updateRepurposeStatus(projectId, "uploading", 92);
+  const uploadedClips = [];
+
+  for (let i = 0; i < processedClips.length; i++) {
+    const clip = processedClips[i];
+    if (!clip.clipFile || !fs.existsSync(clip.clipFile)) continue;
+
+    const videoPath = `${userId}/${projectId}/clip-${clip.index}.mp4`;
+    const { error: upErr } = await admin.storage.from(REPURPOSE_BUCKET)
+      .upload(videoPath, fs.readFileSync(clip.clipFile), {
+        contentType: "video/mp4", upsert: true, cacheControl: "3600",
+      });
+    if (upErr) { console.warn(`[repurpose] upload fail #${clip.index}:`, upErr.message); continue; }
+
+    const videoUrl = `${SUPABASE_URL}/storage/v1/object/public/${REPURPOSE_BUCKET}/${videoPath}`;
+
+    let thumbnailUrl = null;
+    if (clip.thumbFile && fs.existsSync(clip.thumbFile)) {
+      const thumbPath = `${userId}/${projectId}/clip-${clip.index}-thumb.jpg`;
+      const { error: thumbErr } = await admin.storage.from(REPURPOSE_BUCKET)
+        .upload(thumbPath, fs.readFileSync(clip.thumbFile), {
+          contentType: "image/jpeg", upsert: true, cacheControl: "3600",
+        });
+      if (!thumbErr) thumbnailUrl = `${SUPABASE_URL}/storage/v1/object/public/${REPURPOSE_BUCKET}/${thumbPath}`;
+    }
+
+    const record = {
+      id: `${projectId}-clip-${clip.index}`,
+      index: clip.index,
+      title: clip.title, description: clip.description,
+      start_time: clip.start_time, end_time: clip.end_time,
+      duration: clip.actual_duration || clip.duration,
+      hook_score: clip.hook_score, reason: clip.reason,
+      suggested_title: clip.suggested_title,
+      suggested_description: clip.suggested_description,
+      suggested_hashtags: clip.suggested_hashtags,
+      emotional_hook: clip.emotional_hook,
+      video_url: videoUrl, thumbnail_url: thumbnailUrl, status: "done",
+    };
+    uploadedClips.push(record);
+
+    // Insert into normalized repurpose_clips table
+    try {
+      await admin.from("repurpose_clips").upsert({
+        id: record.id, project_id: projectId, user_id: userId,
+        clip_index: clip.index, start_time: clip.start_time, end_time: clip.end_time,
+        duration: record.duration, hook_score: clip.hook_score, reason: clip.reason,
+        video_url: videoUrl, thumbnail_url: thumbnailUrl,
+        suggested_title: clip.suggested_title,
+        suggested_description: clip.suggested_description,
+        suggested_hashtags: clip.suggested_hashtags,
+        status: "done",
+      }, { onConflict: "id" });
+    } catch (e) { console.warn("[repurpose] clips insert:", e?.message); }
+
+    await updateRepurposeStatus(projectId, "uploading",
+      92 + Math.round(((i + 1) / processedClips.length) * 6));
+  }
+
+  await admin.from("repurpose_projects").update({
+    clips: uploadedClips, status: "done", progress_pct: 100,
+    progress_stage: "done", error_message: null, updated_at: new Date().toISOString(),
+  }).eq("id", projectId);
+
+  console.log("[repurpose] ✅ uploaded", uploadedClips.length, "clips");
+  return uploadedClips;
+}
+
+/* ── Orchestrator ──────────────────────────────────────────── */
+async function runRepurpose(projectId, sourceUrl, options) {
+  console.log("[repurpose] ═══════════════════════════════════════");
+  console.log("[repurpose] project:", projectId, "clips:", options.maxClips,
+    "dur:", options.clipMinSeconds, "-", options.clipMaxSeconds, "s");
+  console.log("[repurpose] ═══════════════════════════════════════");
+
+  const workDir = path.join(os.tmpdir(), "repurpose-" + projectId);
+  fs.mkdirSync(workDir, { recursive: true });
+
+  const { data: proj } = await admin.from("repurpose_projects")
+    .select("user_id").eq("id", projectId).single();
+  const userId = proj?.user_id || "unknown";
+
+  try {
+    // [1] Download
+    const { videoFile, audioFile, durationSec } =
+      await repurposeStep1_Download(projectId, sourceUrl, workDir);
+
+    // [2] Transcribe
+    const { segments, words } =
+      await repurposeStep2_Transcribe(projectId, audioFile);
+
+    // [3] Enhanced AI analysis + metadata
+    const clips = await repurposeStep3_Analyze(projectId, segments, durationSec, {
+      maxClips: options.maxClips || 5,
+      clipMinSeconds: options.clipMinSeconds || 30,
+      clipMaxSeconds: options.clipMaxSeconds || 60,
+    });
+
+    // [4+5] Extract clips + crop + burn captions (reuse existing shorts step)
+    const processed = await shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segments, words, {
+      captionStyle: options.captionStyle || "karaoke",
+      cropMode: options.cropMode || "center",
+      captionFontScale: options.captionFontScale || 0.5,
+    }, workDir);
+
+    // [6] Thumbnails (reuse existing shorts step)
+    const thumbed = await shortsStep6_Thumbnails(projectId, processed,
+      options.generateThumbnails !== false);
+
+    // [7] Upload to repurpose bucket
+    const uploaded = await repurposeStep7_Upload(projectId, userId, thumbed);
+
+    console.log("[repurpose] ✅ COMPLETE —", uploaded.length, "clips");
+    return uploaded;
+  } finally {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+/* ── POST /repurpose endpoint ──────────────────────────────── */
+app.post("/repurpose", async (req, res) => {
+  const {
+    project_id, source_url, max_clips, clip_min_seconds, clip_max_seconds,
+    caption_style, caption_font_scale, crop_mode, generate_thumbnails,
+  } = req.body || {};
+
+  if (!project_id) return jsonError(res, 400, "Missing project_id");
+  if (!source_url) return jsonError(res, 400, "Missing source_url");
+
+  console.log("[repurpose] POST — project:", project_id, "clips:", max_clips,
+    "dur:", clip_min_seconds, "-", clip_max_seconds, "s, captions:", caption_style);
+
+  res.status(202).json({ ok: true, accepted: true, project_id });
+
+  setImmediate(async () => {
+    try {
+      await runRepurpose(project_id, source_url, {
+        maxClips: Number(max_clips) || 5,
+        clipMinSeconds: Number(clip_min_seconds) || 30,
+        clipMaxSeconds: Number(clip_max_seconds) || 60,
+        captionStyle: caption_style || "karaoke",
+        captionFontScale: Number(caption_font_scale) || 0.5,
+        cropMode: crop_mode || "center",
+        generateThumbnails: generate_thumbnails !== false,
+      });
+    } catch (e) {
+      console.error("[repurpose] ❌ FAILED:", e?.message || e);
+      try {
+        await admin.from("repurpose_projects").update({
+          status: "error", error_message: String(e?.message || e),
+          updated_at: new Date().toISOString(),
+        }).eq("id", project_id);
+      } catch {}
+    }
+  });
+});
+
+
 /* ── Start server ──────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`[render-webhook] listening on :${PORT}`);
-  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts`);
+  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose`);
 });

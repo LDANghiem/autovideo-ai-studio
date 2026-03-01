@@ -107,6 +107,17 @@ function IconHistory() {
   );
 }
 
+function IconReCreate() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+    </svg>
+  );
+}
+
 function IconSettings() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -179,6 +190,15 @@ const FEATURED_THEMES: Record<string, {
     badgeBg: "rgba(139,92,246,0.15)",
     badgeBorder: "rgba(168,85,247,0.35)",
   },
+  "/dashboard/recreate": {
+    gradient: "linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(59,130,246,0.08) 100%)",
+    glow: "0 0 16px rgba(6,182,212,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(6,182,212,0.22) 0%, rgba(59,130,246,0.15) 100%)",
+    iconColor: "#22d3ee",
+    badgeText: "NEW",
+    badgeBg: "rgba(6,182,212,0.15)",
+    badgeBorder: "rgba(6,182,212,0.35)",
+  },
 };
 
 /* ── Navigation Config ────────────────────────────────────── */
@@ -190,6 +210,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/shorts", label: "AI Shorts", Icon: IconShorts, featured: true },
   { href: "/dashboard/repurpose", label: "Auto-Repurpose", Icon: IconRepurpose, featured: true },
   { href: "/dashboard/repurpose/history", label: "My Repurpose", Icon: IconHistory },
+  { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
   { href: "/dashboard/thumbnails", label: "Thumbnail Creator", Icon: IconThumbnail, featured: true, proOnly: true },
   { href: "/dashboard/seo", label: "SEO Generator", Icon: IconSeo, featured: true, proOnly: true },
   { href: "/dashboard/library", label: "Library", Icon: IconLibrary },

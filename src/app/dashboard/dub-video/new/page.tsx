@@ -531,6 +531,43 @@ export default function DubVideoNewPage() {
           By using this feature, you confirm you have the rights to dub this content.
           Downloading YouTube videos may be subject to YouTube&apos;s Terms of Service.
         </p>
+
+        {/* Copyright Guidance */}
+        <div
+          className="mt-4 rounded-xl p-4"
+          style={{
+            background: "rgba(251,191,36,0.04)",
+            border: "1px solid rgba(251,191,36,0.15)",
+          }}
+        >
+          <div className="flex items-start gap-2.5">
+            <span className="text-sm mt-0.5">⚠️</span>
+            <div>
+              <p className="text-[11px] font-semibold text-yellow-300/90 mb-1.5">Copyright &amp; YouTube Policy Notice</p>
+              <ul className="text-[10px] text-gray-400 space-y-1.5 leading-relaxed">
+                <li>
+                  <span className="text-green-400 font-bold">✅ Safe:</span>{" "}
+                  Dubbing <strong className="text-gray-300">your own videos</strong> into other languages for global reach.
+                </li>
+                <li>
+                  <span className="text-green-400 font-bold">✅ Safe:</span>{" "}
+                  Dubbing content you have <strong className="text-gray-300">written permission</strong> to translate (licensing agreement, creator partnership).
+                </li>
+                <li>
+                  <span className="text-yellow-400 font-bold">⚡ Caution:</span>{" "}
+                  Dubbing others&apos; content with <strong className="text-gray-300">substantial added value</strong> — your own commentary, analysis, new visuals, on-camera hosting. Must be clearly transformative.
+                </li>
+                <li>
+                  <span className="text-red-400 font-bold">🚫 Not allowed:</span>{" "}
+                  Simply dubbing someone else&apos;s video into another language and reuploading. This violates both copyright law (derivative work) and YouTube&apos;s reused content policy — even with credit.
+                </li>
+              </ul>
+              <p className="text-[9px] text-gray-500 mt-2">
+                YouTube&apos;s reused content policy applies even if you have the creator&apos;s permission. Translated-only content without original additions may be demonetized.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

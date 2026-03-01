@@ -2359,8 +2359,558 @@ app.post("/repurpose", async (req, res) => {
 });
 
 
+/* ============================================================
+   🆕 RECREATE PIPELINE — "ReCreate" feature
+   Paste any video → AI writes original script → stock footage → new video
+   Steps: download → transcribe → script → media → TTS → assemble → upload
+============================================================ */
+
+const PEXELS_API_KEY = (process.env.PEXELS_API_KEY || "").trim();
+const RECREATE_BUCKET = (process.env.RECREATE_BUCKET || "recreated-videos").trim();
+
+/* ── helper: update recreate project status ─────────────────── */
+async function updateReCreateStatus(projectId, status, progressPct, extra = {}) {
+  await admin
+    .from("recreate_projects")
+    .update({
+      status,
+      progress_pct: progressPct,
+      progress_stage: status,
+      updated_at: new Date().toISOString(),
+      ...extra,
+    })
+    .eq("id", projectId);
+  console.log(`[recreate] status → ${status} (${progressPct}%)`);
+}
+
+/* ── [RECREATE STEP 1] Download audio + Transcribe ───────────── */
+async function recreateStep1_Transcribe(projectId, sourceUrl, workDir) {
+  await updateReCreateStatus(projectId, "transcribing", 5);
+
+  const audioFile = path.join(workDir, "source-audio.mp3");
+  const ytdlp = (await import("youtube-dl-exec")).default;
+
+  console.log("[recreate] downloading audio...");
+  try {
+    await ytdlp(sourceUrl, {
+      extractAudio: true,
+      audioFormat: "mp3",
+      audioQuality: 0,
+      output: audioFile,
+      noPlaylist: true,
+    });
+  } catch {
+    // Fallback: download video then extract
+    console.log("[recreate] audio-only failed, trying video...");
+    const videoFile = path.join(workDir, "source-video.mp4");
+    await ytdlp(sourceUrl, {
+      format: "best[height<=720][ext=mp4]/best[height<=720]/best",
+      output: videoFile,
+      noPlaylist: true,
+    });
+    await execAsync(`ffmpeg -i "${videoFile}" -q:a 0 -map a -y "${audioFile}"`);
+    try { fs.unlinkSync(videoFile); } catch {}
+  }
+
+  if (!fs.existsSync(audioFile)) throw new Error("Audio download failed");
+
+  await updateReCreateStatus(projectId, "transcribing", 10);
+
+  // Whisper transcription
+  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+
+  const audioBuffer = fs.readFileSync(audioFile);
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  const fd = new FormData();
+  fd.append("file", blob, "audio.mp3");
+  fd.append("model", "whisper-1");
+  fd.append("response_format", "verbose_json");
+
+  console.log("[recreate] transcribing with Whisper...");
+  const wRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: fd,
+  });
+
+  if (!wRes.ok) {
+    const errText = await wRes.text();
+    throw new Error(`Whisper error (${wRes.status}): ${errText}`);
+  }
+
+  const result = await wRes.json();
+  const transcript = result.text || "";
+
+  console.log("[recreate] ✅ step 1 — transcribed:", transcript.length, "chars");
+
+  await updateReCreateStatus(projectId, "transcribing", 15, {
+    transcript_original: transcript,
+  });
+
+  try { fs.unlinkSync(audioFile); } catch {}
+  return transcript;
+}
+
+/* ── [RECREATE STEP 2] AI writes original script + scenes ──── */
+async function recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style) {
+  await updateReCreateStatus(projectId, "scripting", 20);
+
+  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+
+  const styleGuide = {
+    news: "Write as a professional news anchor. Authoritative, clear, informative. Structure: hook → details → context → analysis → conclusion.",
+    documentary: "Write as a documentary narrator. Cinematic, narrative arc, vivid descriptions, thoughtful pacing.",
+    casual: "Write as a friendly vlogger. Conversational, personal comments, relatable examples.",
+    educational: "Write as a knowledgeable teacher. Break complex ideas into simple parts. Use examples and analogies.",
+    motivational: "Write as an inspiring speaker. Powerful language, emotional appeal, calls to action.",
+  };
+
+  const prompt = `You are a professional content creator. Based on this English video transcript, write a COMPLETELY ORIGINAL script in ${targetLanguage}.
+
+RULES:
+- Do NOT translate word-for-word. Write ORIGINAL content about the same topics.
+- Write in natural, fluent ${targetLanguage}.
+- Add context and perspective for ${targetLanguage}-speaking audiences.
+- ${styleGuide[style] || styleGuide.news}
+
+Return a JSON array of scenes (8-15 scenes, 3-5 minutes total). Each scene:
+- "text": Narration in ${targetLanguage} (2-4 sentences)
+- "scene_query": 2-4 word English query for stock footage
+- "duration_sec": Estimated seconds (roughly 15 chars/sec)
+
+Return ONLY JSON array, no markdown:
+[{"text":"...","scene_query":"...","duration_sec":8}]
+
+TRANSCRIPT:
+${transcript.slice(0, 12000)}`;
+
+  console.log("[recreate] generating script with GPT-4o-mini...");
+  const gRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 8000,
+    }),
+  });
+
+  if (!gRes.ok) throw new Error(`GPT error (${gRes.status}): ${await gRes.text()}`);
+
+  let content = (await gRes.json()).choices?.[0]?.message?.content || "[]";
+  content = content.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+
+  let scenes;
+  try { scenes = JSON.parse(content); } catch { throw new Error("GPT returned invalid JSON"); }
+  if (!Array.isArray(scenes) || scenes.length === 0) throw new Error("GPT returned empty script");
+
+  const fullScript = scenes.map((s) => s.text).join("\n\n");
+  console.log("[recreate] ✅ step 2 — scenes:", scenes.length, "chars:", fullScript.length);
+
+  await updateReCreateStatus(projectId, "scripting", 30, {
+    script_translated: fullScript,
+    scenes,
+  });
+
+  return scenes;
+}
+
+/* ── [RECREATE STEP 3] Fetch stock media from Pexels ──────── */
+async function recreateStep3_FindMedia(projectId, scenes, workDir) {
+  await updateReCreateStatus(projectId, "finding_media", 35);
+
+  const mediaDir = path.join(workDir, "media");
+  fs.mkdirSync(mediaDir, { recursive: true });
+
+  console.log("[recreate] PEXELS_API_KEY present:", !!PEXELS_API_KEY, "length:", PEXELS_API_KEY.length);
+
+  const updatedScenes = [];
+
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const query = scene.scene_query || "nature landscape";
+    let mediaUrl = null;
+    let mediaType = "image";
+
+    console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
+
+    // Try Pexels video first
+    if (PEXELS_API_KEY) {
+      try {
+        const vRes = await fetch(
+          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape`,
+          { headers: { Authorization: PEXELS_API_KEY } }
+        );
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          const video = vData.videos?.[0];
+          const vFile = video?.video_files?.find((f) => f.quality === "sd" || f.quality === "hd") || video?.video_files?.[0];
+          if (vFile?.link) { mediaUrl = vFile.link; mediaType = "video"; }
+        } else {
+          console.log(`[recreate]     Pexels video API error: ${vRes.status}`);
+        }
+      } catch (e) { console.log(`[recreate]     video search failed:`, e.message); }
+    }
+
+    // Fallback to Pexels photos
+    if (!mediaUrl && PEXELS_API_KEY) {
+      try {
+        const pRes = await fetch(
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape`,
+          { headers: { Authorization: PEXELS_API_KEY } }
+        );
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          const photo = pData.photos?.[0];
+          if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; }
+        }
+      } catch (e) { console.log(`[recreate]     photo search failed:`, e.message); }
+    }
+
+    // Fallback: try simpler/broader query (first word only)
+    if (!mediaUrl && PEXELS_API_KEY) {
+      const simpleQuery = query.split(" ")[0];
+      console.log(`[recreate]     retrying with simpler query: "${simpleQuery}"`);
+      try {
+        const pRes = await fetch(
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(simpleQuery)}&per_page=3&orientation=landscape`,
+          { headers: { Authorization: PEXELS_API_KEY } }
+        );
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          const photo = pData.photos?.[0];
+          if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; }
+        }
+      } catch {}
+    }
+
+    // Ultimate fallback: generate a gradient image with ffmpeg (ensures pipeline never fails)
+    let localFile = null;
+    if (mediaUrl) {
+      try {
+        const ext = mediaType === "video" ? "mp4" : "jpg";
+        localFile = path.join(mediaDir, `scene-${i}.${ext}`);
+        const dlRes = await fetch(mediaUrl);
+        if (dlRes.ok) {
+          fs.writeFileSync(localFile, Buffer.from(await dlRes.arrayBuffer()));
+        } else { localFile = null; }
+      } catch { localFile = null; }
+    }
+
+    // If still no media, generate a dark gradient background image
+    if (!localFile) {
+      console.log(`[recreate]     ⚠ no media found, generating gradient fallback`);
+      localFile = path.join(mediaDir, `scene-${i}.png`);
+      mediaType = "image";
+      try {
+        // Generate a gradient image using ffmpeg — dark blue to dark purple
+        const hue = (i * 30) % 360; // Different hue per scene
+        await execAsync(
+          `ffmpeg -f lavfi -i "color=c=#0a0720:s=1920x1080:d=1,format=rgb24" ` +
+          `-vf "drawbox=x=0:y=0:w=1920:h=1080:color=#0f0b2a@1:t=fill,` +
+          `drawtext=text='':fontcolor=white" ` +
+          `-frames:v 1 -y "${localFile}"`
+        );
+        if (!fs.existsSync(localFile)) localFile = null;
+      } catch {
+        // Simplest fallback — solid color
+        try {
+          await execAsync(
+            `ffmpeg -f lavfi -i "color=c=#0f0b2a:s=1920x1080:d=1" -frames:v 1 -y "${localFile}"`
+          );
+        } catch { localFile = null; }
+      }
+    }
+
+    updatedScenes.push({ ...scene, media_url: mediaUrl, media_type: mediaType, local_file: localFile });
+
+    const pct = 35 + Math.round(((i + 1) / scenes.length) * 15);
+    await updateReCreateStatus(projectId, "finding_media", pct);
+
+    if (i < scenes.length - 1) await new Promise((r) => setTimeout(r, 300));
+  }
+
+  console.log(`[recreate] ✅ step 3 — ${updatedScenes.filter((s) => s.local_file).length}/${scenes.length} media found`);
+
+  await updateReCreateStatus(projectId, "finding_media", 50, {
+    scenes: updatedScenes.map(({ local_file, ...s }) => s),
+  });
+
+  return updatedScenes;
+}
+
+/* ── [RECREATE STEP 4] Generate TTS narration ─────────────── */
+async function recreateStep4_TTS(projectId, scenes, voiceId, workDir, langCode) {
+  await updateReCreateStatus(projectId, "generating_voice", 55);
+
+  if (!ELEVENLABS_API_KEY) throw new Error("Missing ELEVENLABS_API_KEY");
+
+  const finalVoiceId = voiceId || "0ggMuQ1r9f9jqBu50nJn";
+  const ttsDir = path.join(workDir, "tts");
+  fs.mkdirSync(ttsDir, { recursive: true });
+
+  const paragraphs = scenes.map((s) => (s.text || "").trim()).filter((t) => t.length > 0);
+  if (paragraphs.length === 0) throw new Error("No text for TTS");
+
+  // Chunk at paragraph boundaries (4000 char limit)
+  const chunks = [];
+  let cur = "";
+  for (const p of paragraphs) {
+    if (cur.length > 0 && (cur.length + p.length + 2) > 4000) { chunks.push(cur.trim()); cur = ""; }
+    cur += (cur.length > 0 ? "\n\n" : "") + p;
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+
+  console.log("[recreate] TTS:", chunks.length, "chunks from", paragraphs.length, "paragraphs");
+
+  const chunkFiles = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${finalVoiceId}`, {
+      method: "POST",
+      headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({
+        text: chunks[i],
+        model_id: "eleven_v3",
+        language_code: langCode || "vi",
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true },
+      }),
+    });
+
+    if (!ttsRes.ok) throw new Error(`ElevenLabs error chunk ${i}: ${await ttsRes.text()}`);
+
+    const cf = path.join(ttsDir, `c-${i}.mp3`);
+    fs.writeFileSync(cf, Buffer.from(await ttsRes.arrayBuffer()));
+    chunkFiles.push(cf);
+
+    await updateReCreateStatus(projectId, "generating_voice", 55 + Math.round(((i + 1) / chunks.length) * 10));
+  }
+
+  // Concatenate
+  const narrationFile = path.join(workDir, "narration.mp3");
+  if (chunkFiles.length === 1) {
+    fs.copyFileSync(chunkFiles[0], narrationFile);
+  } else {
+    const lf = path.join(ttsDir, "list.txt");
+    fs.writeFileSync(lf, chunkFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+    await execAsync(`ffmpeg -f concat -safe 0 -i "${lf}" -c copy -y "${narrationFile}"`);
+  }
+
+  let durationSec = 60;
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${narrationFile}"`);
+    durationSec = parseFloat(stdout.trim()) || 60;
+  } catch {}
+
+  for (const f of chunkFiles) { try { fs.unlinkSync(f); } catch {} }
+
+  console.log("[recreate] ✅ step 4 — narration:", durationSec.toFixed(1), "sec");
+  await updateReCreateStatus(projectId, "generating_voice", 65);
+
+  return { narrationFile, durationSec };
+}
+
+/* ── [RECREATE STEP 5] Assemble video ─────────────────────── */
+async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions) {
+  await updateReCreateStatus(projectId, "rendering", 70);
+
+  const W = 1920, H = 1080, FPS = 30;
+  const validScenes = scenes.filter((s) => s.local_file && fs.existsSync(s.local_file));
+  if (validScenes.length === 0) throw new Error("No media found for any scene");
+
+  // KEY FIX: Use narration duration to drive EVERYTHING
+  // Each scene's video segment = narrationDuration / numScenes
+  // This ensures video length == narration length == caption timing
+  const sceneDur = durationSec / validScenes.length;
+
+  console.log(`[recreate] rendering ${validScenes.length} scenes, ${sceneDur.toFixed(1)}s each, total ${durationSec.toFixed(1)}s`);
+
+  const segDir = path.join(workDir, "segs");
+  fs.mkdirSync(segDir, { recursive: true });
+
+  const segFiles = [];
+  for (let i = 0; i < validScenes.length; i++) {
+    const sc = validScenes[i];
+    // FIX: Always use evenly distributed duration based on narration, NOT GPT estimates
+    const dur = sceneDur;
+    const sf = path.join(segDir, `s-${String(i).padStart(3, "0")}.mp4`);
+
+    if (sc.media_type === "video") {
+      await execAsync(
+        `ffmpeg -stream_loop -1 -i "${sc.local_file}" -t ${dur} ` +
+        `-vf "scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" ` +
+        `-an -c:v libx264 -preset fast -crf 28 -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
+      );
+    } else {
+      const zd = Math.random() > 0.5;
+      const zf = zd
+        ? `zoompan=z='min(zoom+0.0008,1.25)':d=${Math.ceil(dur * FPS)}:s=${W}x${H}:fps=${FPS}`
+        : `zoompan=z='if(eq(on,0),1.25,max(zoom-0.0008,1))':d=${Math.ceil(dur * FPS)}:s=${W}x${H}:fps=${FPS}`;
+      await execAsync(
+        `ffmpeg -loop 1 -i "${sc.local_file}" -t ${dur} -vf "${zf},setsar=1" ` +
+        `-c:v libx264 -preset fast -crf 28 -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
+      );
+    }
+
+    if (fs.existsSync(sf)) segFiles.push(sf);
+    await updateReCreateStatus(projectId, "rendering", 70 + Math.round(((i + 1) / validScenes.length) * 10));
+  }
+
+  // Concat all segments into one continuous video
+  const cl = path.join(segDir, "list.txt");
+  fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+  const rawVideo = path.join(workDir, "raw.mp4");
+  await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+
+  // Verify raw video duration
+  let rawDuration = 0;
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${rawVideo}"`);
+    rawDuration = parseFloat(stdout.trim()) || 0;
+  } catch {}
+  console.log(`[recreate] raw video: ${rawDuration.toFixed(1)}s, narration: ${durationSec.toFixed(1)}s`);
+
+  await updateReCreateStatus(projectId, "rendering", 85);
+
+  // Combine video + audio + optional captions
+  const finalFile = path.join(workDir, "final.mp4");
+
+  if (includeCaptions) {
+    // FIX: Build SRT with evenly distributed timing matching narration
+    const srtFile = path.join(workDir, "subs.srt");
+    let srt = "";
+    const captionDur = durationSec / scenes.length; // evenly distribute across ALL scenes
+
+    for (let i = 0; i < scenes.length; i++) {
+      const startTime = i * captionDur;
+      const endTime = (i + 1) * captionDur;
+      srt += `${i + 1}\n${fmtSRT(startTime)} --> ${fmtSRT(endTime)}\n${scenes[i].text || ""}\n\n`;
+    }
+    fs.writeFileSync(srtFile, srt);
+
+    // ffmpeg subtitles path escaping for Windows
+    const srtEscaped = srtFile
+      .replace(/\\/g, "/")
+      .replace(/:/g, "\\:")
+      .replace(/'/g, "\\'");
+
+    try {
+      // FIX: No -shortest flag — let both streams play fully
+      // FIX: FontSize=16 (was 22), MarginV=30 for cleaner look
+      await execAsync(
+        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+        `-vf "subtitles='${srtEscaped}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" ` +
+        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
+      );
+    } catch (subErr) {
+      console.log("[recreate] ⚠ subtitle burn failed, rendering without captions:", subErr.message?.slice(0, 100));
+      await execAsync(
+        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" -c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+      );
+    }
+  } else {
+    // No captions — just merge video + audio
+    await execAsync(
+      `ffmpeg -i "${rawVideo}" -i "${narrationFile}" -c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+    );
+  }
+
+  if (!fs.existsSync(finalFile)) throw new Error("Final assembly failed");
+
+  console.log("[recreate] ✅ step 5 — final video ready");
+  await updateReCreateStatus(projectId, "rendering", 90);
+  return finalFile;
+}
+
+/* SRT timestamp */
+function fmtSRT(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+/* Language code mapper */
+function getReCreateLangCode(name) {
+  const m = { Vietnamese: "vi", Spanish: "es", Chinese: "zh", Korean: "ko", Japanese: "ja", Hindi: "hi", French: "fr", Portuguese: "pt", Arabic: "ar", Thai: "th", Indonesian: "id", German: "de", Russian: "ru", Turkish: "tr", Filipino: "tl" };
+  return m[name] || "vi";
+}
+
+/* ── MAIN RECREATE PIPELINE ───────────────────────────────── */
+async function runReCreate(projectId, sourceUrl, opts = {}) {
+  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true } = opts;
+  const langCode = getReCreateLangCode(targetLanguage);
+  const workDir = path.join(os.tmpdir(), `recreate-${projectId}`);
+  fs.mkdirSync(workDir, { recursive: true });
+
+  try {
+    const { data: proj } = await admin.from("recreate_projects").select("user_id").eq("id", projectId).single();
+    const userId = proj?.user_id;
+
+    const transcript = await recreateStep1_Transcribe(projectId, sourceUrl, workDir);
+    const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style);
+    const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir);
+    const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, voiceId, workDir, langCode);
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions);
+
+    // Upload
+    await updateReCreateStatus(projectId, "uploading", 92);
+    const fileBuffer = fs.readFileSync(finalFile);
+    const objPath = `${userId}/${projectId}/recreated.mp4`;
+
+    try {
+      const { data: buckets } = await admin.storage.listBuckets();
+      if (!buckets?.find((b) => b.name === RECREATE_BUCKET)) {
+        await admin.storage.createBucket(RECREATE_BUCKET, { public: true });
+      }
+    } catch {}
+
+    const { error: upErr } = await admin.storage.from(RECREATE_BUCKET).upload(objPath, fileBuffer, { contentType: "video/mp4", upsert: true });
+    if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
+
+    const { data: urlData } = admin.storage.from(RECREATE_BUCKET).getPublicUrl(objPath);
+
+    await updateReCreateStatus(projectId, "done", 100, { final_video_url: urlData?.publicUrl });
+    console.log("[recreate] 🎉 COMPLETE:", urlData?.publicUrl);
+  } finally {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+/* ── POST /recreate ───────────────────────────────────────── */
+app.post("/recreate", async (req, res) => {
+  const { project_id, source_url, target_language, style, voice_id, include_captions } = req.body || {};
+
+  if (!project_id) return jsonError(res, 400, "Missing project_id");
+  if (!source_url) return jsonError(res, 400, "Missing source_url");
+
+  console.log("[recreate] POST — project:", project_id, "lang:", target_language, "style:", style);
+  res.status(202).json({ ok: true, accepted: true, project_id });
+
+  setImmediate(async () => {
+    try {
+      await runReCreate(project_id, source_url, {
+        targetLanguage: target_language || "Vietnamese",
+        style: style || "news",
+        voiceId: voice_id || null,
+        includeCaptions: include_captions !== false,
+      });
+    } catch (e) {
+      console.error("[recreate] ❌ FAILED:", e?.message || e);
+      try {
+        await admin.from("recreate_projects").update({
+          status: "error", error_message: String(e?.message || e),
+          updated_at: new Date().toISOString(),
+        }).eq("id", project_id);
+      } catch {}
+    }
+  });
+});
+
+
 /* ── Start server ──────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`[render-webhook] listening on :${PORT}`);
-  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose`);
+  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate`);
 });

@@ -612,24 +612,6 @@ ${JSON.stringify(segmentsForTranslation, null, 2)}`;
 }
 
 /* ── [DUB STEP 4] Generate TTS with ElevenLabs v3 ─────────── */
-/* Phase 6: FULL-SCRIPT TTS — natural narration like real dubbing*/
-/*                                                                */
-/* How professional dubbing works:                                */
-/*   1. Narrator reads the ENTIRE script as one flowing piece    */
-/*   2. Audio engineer adjusts overall speed to fit video length */
-/*   3. Result: natural, conversational speech throughout        */
-/*                                                                */
-/* This approach:                                                 */
-/*   - Combine ALL translated text into one script               */
-/*   - Add paragraph breaks (newlines) between segments for      */
-/*     ElevenLabs to add natural pauses                          */
-/*   - Generate in chunks of ~4000 chars (API limit) but         */
-/*     chunk at PARAGRAPH boundaries, not mid-sentence           */
-/*   - Concatenate chunks seamlessly                             */
-/*   - Measure total narration duration vs video duration        */
-/*   - Apply ONE global tempo adjustment (max 12%) to match     */
-/*   - If narration is shorter than video → pad with silence    */
-/*   - Result: smooth, professional-quality dubbing              */
 async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, workDir, videoDurationSec, targetLanguageCode) {
   await updateDubStatus(projectId, "generating_tts", 50);
 
@@ -639,13 +621,10 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
   const ttsDir = path.join(workDir, "tts-parts");
   fs.mkdirSync(ttsDir, { recursive: true });
 
-  const MAX_SPEEDUP = 1.35;       // Max 35% global speed-up (Vietnamese can be 30-40% longer than English)
-  const MAX_CHARS = 4000;          // ElevenLabs chunk limit
-  const langCode = targetLanguageCode || "vi"; // Dynamic language code
+  const MAX_SPEEDUP = 1.35;
+  const MAX_CHARS = 4000;
+  const langCode = targetLanguageCode || "vi";
 
-  /* ── Build full script with paragraph breaks ───────────────── */
-  // Each segment becomes a paragraph. ElevenLabs naturally pauses
-  // between paragraphs, creating breath points that sound human.
   const paragraphs = [];
   for (const seg of translatedSegments) {
     const text = (seg.translated_text || seg.text || "").trim();
@@ -658,17 +637,13 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
     throw new Error("No translated text to generate TTS");
   }
 
-  // Join with newlines — ElevenLabs interprets these as natural pauses
   const fullScript = paragraphs.join("\n\n");
   console.log("[dub] full script:", paragraphs.length, "paragraphs,", fullScript.length, "chars");
 
-  /* ── Chunk at paragraph boundaries ─────────────────────────── */
-  // Split into chunks of ~MAX_CHARS, but only break between paragraphs
   const chunks = [];
   let currentChunk = "";
 
   for (const para of paragraphs) {
-    // If adding this paragraph would exceed limit, flush current chunk
     if (currentChunk.length > 0 && (currentChunk.length + para.length + 2) > MAX_CHARS) {
       chunks.push(currentChunk.trim());
       currentChunk = "";
@@ -681,7 +656,6 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
 
   console.log("[dub] split into", chunks.length, "TTS chunks:", chunks.map(c => c.length + " chars").join(", "));
 
-  /* ── Generate TTS for each chunk ───────────────────────────── */
   const chunkFiles = [];
 
   for (let i = 0; i < chunks.length; i++) {
@@ -724,13 +698,11 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
     await updateDubStatus(projectId, "generating_tts", pct);
   }
 
-  /* ── Concatenate chunks into one raw narration ─────────────── */
   const rawNarration = path.join(workDir, "raw-narration.mp3");
 
   if (chunkFiles.length === 1) {
     fs.copyFileSync(chunkFiles[0], rawNarration);
   } else {
-    // Concatenate with ffmpeg — seamless joining
     const listFile = path.join(ttsDir, "concat-list.txt");
     const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, "/")}'`).join("\n");
     fs.writeFileSync(listFile, listContent);
@@ -741,10 +713,8 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
     try { fs.unlinkSync(listFile); } catch {}
   }
 
-  // Cleanup chunk files
   for (const f of chunkFiles) { try { fs.unlinkSync(f); } catch {} }
 
-  /* ── Measure raw narration duration ────────────────────────── */
   let narrationDuration = videoDurationSec || 60;
   try {
     const { stdout } = await execAsync(
@@ -758,49 +728,40 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
 
   console.log("[dub] raw narration:", narrationDuration.toFixed(1), "s vs video:", targetDuration.toFixed(1), "s — ratio:", ratio.toFixed(3));
 
-  /* ── Apply ONE global tempo adjustment ─────────────────────── */
   const narrationFile = path.join(workDir, "vietnamese-narration.wav");
 
   if (ratio >= 0.95 && ratio <= 1.05) {
-    // Within 5% — perfect, no adjustment needed
     console.log("[dub] narration length is close enough — no tempo change ✓");
     await execAsync(`ffmpeg -i "${rawNarration}" -ar 44100 -ac 1 -y "${narrationFile}"`);
 
   } else if (ratio > 1.0 && ratio <= MAX_SPEEDUP) {
-    // Narration is longer than video — gentle speed-up
     console.log(`[dub] speeding up ${Math.round((ratio - 1) * 100)}% to match video length`);
     await execAsync(
       `ffmpeg -i "${rawNarration}" -af "atempo=${ratio.toFixed(4)}" -ar 44100 -ac 1 -y "${narrationFile}"`
     );
 
   } else if (ratio > MAX_SPEEDUP) {
-    // Narration much longer — cap at MAX_SPEEDUP
     console.log(`[dub] narration too long — capping speedup at ${Math.round((MAX_SPEEDUP - 1) * 100)}%`);
     await execAsync(
       `ffmpeg -i "${rawNarration}" -af "atempo=${MAX_SPEEDUP.toFixed(4)}" -ar 44100 -ac 1 -y "${narrationFile}"`
     );
 
   } else if (ratio < 0.95 && ratio >= 0.5) {
-    // Narration is shorter than video — slow down slightly for better fill
-    const slowdown = Math.max(0.88, ratio); // Don't slow more than 12%
+    const slowdown = Math.max(0.88, ratio);
     console.log(`[dub] slowing down ${Math.round((1 - slowdown) * 100)}% to better fill video`);
     await execAsync(
       `ffmpeg -i "${rawNarration}" -af "atempo=${slowdown.toFixed(4)}" -ar 44100 -ac 1 -y "${narrationFile}"`
     );
 
   } else {
-    // Edge case — just use as-is
     console.log("[dub] edge case ratio — using narration as-is");
     await execAsync(`ffmpeg -i "${rawNarration}" -ar 44100 -ac 1 -y "${narrationFile}"`);
   }
 
   try { fs.unlinkSync(rawNarration); } catch {}
 
-  /* ── Pad or trim to EXACT video duration + fade out ────────── */
   if (targetDuration > 0) {
     const finalFile = path.join(workDir, "vietnamese-narration-final.wav");
-    // afade: 2 second fade-out before the end for graceful ending
-    // -t: hard trim to exact video duration (safety net)
     const fadeOutDur = 2.0;
     const fadeOutStart = Math.max(0, targetDuration - fadeOutDur);
     await execAsync(
@@ -808,7 +769,6 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
     );
     fs.renameSync(finalFile, narrationFile);
 
-    // Verify the trim worked
     try {
       const { stdout: durCheck } = await execAsync(
         `ffprobe -v error -show_entries format=duration -of csv=p=0 "${narrationFile}"`
@@ -817,7 +777,6 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
     } catch {}
   }
 
-  // Cleanup
   try { fs.rmSync(ttsDir, { recursive: true, force: true }); } catch {}
 
   if (!fs.existsSync(narrationFile)) throw new Error("TTS narration file not created");
@@ -828,10 +787,6 @@ async function dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, work
 }
 
 /* ── [DUB STEP 4b] Re-transcribe narration for synced captions ─ */
-/* Runs Whisper on the Vietnamese narration audio to get ACTUAL    */
-/* timestamps of what the narrator says. These timestamps are     */
-/* then used for captions in Step 6, ensuring perfect sync        */
-/* between what viewers HEAR and what they READ.                  */
 async function dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegments, targetLanguageCode) {
   await updateDubStatus(projectId, "generating_tts", 67);
 
@@ -843,7 +798,6 @@ async function dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegmen
   const langCode = targetLanguageCode || "vi";
   console.log("[dub] re-transcribing narration with Whisper for synced captions (lang:", langCode, ")...");
 
-  // Read the narration audio
   const audioBuffer = fs.readFileSync(narrationFile);
   const blob = new Blob([audioBuffer], { type: "audio/wav" });
 
@@ -874,10 +828,6 @@ async function dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegmen
     return translatedSegments;
   }
 
-  // USE WHISPER'S OWN SEGMENTS DIRECTLY AS CAPTIONS
-  // Whisper detected what the narrator actually said + when.
-  // These timestamps perfectly match the narration audio.
-  // No need to map back to original translated segments.
   const syncedSegments = whisperSegs.map((ws, i) => ({
     translated_text: ws.text?.trim() || "",
     text: ws.text?.trim() || "",
@@ -899,11 +849,9 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
   const finalAudioFile = path.join(workDir, "final-audio.mp3");
 
   if (keepOriginal && fs.existsSync(originalAudioFile)) {
-    // Mix narration + original audio at reduced volume
     const vol = Math.max(0, Math.min(1, originalVolume || 0.15));
     console.log("[dub] mixing audio — original at", Math.round(vol * 100) + "% volume");
 
-    // Use -t to enforce video duration limit on mixed output
     const durationFlag = videoDurationSec > 0 ? `-t ${videoDurationSec.toFixed(2)}` : "";
     await execAsync(
       `ffmpeg -i "${narrationFile}" -i "${originalAudioFile}" ` +
@@ -911,7 +859,6 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
       `${durationFlag} -y "${finalAudioFile}"`
     );
   } else {
-    // Just use narration only — also enforce duration
     console.log("[dub] using narration only (no original audio mix)");
     if (videoDurationSec > 0) {
       await execAsync(
@@ -933,14 +880,9 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
 }
 
 /* ── [DUB STEP 6] Burn captions + replace audio ───────────── */
-/* FIX: 3 improvements from v1:                                 */
-/*   1. Smaller font (FontSize=13 instead of 22)                */
-/*   2. Black bar at bottom to cover original English subs      */
-/*   3. Vietnamese captions placed on the black bar area        */
 async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, translatedSegments, captionStyle, workDir) {
   await updateDubStatus(projectId, "assembling", 80);
 
-  // Generate SRT file from translated segments
   const srtFile = path.join(workDir, "vietnamese.srt");
   let srtContent = "";
 
@@ -957,9 +899,6 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
   fs.writeFileSync(srtFile, srtContent, "utf-8");
   console.log("[dub] SRT file created with", segs.length, "subtitles");
 
-  // Step 6a: Replace audio track AND strip embedded subtitle streams (-sn)
-  // -sn removes soft/embedded subtitles (English CC tracks)
-  // This won't remove hardcoded/burned-in subs — the black bar handles those
   const noSubsFile = path.join(workDir, "output-no-subs.mp4");
   console.log("[dub] replacing audio track + stripping embedded subtitle streams...");
   await execAsync(
@@ -967,13 +906,10 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     `-c:v copy -c:a aac -map 0:v -map 1:a -sn -shortest -y "${noSubsFile}"`
   );
 
-  // Step 6b: Add black bar at bottom to cover English subs + burn Vietnamese captions
   const finalOutputFile = path.join(workDir, "final-output.mp4");
 
-  // Escape special characters in SRT path for ffmpeg (Windows paths need escaping)
   const escapedSrtPath = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
 
-  // Get video dimensions first
   let videoWidth = 1280;
   let videoHeight = 720;
   try {
@@ -984,47 +920,33 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     if (w > 0 && h > 0) { videoWidth = w; videoHeight = h; }
   } catch {}
 
-  // Black bar height — covers bottom ~12% of video (where English subs usually sit)
   const barHeight = Math.round(videoHeight * 0.12);
 
-  // Detect orientation: vertical (Shorts/TikTok) vs landscape
   const isVertical = videoHeight > videoWidth;
 
-  // Caption font size — different for vertical vs landscape
-  // ASS/SSA subtitles scale FontSize relative to PlayResY (default 384px).
-  // We want REAL pixel sizes, so we scale up: desiredPx * (videoHeight / 384)
-  // Premium style: clean, readable, not overwhelming — like Netflix dubs
   let desiredFontPx, marginV, outlineSize;
 
   if (isVertical) {
-    // Vertical video (Shorts, TikTok, Reels)
-    desiredFontPx = Math.max(28, Math.round(videoWidth / 36));   // 1080/36=30px
+    desiredFontPx = Math.max(28, Math.round(videoWidth / 36));
     marginV = Math.round(videoHeight * 0.08);
     outlineSize = 2;
   } else {
-    // Landscape video (standard YouTube, TED talks, etc.)
-    // Netflix-style: ~26px on 1080p, ~20px on 720p
-    desiredFontPx = Math.max(18, Math.round(videoHeight / 42));  // 720→17→18px, 1080→26px
+    desiredFontPx = Math.max(18, Math.round(videoHeight / 42));
     marginV = Math.max(10, Math.round(barHeight * 0.20));
     outlineSize = 1.5;
   }
 
-  // Scale for ASS engine: FontSize is relative to 384px, not video height
   const assScaleFactor = videoHeight / 384;
   const fontSize = Math.round(desiredFontPx * assScaleFactor);
   const scaledMarginV = Math.round(marginV * assScaleFactor);
   const scaledOutline = Math.max(1, Math.round(outlineSize * assScaleFactor));
-  const scaledMarginLR = Math.round(50 * assScaleFactor);  // wider margins for centered look
+  const scaledMarginLR = Math.round(50 * assScaleFactor);
 
   console.log("[dub] burning subtitles —", isVertical ? "VERTICAL" : "LANDSCAPE",
     videoWidth, "x", videoHeight, "bar:", barHeight,
     "px, desiredPx:", desiredFontPx, "assFontSize:", fontSize, "marginV:", scaledMarginV);
 
-  // Build subtitle style — Premium "Netflix dub" look:
-  // - Clean white text with soft dark outline + subtle shadow
-  // - Semi-transparent dark background box for readability
-  // - BorderStyle=3 (opaque box) with translucent BackColour
-  const backColour = "&H80000000"; // 50% transparent black background box
+  const backColour = "&H80000000";
 
   const subtitleStyle = [
     `FontSize=${fontSize}`,
@@ -1043,9 +965,6 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     `Spacing=${Math.max(0, Math.round(0.5 * assScaleFactor))}`,
   ].join(",");
 
-  // Combined filter:
-  // 1. drawbox: black bar at bottom to cover English subtitles
-  // 2. subtitles: Vietnamese captions with adaptive styling
   await execAsync(
     `ffmpeg -i "${noSubsFile}" ` +
     `-vf "drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill,` +
@@ -1057,7 +976,6 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     throw new Error("Video assembly failed");
   }
 
-  // Cleanup intermediate file
   try { fs.unlinkSync(noSubsFile); } catch {}
 
   console.log("[dub] ✅ step 6 done — final video:", finalOutputFile);
@@ -1085,7 +1003,6 @@ function formatSrtTime(seconds) {
 async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
   await updateDubStatus(projectId, "uploading", 92);
 
-  // Upload video
   const videoBuffer = fs.readFileSync(finalOutputFile);
   const videoPath = `${userId}/${projectId}/dubbed.mp4`;
 
@@ -1101,7 +1018,6 @@ async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
 
   const videoUrl = `${SUPABASE_URL}/storage/v1/object/public/${DUB_BUCKET}/${videoPath}`;
 
-  // Upload SRT
   let srtUrl = null;
   if (srtFile && fs.existsSync(srtFile)) {
     const srtBuffer = fs.readFileSync(srtFile);
@@ -1120,7 +1036,6 @@ async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
     }
   }
 
-  // Update project as done
   await updateDubStatus(projectId, "done", 100, {
     video_url: videoUrl,
     srt_url: srtUrl,
@@ -1139,11 +1054,9 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
   console.log("[dub] target:", targetLanguage, "(code:", targetLanguageCode, ") voice:", voiceId);
   console.log("[dub] ═══════════════════════════════════════");
 
-  // Create temp work directory
   const workDir = path.join(os.tmpdir(), "dub-" + projectId);
   fs.mkdirSync(workDir, { recursive: true });
 
-  // Get the project's user_id for storage paths
   const { data: project } = await admin
     .from("dub_projects")
     .select("user_id")
@@ -1153,42 +1066,33 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
   const userId = project?.user_id || "unknown";
 
   try {
-    // [1] Download video + extract audio
     const { videoFile, audioFile, durationSec } =
       await dubStep1_Download(projectId, sourceUrl, workDir);
 
-    // [2] Transcribe with Whisper
     const { detectedLanguage, segments } =
       await dubStep2_Transcribe(projectId, audioFile);
 
-    // [3] Translate with GPT
     const translatedSegments =
       await dubStep3_Translate(projectId, segments, detectedLanguage, targetLanguage);
 
-    // [4] Generate TTS narration (full-script, language-aware)
     const narrationFile =
       await dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, workDir, durationSec, targetLanguageCode);
 
-    // [4b] Re-transcribe narration to get synced caption timestamps
     const syncedSegments =
       await dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegments, targetLanguageCode);
 
-    // [5] Mix audio (narration + original at low volume)
     const finalAudioFile =
       await dubStep5_MixAudio(projectId, narrationFile, audioFile, keepOriginal, originalVolume, workDir, durationSec);
 
-    // [6] Burn captions + replace audio (using SYNCED timestamps)
     const { finalOutputFile, srtFile } =
       await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir);
 
-    // [7] Upload to Supabase
     const { videoUrl, srtUrl } =
       await dubStep7_Upload(projectId, userId, finalOutputFile, srtFile);
 
     console.log("[dub] ✅ PIPELINE COMPLETE");
     return { videoUrl, srtUrl };
   } finally {
-    // Cleanup work directory
     try {
       fs.rmSync(workDir, { recursive: true, force: true });
       console.log("[dub] cleaned up workDir:", workDir);
@@ -1276,10 +1180,8 @@ app.post("/dub", async (req, res) => {
 
   console.log("[dub] received request — project:", project_id, "lang:", target_language, "code:", target_language_code);
 
-  // Respond immediately (pipeline runs in background)
   res.status(202).json({ ok: true, accepted: true, project_id });
 
-  // Run the pipeline in the background
   setImmediate(async () => {
     try {
       await runDub(
@@ -1288,7 +1190,7 @@ app.post("/dub", async (req, res) => {
         target_language || "Vietnamese",
         voice_id || null,
         caption_style || "block",
-        keep_original_audio !== false,  // default true
+        keep_original_audio !== false,
         original_audio_volume ?? 0.15,
         target_language_code || "vi"
       );
@@ -1312,14 +1214,6 @@ app.post("/dub", async (req, res) => {
 
 // ============================================================
 // 🆕 SHORTS PIPELINE v2 — "AI Shorts Generator"
-// ============================================================
-// ADD THIS BLOCK to render-webhook.mjs BEFORE the app.listen() call.
-//
-// v2 FIXES:
-//   ✅ Duration enforcement — hard clamp clips to min/max seconds
-//   ✅ Last word cutoff fix — adds 0.5s audio buffer after end_time
-//   ✅ Cinematic captions — Motiversity-style: UPPERCASE, white,
-//      centered lower-middle, shadow outline, NO background box
 // ============================================================
 
 const SHORTS_BUCKET = (process.env.SHORTS_BUCKET || "shorts").trim();
@@ -1479,9 +1373,6 @@ VERIFY every clip: (end_time - start_time) >= ${clipMinSeconds} AND <= ${clipMax
   try { clips = JSON.parse(text); } catch { throw new Error("GPT returned invalid JSON"); }
   if (!Array.isArray(clips) || clips.length === 0) throw new Error("GPT returned no clips");
 
-  // ═══════════════════════════════════════════════════════════
-  // HARD DURATION ENFORCEMENT — fixes 10s and 2:07 clips
-  // ═══════════════════════════════════════════════════════════
   const videoDur = durationSec || 9999;
 
   clips = clips.map((clip, i) => {
@@ -1489,7 +1380,6 @@ VERIFY every clip: (end_time - start_time) >= ${clipMinSeconds} AND <= ${clipMax
     let end = Number(clip.end_time) || 0;
     let dur = end - start;
 
-    // Too short → extend end, then pull start back if needed
     if (dur < clipMinSeconds) {
       const needed = clipMinSeconds - dur;
       end = Math.min(videoDur, end + needed);
@@ -1501,7 +1391,6 @@ VERIFY every clip: (end_time - start_time) >= ${clipMinSeconds} AND <= ${clipMax
       console.log(`[shorts]   #${i+1}: SHORT → extended to ${dur.toFixed(1)}s`);
     }
 
-    // Too long → trim
     if (dur > clipMaxSeconds) {
       end = start + clipMaxSeconds;
       dur = clipMaxSeconds;
@@ -1551,17 +1440,6 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
   console.log("[shorts] crop:", srcWidth, "x", srcHeight, "→", cropW, "x", cropH);
 
-  // ═══════════════════════════════════════════════════════════
-  // CINEMATIC CAPTION STYLING — Motiversity look
-  //
-  // The YouTube reference shows:
-  //   "I THINK IT KEEPS A LOT OF US UP AT NIGHT"
-  //   - ALL CAPS white text
-  //   - Clean outline (no background box)
-  //   - Lower-center positioning
-  //   - Elegant shadow for depth
-  //   - BorderStyle=1 (outline only)
-  // ═══════════════════════════════════════════════════════════
   const fontScale = clamp(captionFontScale || 0.5, 0.3, 1.0);
 
   let baseFontSize, marginV, outlineSize, shadowSize;
@@ -1582,7 +1460,6 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
   const finalFontSize = clamp(Math.round(baseFontSize * fontScale), 18, 60);
 
-  // Scale for ASS engine: FontSize is relative to PlayResY (384px), not actual video height
   const shortsAssScale = outHeight / 384;
   const scaledShortsFontSize = Math.round(finalFontSize * shortsAssScale);
   const scaledShortsMarginV = Math.round(marginV * shortsAssScale);
@@ -1592,19 +1469,9 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
   console.log("[shorts] captions:", captionStyle, "desiredPx:", finalFontSize, "assFontSize:", scaledShortsFontSize, "marginV:", scaledShortsMarginV);
 
-  // ═══════════════════════════════════════════════════════════
-  // SMART AUDIO BUFFER v3 — Two-layer approach:
-  //   Layer 1: Use Whisper SEGMENTS to find sentence boundaries
-  //            (segments are aligned to natural speech boundaries)
-  //   Layer 2: Use Whisper WORDS to find the precise end timestamp
-  //            of the last word in that segment
-  //
-  // This avoids the false-boundary problem where individual words
-  // like "the" or "But" were detected as sentence endings.
-  // ═══════════════════════════════════════════════════════════
-  const POST_SENTENCE_PAD = 2.5;  // 2.5s silence after last sentence ends
-  const FADE_OUT_DURATION = 1.0;  // 1s gentle audio fade-out at clip end
-  const PRE_START_PAD = 1.0;      // 1s before clip start for breathing room
+  const POST_SENTENCE_PAD = 2.5;
+  const FADE_OUT_DURATION = 1.0;
+  const PRE_START_PAD = 1.0;
 
   const processedClips = [];
 
@@ -1616,65 +1483,45 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     const pctBase = 45 + Math.round((i / clips.length) * 40);
     await updateShortsStatus(projectId, "clipping", pctBase);
 
-    // ── Smart end-time v3: segment-based sentence boundary + word-level precision ──
-    //
-    // Step 1: Find the last Whisper SEGMENT that overlaps or starts near clip.end_time
-    //         Segments are natural sentence boundaries (much more reliable than word gaps)
-    // Step 2: Use word timestamps to find the precise end of that segment's last word
-    // Step 3: Add generous padding for silence after speech
-    //
-    // This ensures we always capture the complete final sentence.
+    let smartEndTime = clip.end_time + 3.0;
 
-    let smartEndTime = clip.end_time + 3.0; // Minimum: 3s past GPT's end_time
-
-    // --- Layer 1: Find the segment that contains or follows clip.end_time ---
     const overlappingSegs = segments.filter(
       (seg) => seg.start < (clip.end_time + 6) && seg.end > (clip.end_time - 3)
     );
 
     let targetSegEnd = clip.end_time;
     if (overlappingSegs.length > 0) {
-      // Find the segment that the speech is "in the middle of" at clip.end_time
-      // This is the one we need to let finish
       const activeAtEnd = overlappingSegs.find(
         (seg) => seg.start <= clip.end_time && seg.end > clip.end_time
       );
 
       if (activeAtEnd) {
-        // Speech is ongoing at clip.end_time — extend to end of this segment
         targetSegEnd = activeAtEnd.end;
         console.log(`[shorts]   #${clip.index}: active segment ends@${activeAtEnd.end.toFixed(1)}s: "${(activeAtEnd.text || "").trim().slice(-40)}"`);
       } else {
-        // clip.end_time falls in a gap between segments — check if the next segment starts very soon
         const nextSeg = overlappingSegs.find((seg) => seg.start > clip.end_time && seg.start < clip.end_time + 2);
         if (nextSeg) {
-          // A segment starts within 2s — might be the continuation, include it
           targetSegEnd = nextSeg.end;
           console.log(`[shorts]   #${clip.index}: next segment (${nextSeg.start.toFixed(1)}→${nextSeg.end.toFixed(1)}s): "${(nextSeg.text || "").trim().slice(-40)}"`);
         }
       }
     }
 
-    // --- Layer 2: Use word timestamps for precise end of the target segment ---
     if (Array.isArray(words) && words.length > 0) {
-      // Find the last word that falls within the target segment
       const segWords = words.filter(
         (w) => w.start >= (clip.start_time - 1) && w.start < (targetSegEnd + 1)
       );
       if (segWords.length > 0) {
         const lastWord = segWords[segWords.length - 1];
         const preciseEnd = lastWord.end || (lastWord.start + 0.5);
-        // Use the later of: segment end or last word end (Whisper sometimes disagrees)
         targetSegEnd = Math.max(targetSegEnd, preciseEnd);
         console.log(`[shorts]   #${clip.index}: lastWord="${(lastWord.word || "").trim()}" preciseEnd=${preciseEnd.toFixed(2)}s`);
       }
     }
 
-    // --- Final smartEndTime: target segment end + generous padding ---
     smartEndTime = Math.max(smartEndTime, targetSegEnd + POST_SENTENCE_PAD);
 
-    // --- Hard cap: Don't let the total clip (including padding) exceed max duration + tolerance ---
-    const MAX_TOTAL_DURATION = (clip.duration || 60) + 8; // clip.duration from GPT + 8s max extension
+    const MAX_TOTAL_DURATION = (clip.duration || 60) + 8;
     const ffmpegStartRaw = Math.max(0, clip.start_time - PRE_START_PAD);
     if ((smartEndTime - ffmpegStartRaw) > MAX_TOTAL_DURATION) {
       smartEndTime = ffmpegStartRaw + MAX_TOTAL_DURATION;
@@ -1683,18 +1530,15 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
     console.log(`[shorts]   #${clip.index}: GPT=${clip.end_time}s → segEnd=${targetSegEnd.toFixed(1)}s → smartEnd=${smartEndTime.toFixed(1)}s (+${POST_SENTENCE_PAD}s pad)`);
 
-    // Calculate actual duration for FFmpeg
     const ffmpegStart = ffmpegStartRaw;
     const ffmpegDuration = smartEndTime - ffmpegStart;
 
     console.log(`[shorts] clip #${clip.index}: ${ffmpegStart.toFixed(2)}→${smartEndTime.toFixed(2)}s (${ffmpegDuration.toFixed(1)}s total)`);
 
-    // Generate SRT with UPPERCASE text
     if (captionStyle !== "none") {
       let srtContent = "";
       let idx = 1;
 
-      // Include segments that overlap the full smart range
       const clipSegs = segments.filter((seg) => seg.end > ffmpegStart && seg.start < smartEndTime);
 
       for (const seg of clipSegs) {
@@ -1711,26 +1555,16 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
       if (srtContent) fs.writeFileSync(srtFile, srtContent, "utf-8");
     }
 
-    // Build filter chain
-    // Step 1: Crop to 9:16 and scale to 1080x1920
-    // Step 2: Draw black bar at bottom to COVER original hardcoded captions
-    // Step 3: Burn our styled captions on top
-
-    // Black bar covers bottom 12% of video (where original subs usually sit)
-    const barHeight = Math.round(outHeight * 0.12); // ~230px on 1920h
+    const barHeight = Math.round(outHeight * 0.12);
 
     let filter = `crop=${cropW}:${cropH}:${cropX}:0,scale=${outWidth}:${outHeight}:flags=lanczos`;
     filter += `,drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill`;
 
     if (captionStyle !== "none" && fs.existsSync(srtFile)) {
-      // Windows FFmpeg subtitle path fix:
-      // The subtitles filter on Windows requires very specific path escaping.
       let srtPath;
 
       if (process.platform === "win32") {
-        // Convert to forward slashes: C:\Users\... → C:/Users/...
         srtPath = srtFile.replace(/\\/g, "/");
-        // Escape ALL colons: C:/Users → C\\:/Users
         srtPath = srtPath.replace(/:/g, "\\\\:");
       } else {
         srtPath = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
@@ -1739,7 +1573,6 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
       console.log(`[shorts]   #${clip.index}: SRT path: ${srtPath}`);
       console.log(`[shorts]   #${clip.index}: SRT exists: ${fs.existsSync(srtFile)}, size: ${fs.statSync(srtFile).size} bytes`);
 
-      // Motiversity-style: outline only, NO background box
       const style = [
         `FontSize=${scaledShortsFontSize}`,
         `FontName=Arial`,
@@ -1763,7 +1596,6 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     }
 
     try {
-      // Audio fade-out for graceful ending (last FADE_OUT_DURATION seconds)
       const fadeStart = Math.max(0, ffmpegDuration - FADE_OUT_DURATION);
       const ffmpegCmd = `ffmpeg -ss ${ffmpegStart.toFixed(2)} -i "${videoFile}" -t ${ffmpegDuration.toFixed(2)} ` +
         `-vf "${filter}" ` +
@@ -1778,7 +1610,6 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
       const errMsg = e?.stderr || e?.message || String(e);
       console.warn(`[shorts] ⚠ clip #${clip.index} FFmpeg error:`, errMsg.slice(0, 500));
 
-      // If subtitle filter failed, retry WITHOUT subtitles
       if (errMsg.includes("subtitles") || errMsg.includes("Subtitle") || errMsg.includes("srt")) {
         console.log(`[shorts]   #${clip.index}: retrying WITHOUT subtitles...`);
         try {
@@ -1949,9 +1780,6 @@ app.post("/shorts", async (req, res) => {
 // ============================================================
 // 🆕 REPURPOSE PIPELINE — "Auto-Repurpose" feature
 // ============================================================
-// Turn one long YouTube video → 3-5 ready-to-post vertical shorts
-// Reuses existing shorts infrastructure + adds enhanced metadata
-// ============================================================
 
 const REPURPOSE_BUCKET = (process.env.REPURPOSE_BUCKET || "repurpose").trim();
 
@@ -1969,7 +1797,7 @@ async function updateRepurposeStatus(projectId, status, progressPct, extra = {})
   console.log(`[repurpose] status → ${status} (${progressPct}%)`);
 }
 
-/* ── [STEP 1] Download — wrapper that updates repurpose_projects ── */
+/* ── [STEP 1] Download ── */
 async function repurposeStep1_Download(projectId, sourceUrl, workDir) {
   await updateRepurposeStatus(projectId, "downloading", 5);
   const videoFile = path.join(workDir, "source-video.mp4");
@@ -2018,7 +1846,7 @@ async function repurposeStep1_Download(projectId, sourceUrl, workDir) {
   return { videoFile, audioFile, durationSec };
 }
 
-/* ── [STEP 2] Transcribe — wrapper that updates repurpose_projects ── */
+/* ── [STEP 2] Transcribe ── */
 async function repurposeStep2_Transcribe(projectId, audioFile) {
   await updateRepurposeStatus(projectId, "transcribing", 15);
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
@@ -2047,19 +1875,13 @@ async function repurposeStep2_Transcribe(projectId, audioFile) {
   return { segments: result.segments || [], words: result.words || [] };
 }
 
-/* ── [STEP 3] Enhanced AI viral moment detection + SEO metadata ── */
-/* KEY INSIGHT: Instead of asking GPT to pick raw timestamps (which it     */
-/* does poorly), we give it NUMBERED SEGMENTS and ask it to pick           */
-/* start_segment and end_segment indices. Since Whisper segments are       */
-/* sentence-aligned, this GUARANTEES clips start/end on complete sentences.*/
+/* ── [STEP 3] Enhanced AI viral moment detection ── */
 async function repurposeStep3_Analyze(projectId, segments, durationSec, options) {
   await updateRepurposeStatus(projectId, "analyzing", 30);
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const { maxClips, clipMinSeconds, clipMaxSeconds } = options;
 
-  // Build numbered transcript with segment indices
-  // This gives GPT clear sentence boundaries to work with
   const numberedTranscript = segments.map((s, i) => {
     const m = Math.floor(s.start / 60);
     const sec = Math.floor(s.start % 60);
@@ -2078,32 +1900,17 @@ YOUR TASK: Pick ${maxClips} clips by choosing START and END SEGMENT numbers.
 
 RULES:
 1. Each clip = a range of consecutive segments (e.g., segments 5 through 12)
-2. The clip duration (from start of first segment to end of last segment) should be between ${clipMinSeconds} and ${Math.max(clipMinSeconds, clipMaxSeconds - 8)} seconds (we add a few seconds of buffer in post-processing, so AIM SHORTER)
-3. Each clip must tell a COMPLETE STORY — the first segment should set up the idea and the last segment should CONCLUDE it
-4. The LAST SEGMENT of each clip must be a COMPLETE SENTENCE that concludes the thought. NEVER end on a sentence that leads into the next idea (e.g., ending with "and that's when..." or "because..." or a comma)
+2. The clip duration (from start of first segment to end of last segment) should be between ${clipMinSeconds} and ${Math.max(clipMinSeconds, clipMaxSeconds - 8)} seconds
+3. Each clip must tell a COMPLETE STORY
+4. The LAST SEGMENT of each clip must be a COMPLETE SENTENCE that concludes the thought
 5. No overlapping segment ranges between clips
-6. Prefer moments with: strong opening hook, emotional peaks, surprising statements, quotable conclusions
-7. Each clip must work STANDALONE — a viewer with no context should understand it
+6. Prefer moments with: strong opening hook, emotional peaks, surprising statements
+7. Each clip must work STANDALONE
 
 FOR EACH CLIP, RETURN:
-- start_segment: The segment number where the clip begins
-- end_segment: The segment number where the clip ends (MUST be a concluding sentence)
-- hook_score: 0-100 (how viral is this moment?)
-- reason: Why this moment is viral
-- suggested_title: Click-worthy title (max 60 chars, 1 emoji)
-- suggested_description: 1-2 sentence post description
-- suggested_hashtags: Array of 5-7 hashtags (always include #shorts)
-- emotional_hook: What emotion drives this clip (curiosity, inspiration, shock, etc.)
+- start_segment, end_segment, hook_score (0-100), reason, suggested_title (max 60 chars, 1 emoji), suggested_description, suggested_hashtags (array of 5-7), emotional_hook
 
-Return ONLY a JSON array:
-[{"index":1,"start_segment":<num>,"end_segment":<num>,"hook_score":<0-100>,"reason":"...","suggested_title":"...","suggested_description":"...","suggested_hashtags":["#shorts","..."],"emotional_hook":"curiosity"}]
-
-VERIFY each clip:
-1. end_segment > start_segment
-2. Duration (end of last segment - start of first segment) is between ${clipMinSeconds} and ${Math.max(clipMinSeconds, clipMaxSeconds - 8)} seconds. AIM for ${Math.max(clipMinSeconds, clipMaxSeconds - 10)}-${Math.max(clipMinSeconds, clipMaxSeconds - 5)} seconds as the sweet spot.
-3. The text of end_segment is a COMPLETE concluding sentence — it must END the thought, not lead into the next one
-4. Segment numbers are between 0 and ${segments.length - 1}
-No markdown, no explanation.`;
+Return ONLY a JSON array. No markdown.`;
 
   console.log("[repurpose] GPT prompt length:", prompt.length, "chars");
 
@@ -2127,7 +1934,6 @@ No markdown, no explanation.`;
   try { rawClips = JSON.parse(text); } catch { throw new Error("GPT returned invalid JSON"); }
   if (!Array.isArray(rawClips) || rawClips.length === 0) throw new Error("GPT returned no clips");
 
-  // Convert segment indices to timestamps
   const videoDur = durationSec || 9999;
   let clips = rawClips.map((clip, i) => {
     let startSeg = Math.max(0, Math.min(segments.length - 1, Number(clip.start_segment) || 0));
@@ -2137,40 +1943,33 @@ No markdown, no explanation.`;
     const endTime = segments[endSeg].end;
     let dur = endTime - startTime;
 
-    // Duration enforcement — adjust segment range if needed
-    // Use effectiveMax that's shorter than clipMaxSeconds because the smart buffer
-    // in step 4 will add ~5-8s (PRE_START_PAD + POST_SENTENCE_PAD + next segment)
     const effectiveMax = Math.max(clipMinSeconds, clipMaxSeconds - 8);
 
     if (dur < clipMinSeconds) {
-      // Extend end segments until we reach minimum duration
       while (endSeg < segments.length - 1 && dur < clipMinSeconds) {
         endSeg++;
         dur = segments[endSeg].end - startTime;
       }
-      console.log(`[repurpose]   #${i+1}: SHORT (${(endTime - startTime).toFixed(0)}s) → extended to seg ${endSeg} (${dur.toFixed(0)}s)`);
+      console.log(`[repurpose]   #${i+1}: SHORT → extended to seg ${endSeg} (${dur.toFixed(0)}s)`);
     }
     if (dur > effectiveMax) {
-      // Trim end segments to fit within effective max
       while (endSeg > startSeg + 1 && (segments[endSeg].end - startTime) > effectiveMax) {
         endSeg--;
       }
       dur = segments[endSeg].end - startTime;
-      console.log(`[repurpose]   #${i+1}: LONG → trimmed to seg ${endSeg} (${dur.toFixed(0)}s, effectiveMax=${effectiveMax}s)`);
+      console.log(`[repurpose]   #${i+1}: LONG → trimmed to seg ${endSeg} (${dur.toFixed(0)}s)`);
     }
 
     const finalStart = Math.max(0, segments[startSeg].start);
     const finalEnd = Math.min(videoDur, segments[endSeg].end);
     const finalDur = finalEnd - finalStart;
 
-    // Log the actual content boundaries for debugging
     const firstSentence = (segments[startSeg].text || "").trim().slice(0, 50);
     const lastSentence = (segments[endSeg].text || "").trim().slice(-50);
     console.log(`[repurpose]   #${i+1}: segs ${startSeg}→${endSeg} | ${finalStart.toFixed(1)}→${finalEnd.toFixed(1)}s (${finalDur.toFixed(0)}s)`);
     console.log(`[repurpose]     STARTS: "${firstSentence}..."`);
     console.log(`[repurpose]     ENDS:   "...${lastSentence}"`);
 
-    // Skip clips that are still too short after adjustment
     if (finalDur < clipMinSeconds * 0.8) {
       console.log(`[repurpose]   #${i+1}: SKIPPED — too short (${finalDur.toFixed(0)}s)`);
       return null;
@@ -2199,7 +1998,7 @@ No markdown, no explanation.`;
   return clips;
 }
 
-/* ── [STEP 7] Upload to repurpose bucket + insert clips table ── */
+/* ── [STEP 7] Upload to repurpose bucket ── */
 async function repurposeStep7_Upload(projectId, userId, processedClips) {
   await updateRepurposeStatus(projectId, "uploading", 92);
   const uploadedClips = [];
@@ -2242,7 +2041,6 @@ async function repurposeStep7_Upload(projectId, userId, processedClips) {
     };
     uploadedClips.push(record);
 
-    // Insert into normalized repurpose_clips table
     try {
       await admin.from("repurpose_clips").upsert({
         id: record.id, project_id: projectId, user_id: userId,
@@ -2284,33 +2082,27 @@ async function runRepurpose(projectId, sourceUrl, options) {
   const userId = proj?.user_id || "unknown";
 
   try {
-    // [1] Download
     const { videoFile, audioFile, durationSec } =
       await repurposeStep1_Download(projectId, sourceUrl, workDir);
 
-    // [2] Transcribe
     const { segments, words } =
       await repurposeStep2_Transcribe(projectId, audioFile);
 
-    // [3] Enhanced AI analysis + metadata
     const clips = await repurposeStep3_Analyze(projectId, segments, durationSec, {
       maxClips: options.maxClips || 5,
       clipMinSeconds: options.clipMinSeconds || 30,
       clipMaxSeconds: options.clipMaxSeconds || 60,
     });
 
-    // [4+5] Extract clips + crop + burn captions (reuse existing shorts step)
     const processed = await shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segments, words, {
       captionStyle: options.captionStyle || "karaoke",
       cropMode: options.cropMode || "center",
       captionFontScale: options.captionFontScale || 0.5,
     }, workDir);
 
-    // [6] Thumbnails (reuse existing shorts step)
     const thumbed = await shortsStep6_Thumbnails(projectId, processed,
       options.generateThumbnails !== false);
 
-    // [7] Upload to repurpose bucket
     const uploaded = await repurposeStep7_Upload(projectId, userId, thumbed);
 
     console.log("[repurpose] ✅ COMPLETE —", uploaded.length, "clips");
@@ -2360,9 +2152,15 @@ app.post("/repurpose", async (req, res) => {
 
 
 /* ============================================================
-   🆕 RECREATE PIPELINE — "ReCreate" feature
-   Paste any video → AI writes original script → stock footage → new video
-   Steps: download → transcribe → script → media → TTS → assemble → upload
+   🆕 RECREATE PIPELINE v7 — Major improvements
+   
+   v7 CHANGES:
+   ✅ FIX 1: Text-weighted scene durations (longer text = more screen time)
+   ✅ FIX 2: Whisper re-transcription for PERFECT caption sync
+   ✅ FIX 3: Media deduplication (no repeated stock clips)
+   ✅ FIX 4: Pick from top 3-5 results randomly (visual diversity)
+   ✅ FIX 5: Cross-fade transitions between scenes (professional look)
+   ✅ FIX 6: 2s fade-out at end for clean finish
 ============================================================ */
 
 const PEXELS_API_KEY = (process.env.PEXELS_API_KEY || "").trim();
@@ -2401,7 +2199,6 @@ async function recreateStep1_Transcribe(projectId, sourceUrl, workDir) {
       noPlaylist: true,
     });
   } catch {
-    // Fallback: download video then extract
     console.log("[recreate] audio-only failed, trying video...");
     const videoFile = path.join(workDir, "source-video.mp4");
     await ytdlp(sourceUrl, {
@@ -2417,7 +2214,6 @@ async function recreateStep1_Transcribe(projectId, sourceUrl, workDir) {
 
   await updateReCreateStatus(projectId, "transcribing", 10);
 
-  // Whisper transcription
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const audioBuffer = fs.readFileSync(audioFile);
@@ -2466,7 +2262,6 @@ async function recreateStep2_GenerateScript(projectId, transcript, targetLanguag
     motivational: "Write as an inspiring speaker. Powerful language, emotional appeal, calls to action.",
   };
 
-  // Detect if same-language rewrite (English → English)
   const isRewrite = targetLanguage.toLowerCase() === "english";
 
   const rewriteInstruction = isRewrite
@@ -2524,6 +2319,7 @@ INSTEAD, think: "What GENERIC visual would a news editor use as B-roll for this 
 ✓ "family watching television home" — for audience reaction
 ✓ "sunset city peaceful skyline" — for closing/hope segments
 
+IMPORTANT: Each scene_query must be DIFFERENT from every other scene. Never repeat the same query.
 Each query should be 3-5 words, descriptive of a VISUAL SCENE, not a news headline.
 
 Return ONLY a JSON array, no markdown:
@@ -2567,7 +2363,7 @@ ${transcript.slice(0, 12000)}`;
   return scenes;
 }
 
-/* ── [RECREATE STEP 3] Fetch stock media — Pexels + Pixabay ── */
+/* ── [RECREATE STEP 3] Fetch stock media — with dedup + diversity ── */
 async function recreateStep3_FindMedia(projectId, scenes, workDir) {
   await updateReCreateStatus(projectId, "finding_media", 35);
 
@@ -2575,6 +2371,9 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
   fs.mkdirSync(mediaDir, { recursive: true });
 
   console.log("[recreate] PEXELS key:", !!PEXELS_API_KEY, "| PIXABAY key:", !!PIXABAY_API_KEY);
+
+  // ✅ FIX 3: Track used media URLs to prevent duplicate clips
+  const usedMediaUrls = new Set();
 
   const updatedScenes = [];
 
@@ -2587,75 +2386,100 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
 
     console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
 
-    /* ── Source 1: Pexels Videos ──────────────────────────────── */
+    /* ── Source 1: Pexels Videos (pick from top results, skip dupes) ── */
     if (!mediaUrl && PEXELS_API_KEY) {
       try {
         const res = await fetch(
-          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
+          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`,
           { headers: { Authorization: PEXELS_API_KEY } }
         );
         if (res.ok) {
           const data = await res.json();
-          const video = data.videos?.[0];
-          const file = video?.video_files?.find((f) =>
-            (f.quality === "hd" || f.quality === "sd") && f.width >= 1280
-          ) || video?.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || video?.video_files?.[0];
-          if (file?.link) { mediaUrl = file.link; mediaType = "video"; source = "pexels-video"; }
+          // ✅ FIX 4: Pick randomly from top results, skip already-used
+          const candidates = (data.videos || []).filter((v) => {
+            const file = v?.video_files?.find((f) =>
+              (f.quality === "hd" || f.quality === "sd") && f.width >= 1280
+            ) || v?.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || v?.video_files?.[0];
+            return file?.link && !usedMediaUrls.has(file.link);
+          });
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            const file = pick?.video_files?.find((f) =>
+              (f.quality === "hd" || f.quality === "sd") && f.width >= 1280
+            ) || pick?.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || pick?.video_files?.[0];
+            if (file?.link) { mediaUrl = file.link; mediaType = "video"; source = "pexels-video"; usedMediaUrls.add(file.link); }
+          }
         }
       } catch (e) { console.log(`[recreate]     pexels video err:`, e.message); }
     }
 
-    /* ── Source 2: Pixabay Videos ─────────────────────────────── */
+    /* ── Source 2: Pixabay Videos ── */
     if (!mediaUrl && PIXABAY_API_KEY) {
       try {
         const res = await fetch(
-          `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=5&safesearch=true`
+          `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=8&safesearch=true`
         );
         if (res.ok) {
           const data = await res.json();
-          const video = data.hits?.[0];
-          const file = video?.videos?.medium || video?.videos?.large || video?.videos?.small;
-          if (file?.url) { mediaUrl = file.url; mediaType = "video"; source = "pixabay-video"; }
+          const candidates = (data.hits || []).filter((v) => {
+            const file = v?.videos?.medium || v?.videos?.large || v?.videos?.small;
+            return file?.url && !usedMediaUrls.has(file.url);
+          });
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            const file = pick?.videos?.medium || pick?.videos?.large || pick?.videos?.small;
+            if (file?.url) { mediaUrl = file.url; mediaType = "video"; source = "pixabay-video"; usedMediaUrls.add(file.url); }
+          }
         }
       } catch (e) { console.log(`[recreate]     pixabay video err:`, e.message); }
     }
 
-    /* ── Source 3: Pexels Photos ──────────────────────────────── */
+    /* ── Source 3: Pexels Photos ── */
     if (!mediaUrl && PEXELS_API_KEY) {
       try {
         const res = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`,
           { headers: { Authorization: PEXELS_API_KEY } }
         );
         if (res.ok) {
           const data = await res.json();
-          const photo = data.photos?.[0];
-          if (photo) {
-            mediaUrl = photo.src?.landscape || photo.src?.large || photo.src?.original;
+          const candidates = (data.photos || []).filter((p) => {
+            const url = p.src?.landscape || p.src?.large || p.src?.original;
+            return url && !usedMediaUrls.has(url);
+          });
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            mediaUrl = pick.src?.landscape || pick.src?.large || pick.src?.original;
             mediaType = "image"; source = "pexels-photo";
+            if (mediaUrl) usedMediaUrls.add(mediaUrl);
           }
         }
       } catch (e) { console.log(`[recreate]     pexels photo err:`, e.message); }
     }
 
-    /* ── Source 4: Pixabay Photos ─────────────────────────────── */
+    /* ── Source 4: Pixabay Photos ── */
     if (!mediaUrl && PIXABAY_API_KEY) {
       try {
         const res = await fetch(
-          `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=5&orientation=horizontal&safesearch=true&image_type=photo`
+          `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=8&orientation=horizontal&safesearch=true&image_type=photo`
         );
         if (res.ok) {
           const data = await res.json();
-          const photo = data.hits?.[0];
-          if (photo) {
-            mediaUrl = photo.largeImageURL || photo.webformatURL;
+          const candidates = (data.hits || []).filter((p) => {
+            const url = p.largeImageURL || p.webformatURL;
+            return url && !usedMediaUrls.has(url);
+          });
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            mediaUrl = pick.largeImageURL || pick.webformatURL;
             mediaType = "image"; source = "pixabay-photo";
+            if (mediaUrl) usedMediaUrls.add(mediaUrl);
           }
         }
       } catch (e) { console.log(`[recreate]     pixabay photo err:`, e.message); }
     }
 
-    /* ── Fallback: simpler query (first 2 words) ─────────────── */
+    /* ── Fallback: simpler query (first 2 words) ── */
     if (!mediaUrl) {
       const simpleQ = query.split(" ").slice(0, 2).join(" ");
       console.log(`[recreate]     retrying: "${simpleQ}"`);
@@ -2667,8 +2491,12 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
             { headers: { Authorization: PEXELS_API_KEY } }
           );
           if (res.ok) {
-            const photo = (await res.json()).photos?.[0];
-            if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; source = "pexels-fallback"; }
+            const photo = (await res.json()).photos?.find((p) => !usedMediaUrls.has(p.src?.landscape));
+            if (photo) {
+              mediaUrl = photo.src?.landscape || photo.src?.large;
+              mediaType = "image"; source = "pexels-fallback";
+              if (mediaUrl) usedMediaUrls.add(mediaUrl);
+            }
           }
         } catch {}
       }
@@ -2678,14 +2506,18 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
             `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(simpleQ)}&per_page=5&orientation=horizontal&safesearch=true`
           );
           if (res.ok) {
-            const photo = (await res.json()).hits?.[0];
-            if (photo) { mediaUrl = photo.largeImageURL || photo.webformatURL; mediaType = "image"; source = "pixabay-fallback"; }
+            const photo = (await res.json()).hits?.find((p) => !usedMediaUrls.has(p.largeImageURL));
+            if (photo) {
+              mediaUrl = photo.largeImageURL || photo.webformatURL;
+              mediaType = "image"; source = "pixabay-fallback";
+              if (mediaUrl) usedMediaUrls.add(mediaUrl);
+            }
           }
         } catch {}
       }
     }
 
-    /* ── Download media file ──────────────────────────────────── */
+    /* ── Download media file ── */
     let localFile = null;
     if (mediaUrl) {
       try {
@@ -2699,7 +2531,7 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
       } catch { localFile = null; }
     }
 
-    /* ── Ultimate fallback: solid color background ────────────── */
+    /* ── Ultimate fallback: solid color background ── */
     if (!localFile) {
       console.log(`[recreate]     ⚠ no media, fallback bg`);
       localFile = path.join(mediaDir, `scene-${i}.png`);
@@ -2742,7 +2574,6 @@ async function recreateStep4_TTS(projectId, scenes, voiceId, workDir, langCode) 
   const paragraphs = scenes.map((s) => (s.text || "").trim()).filter((t) => t.length > 0);
   if (paragraphs.length === 0) throw new Error("No text for TTS");
 
-  // Chunk at paragraph boundaries (4000 char limit)
   const chunks = [];
   let cur = "";
   for (const p of paragraphs) {
@@ -2775,7 +2606,6 @@ async function recreateStep4_TTS(projectId, scenes, voiceId, workDir, langCode) 
     await updateReCreateStatus(projectId, "generating_voice", 55 + Math.round(((i + 1) / chunks.length) * 10));
   }
 
-  // Concatenate
   const narrationFile = path.join(workDir, "narration.mp3");
   if (chunkFiles.length === 1) {
     fs.copyFileSync(chunkFiles[0], narrationFile);
@@ -2799,29 +2629,108 @@ async function recreateStep4_TTS(projectId, scenes, voiceId, workDir, langCode) 
   return { narrationFile, durationSec };
 }
 
-/* ── [RECREATE STEP 5] Assemble video ─────────────────────── */
-async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions) {
+/* ── [RECREATE STEP 4b] Re-transcribe narration for synced captions ── */
+/* ✅ FIX 2: Uses Whisper to get ACTUAL timestamps from the narration   */
+/* This ensures captions match exactly what the narrator says and when   */
+async function recreateStep4b_SyncCaptions(projectId, narrationFile, scenes, langCode) {
+  await updateReCreateStatus(projectId, "generating_voice", 67);
+
+  if (!OPENAI_API_KEY) {
+    console.log("[recreate] no OPENAI_API_KEY — skipping caption re-sync");
+    return null; // will fall back to text-weighted timing
+  }
+
+  console.log("[recreate] re-transcribing narration with Whisper for synced captions...");
+
+  const audioBuffer = fs.readFileSync(narrationFile);
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+
+  const fd = new FormData();
+  fd.append("file", blob, "narration.mp3");
+  fd.append("model", "whisper-1");
+  fd.append("response_format", "verbose_json");
+  fd.append("timestamp_granularities[]", "segment");
+  if (langCode && langCode !== "en") {
+    fd.append("language", langCode);
+  }
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: fd,
+    });
+
+    if (!res.ok) {
+      console.warn("[recreate] Whisper re-transcription failed:", res.status);
+      return null;
+    }
+
+    const result = await res.json();
+    const whisperSegs = result.segments || [];
+
+    if (whisperSegs.length === 0) {
+      console.log("[recreate] Whisper returned 0 segments");
+      return null;
+    }
+
+    // Build SRT from Whisper's detected segments (perfect timing)
+    const syncedCaptions = whisperSegs.map((ws, i) => ({
+      text: ws.text?.trim() || "",
+      start: ws.start,
+      end: ws.end,
+      index: i,
+    }));
+
+    console.log("[recreate] ✅ step 4b — got", syncedCaptions.length, "Whisper-synced caption segments");
+    return syncedCaptions;
+  } catch (e) {
+    console.warn("[recreate] Whisper re-transcription error:", e?.message);
+    return null;
+  }
+}
+
+/* ── [RECREATE STEP 5] Assemble video — v7 improvements ────── */
+async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions) {
   await updateReCreateStatus(projectId, "rendering", 70);
 
   const W = 1920, H = 1080, FPS = 30;
   const validScenes = scenes.filter((s) => s.local_file && fs.existsSync(s.local_file));
   if (validScenes.length === 0) throw new Error("No media found for any scene");
 
-  // KEY FIX: Use narration duration to drive EVERYTHING
-  // Each scene's video segment = narrationDuration / numScenes
-  // This ensures video length == narration length == caption timing
-  const sceneDur = durationSec / validScenes.length;
+  // ✅ FIX 1: Text-WEIGHTED scene durations
+  // Longer text = more screen time. This is WAY better than equal distribution
+  // because ElevenLabs speaks more text = takes more time = scene should be longer
+  const textLengths = validScenes.map((s) => (s.text || "").length);
+  const totalTextLen = textLengths.reduce((a, b) => a + b, 0) || 1;
+  const sceneDurations = textLengths.map((len) => {
+    const weight = len / totalTextLen;
+    // Minimum 5s per scene, distribute rest proportionally
+    return Math.max(5, weight * durationSec);
+  });
 
-  console.log(`[recreate] rendering ${validScenes.length} scenes, ${sceneDur.toFixed(1)}s each, total ${durationSec.toFixed(1)}s`);
+  // Normalize to exactly match narration duration
+  const rawTotal = sceneDurations.reduce((a, b) => a + b, 0);
+  const scaleFactor = durationSec / rawTotal;
+  const finalDurations = sceneDurations.map((d) => d * scaleFactor);
+
+  console.log(`[recreate] rendering ${validScenes.length} scenes, text-weighted durations:`);
+  finalDurations.forEach((d, i) => {
+    console.log(`[recreate]   scene ${i + 1}: ${d.toFixed(1)}s (${textLengths[i]} chars)`);
+  });
+  console.log(`[recreate]   total: ${finalDurations.reduce((a, b) => a + b, 0).toFixed(1)}s vs narration: ${durationSec.toFixed(1)}s`);
 
   const segDir = path.join(workDir, "segs");
   fs.mkdirSync(segDir, { recursive: true });
 
+  // ✅ FIX 5: Add crossfade overlap duration
+  const XFADE_DUR = 0.5; // 0.5s crossfade between scenes
+
   const segFiles = [];
   for (let i = 0; i < validScenes.length; i++) {
     const sc = validScenes[i];
-    // FIX: Always use evenly distributed duration based on narration, NOT GPT estimates
-    const dur = sceneDur;
+    // Add extra time to account for crossfade overlap (except last scene)
+    const dur = finalDurations[i] + (i < validScenes.length - 1 ? XFADE_DUR : 0);
     const sf = path.join(segDir, `s-${String(i).padStart(3, "0")}.mp4`);
 
     if (sc.media_type === "video") {
@@ -2832,9 +2741,10 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
       );
     } else {
       const zd = Math.random() > 0.5;
+      const frames = Math.ceil(dur * FPS);
       const zf = zd
-        ? `zoompan=z='min(zoom+0.0008,1.25)':d=${Math.ceil(dur * FPS)}:s=${W}x${H}:fps=${FPS}`
-        : `zoompan=z='if(eq(on,0),1.25,max(zoom-0.0008,1))':d=${Math.ceil(dur * FPS)}:s=${W}x${H}:fps=${FPS}`;
+        ? `zoompan=z='min(zoom+0.0008,1.25)':d=${frames}:s=${W}x${H}:fps=${FPS}`
+        : `zoompan=z='if(eq(on,0),1.25,max(zoom-0.0008,1))':d=${frames}:s=${W}x${H}:fps=${FPS}`;
       await execAsync(
         `ffmpeg -loop 1 -i "${sc.local_file}" -t ${dur} -vf "${zf},setsar=1" ` +
         `-c:v libx264 -preset fast -crf 28 -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
@@ -2842,14 +2752,46 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
     }
 
     if (fs.existsSync(sf)) segFiles.push(sf);
-    await updateReCreateStatus(projectId, "rendering", 70 + Math.round(((i + 1) / validScenes.length) * 10));
+    await updateReCreateStatus(projectId, "rendering", 70 + Math.round(((i + 1) / validScenes.length) * 8));
   }
 
-  // Concat all segments into one continuous video
-  const cl = path.join(segDir, "list.txt");
-  fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-  const rawVideo = path.join(workDir, "raw.mp4");
-  await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+  // ✅ FIX 5: Use xfade filter for smooth crossfade transitions
+  let rawVideo;
+  if (segFiles.length === 1) {
+    rawVideo = segFiles[0];
+  } else if (segFiles.length <= 3) {
+    // For 2-3 segments, use xfade chain directly
+    rawVideo = path.join(workDir, "raw.mp4");
+    let filterComplex = "";
+    let lastStream = "[0:v]";
+    for (let i = 1; i < segFiles.length; i++) {
+      const offset = finalDurations.slice(0, i).reduce((a, b) => a + b, 0) - (XFADE_DUR * (i - 1));
+      const outLabel = i < segFiles.length - 1 ? `[v${i}]` : `[vout]`;
+      filterComplex += `${lastStream}[${i}:v]xfade=transition=fade:duration=${XFADE_DUR}:offset=${offset.toFixed(3)}${outLabel};`;
+      lastStream = outLabel;
+    }
+    filterComplex = filterComplex.slice(0, -1); // remove trailing semicolon
+
+    const inputs = segFiles.map((f) => `-i "${f}"`).join(" ");
+    try {
+      await execAsync(
+        `ffmpeg ${inputs} -filter_complex "${filterComplex}" -map "[vout]" ` +
+        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -r ${FPS} -y "${rawVideo}"`
+      );
+    } catch (xfadeErr) {
+      // Fallback to simple concat if xfade fails
+      console.log("[recreate] xfade failed, falling back to concat:", xfadeErr?.message?.slice(0, 100));
+      const cl = path.join(segDir, "list.txt");
+      fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+      await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+    }
+  } else {
+    // For many segments, concat is more reliable (xfade chains get complex)
+    rawVideo = path.join(workDir, "raw.mp4");
+    const cl = path.join(segDir, "list.txt");
+    fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+    await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+  }
 
   // Verify raw video duration
   let rawDuration = 0;
@@ -2865,48 +2807,73 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
   const finalFile = path.join(workDir, "final.mp4");
 
   if (includeCaptions) {
-    // FIX: Build SRT with evenly distributed timing matching narration
     const srtFile = path.join(workDir, "subs.srt");
     let srt = "";
-    const captionDur = durationSec / scenes.length; // evenly distribute across ALL scenes
 
-    for (let i = 0; i < scenes.length; i++) {
-      const startTime = i * captionDur;
-      const endTime = (i + 1) * captionDur;
-      srt += `${i + 1}\n${fmtSRT(startTime)} --> ${fmtSRT(endTime)}\n${scenes[i].text || ""}\n\n`;
+    if (syncedCaptions && syncedCaptions.length > 0) {
+      // ✅ FIX 2: Use Whisper-synced captions (PERFECT timing)
+      console.log("[recreate] using Whisper-synced captions:", syncedCaptions.length, "segments");
+      for (let i = 0; i < syncedCaptions.length; i++) {
+        const cap = syncedCaptions[i];
+        srt += `${i + 1}\n${fmtSRT(cap.start)} --> ${fmtSRT(cap.end)}\n${cap.text}\n\n`;
+      }
+    } else {
+      // Fallback: text-weighted timing (better than equal distribution)
+      console.log("[recreate] using text-weighted caption timing (Whisper sync unavailable)");
+      let timeOffset = 0;
+      for (let i = 0; i < scenes.length; i++) {
+        const dur = finalDurations[i] || (durationSec / scenes.length);
+        srt += `${i + 1}\n${fmtSRT(timeOffset)} --> ${fmtSRT(timeOffset + dur)}\n${scenes[i].text || ""}\n\n`;
+        timeOffset += dur;
+      }
     }
+
     fs.writeFileSync(srtFile, srt);
 
-    // ffmpeg subtitles path escaping for Windows
-    const srtEscaped = srtFile
-      .replace(/\\/g, "/")
-      .replace(/:/g, "\\:")
-      .replace(/'/g, "\\'");
+    // ffmpeg subtitles path escaping
+    let srtEscaped;
+    if (process.platform === "win32") {
+      srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+    } else {
+      srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+    }
 
     try {
-      // FIX: No -shortest flag — let both streams play fully
-      // FIX: FontSize=16 (was 22), MarginV=30 for cleaner look
+      // ✅ FIX 6: Add 2s audio fade-out at end for clean finish
+      const fadeStart = Math.max(0, durationSec - 2);
       await execAsync(
         `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
         `-vf "subtitles='${srtEscaped}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" ` +
+        `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
         `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
       );
     } catch (subErr) {
       console.log("[recreate] ⚠ subtitle burn failed, rendering without captions:", subErr.message?.slice(0, 100));
       await execAsync(
-        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" -c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+        `-af "afade=t=out:st=${Math.max(0, durationSec - 2).toFixed(2)}:d=2" ` +
+        `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
       );
     }
   } else {
-    // No captions — just merge video + audio
+    const fadeStart = Math.max(0, durationSec - 2);
     await execAsync(
-      `ffmpeg -i "${rawVideo}" -i "${narrationFile}" -c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+      `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+      `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
+      `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
     );
   }
 
   if (!fs.existsSync(finalFile)) throw new Error("Final assembly failed");
 
-  console.log("[recreate] ✅ step 5 — final video ready");
+  // Verify final duration
+  let finalDuration = 0;
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${finalFile}"`);
+    finalDuration = parseFloat(stdout.trim()) || 0;
+  } catch {}
+  console.log(`[recreate] ✅ step 5 — final video: ${finalDuration.toFixed(1)}s (narration: ${durationSec.toFixed(1)}s)`);
+
   await updateReCreateStatus(projectId, "rendering", 90);
   return finalFile;
 }
@@ -2923,7 +2890,7 @@ function getReCreateLangCode(name) {
   return m[name] || "en";
 }
 
-/* ── MAIN RECREATE PIPELINE ───────────────────────────────── */
+/* ── MAIN RECREATE PIPELINE v7 ────────────────────────────── */
 async function runReCreate(projectId, sourceUrl, opts = {}) {
   const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true } = opts;
   const langCode = getReCreateLangCode(targetLanguage);
@@ -2938,7 +2905,14 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
     const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style);
     const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir);
     const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, voiceId, workDir, langCode);
-    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions);
+
+    // ✅ NEW: Get Whisper-synced captions for perfect timing
+    let syncedCaptions = null;
+    if (includeCaptions) {
+      syncedCaptions = await recreateStep4b_SyncCaptions(projectId, narrationFile, scenesMedia, langCode);
+    }
+
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions);
 
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);

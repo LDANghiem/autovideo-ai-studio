@@ -2366,6 +2366,7 @@ app.post("/repurpose", async (req, res) => {
 ============================================================ */
 
 const PEXELS_API_KEY = (process.env.PEXELS_API_KEY || "").trim();
+const PIXABAY_API_KEY = (process.env.PIXABAY_API_KEY || "").trim();
 const RECREATE_BUCKET = (process.env.RECREATE_BUCKET || "recreated-videos").trim();
 
 /* ── helper: update recreate project status ─────────────────── */
@@ -2465,21 +2466,68 @@ async function recreateStep2_GenerateScript(projectId, transcript, targetLanguag
     motivational: "Write as an inspiring speaker. Powerful language, emotional appeal, calls to action.",
   };
 
-  const prompt = `You are a professional content creator. Based on this English video transcript, write a COMPLETELY ORIGINAL script in ${targetLanguage}.
+  // Detect if same-language rewrite (English → English)
+  const isRewrite = targetLanguage.toLowerCase() === "english";
 
-RULES:
+  const rewriteInstruction = isRewrite
+    ? `REWRITE the content in English using COMPLETELY DIFFERENT words, sentence structures, and phrasing.
+- Do NOT copy any sentences from the original. Every sentence must be freshly written.
+- Keep ALL the same facts, names, dates, numbers, and key information.
+- Change the narrative angle, structure, and writing style.
+- Think of this as: a DIFFERENT journalist covering the SAME story.`
+    : `Write a COMPLETELY ORIGINAL script in ${targetLanguage}.
 - Do NOT translate word-for-word. Write ORIGINAL content about the same topics.
 - Write in natural, fluent ${targetLanguage}.
-- Add context and perspective for ${targetLanguage}-speaking audiences.
+- Add context and perspective for ${targetLanguage}-speaking audiences.`;
+
+  const prompt = `You are a professional video content creator. Based on the transcript below, ${isRewrite ? "rewrite" : "create"} a script.
+
+${rewriteInstruction}
 - ${styleGuide[style] || styleGuide.news}
 
-Return a JSON array of scenes (8-15 scenes, 3-5 minutes total). Each scene:
-- "text": Narration in ${targetLanguage} (2-4 sentences)
-- "scene_query": 2-4 word English query for stock footage
-- "duration_sec": Estimated seconds (roughly 15 chars/sec)
+Return a JSON array of 10-18 scenes. Each scene = one visual shot in the video.
 
-Return ONLY JSON array, no markdown:
-[{"text":"...","scene_query":"...","duration_sec":8}]
+For each scene provide:
+- "text": The narration (2-3 sentences per scene)
+- "scene_query": A stock footage search query (SEE RULES BELOW)
+- "duration_sec": Estimated narration time (roughly 12-15 chars per second)
+
+═══ CRITICAL: SCENE_QUERY RULES ═══
+Stock footage libraries (Pexels, Pixabay) contain GENERIC B-roll footage, NOT specific news events or people.
+
+NEVER use queries like:
+✗ "Trump speech" — no stock footage of Trump exists
+✗ "Iran missile attack" — no footage of specific attacks
+✗ "Khamenei biography" — no footage of specific leaders
+✗ "Tel Aviv damage" — no footage of specific damage events
+✗ "White House situation room" — classified, no stock footage
+✗ "Dubai explosion" — no footage of specific incidents
+
+INSTEAD, think: "What GENERIC visual would a news editor use as B-roll for this topic?"
+
+✓ "government press conference podium" — for any political statement
+✓ "military jets flying formation" — for any military action topic
+✓ "missile launch smoke trail" — for any missile/weapons topic
+✓ "city skyline night aerial" — for any city/urban topic
+✓ "world map digital connections" — for any geopolitics topic
+✓ "satellite earth orbit space" — for satellite imagery topics
+✓ "hospital emergency room doctors" — for casualty/health topics
+✓ "protest crowd street signs" — for civil unrest topics
+✓ "stock market trading screens" — for economy topics
+✓ "news studio anchor desk" — for news intro/outro
+✓ "United Nations assembly hall" — for diplomacy topics
+✓ "cargo ship ocean container" — for trade/sanctions topics
+✓ "oil refinery industrial pipes" — for energy topics
+✓ "soldiers patrol desert military" — for ground forces topics
+✓ "cybersecurity code screen hacker" — for cyber/tech topics
+✓ "courtroom judge gavel legal" — for legal/justice topics
+✓ "family watching television home" — for audience reaction
+✓ "sunset city peaceful skyline" — for closing/hope segments
+
+Each query should be 3-5 words, descriptive of a VISUAL SCENE, not a news headline.
+
+Return ONLY a JSON array, no markdown:
+[{"text":"...","scene_query":"...","duration_sec":10}]
 
 TRANSCRIPT:
 ${transcript.slice(0, 12000)}`;
@@ -2519,14 +2567,14 @@ ${transcript.slice(0, 12000)}`;
   return scenes;
 }
 
-/* ── [RECREATE STEP 3] Fetch stock media from Pexels ──────── */
+/* ── [RECREATE STEP 3] Fetch stock media — Pexels + Pixabay ── */
 async function recreateStep3_FindMedia(projectId, scenes, workDir) {
   await updateReCreateStatus(projectId, "finding_media", 35);
 
   const mediaDir = path.join(workDir, "media");
   fs.mkdirSync(mediaDir, { recursive: true });
 
-  console.log("[recreate] PEXELS_API_KEY present:", !!PEXELS_API_KEY, "length:", PEXELS_API_KEY.length);
+  console.log("[recreate] PEXELS key:", !!PEXELS_API_KEY, "| PIXABAY key:", !!PIXABAY_API_KEY);
 
   const updatedScenes = [];
 
@@ -2535,60 +2583,109 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
     const query = scene.scene_query || "nature landscape";
     let mediaUrl = null;
     let mediaType = "image";
+    let source = "";
 
     console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
 
-    // Try Pexels video first
-    if (PEXELS_API_KEY) {
-      try {
-        const vRes = await fetch(
-          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape`,
-          { headers: { Authorization: PEXELS_API_KEY } }
-        );
-        if (vRes.ok) {
-          const vData = await vRes.json();
-          const video = vData.videos?.[0];
-          const vFile = video?.video_files?.find((f) => f.quality === "sd" || f.quality === "hd") || video?.video_files?.[0];
-          if (vFile?.link) { mediaUrl = vFile.link; mediaType = "video"; }
-        } else {
-          console.log(`[recreate]     Pexels video API error: ${vRes.status}`);
-        }
-      } catch (e) { console.log(`[recreate]     video search failed:`, e.message); }
-    }
-
-    // Fallback to Pexels photos
+    /* ── Source 1: Pexels Videos ──────────────────────────────── */
     if (!mediaUrl && PEXELS_API_KEY) {
       try {
-        const pRes = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape`,
+        const res = await fetch(
+          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
           { headers: { Authorization: PEXELS_API_KEY } }
         );
-        if (pRes.ok) {
-          const pData = await pRes.json();
-          const photo = pData.photos?.[0];
-          if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; }
+        if (res.ok) {
+          const data = await res.json();
+          const video = data.videos?.[0];
+          const file = video?.video_files?.find((f) =>
+            (f.quality === "hd" || f.quality === "sd") && f.width >= 1280
+          ) || video?.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || video?.video_files?.[0];
+          if (file?.link) { mediaUrl = file.link; mediaType = "video"; source = "pexels-video"; }
         }
-      } catch (e) { console.log(`[recreate]     photo search failed:`, e.message); }
+      } catch (e) { console.log(`[recreate]     pexels video err:`, e.message); }
     }
 
-    // Fallback: try simpler/broader query (first word only)
-    if (!mediaUrl && PEXELS_API_KEY) {
-      const simpleQuery = query.split(" ")[0];
-      console.log(`[recreate]     retrying with simpler query: "${simpleQuery}"`);
+    /* ── Source 2: Pixabay Videos ─────────────────────────────── */
+    if (!mediaUrl && PIXABAY_API_KEY) {
       try {
-        const pRes = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(simpleQuery)}&per_page=3&orientation=landscape`,
-          { headers: { Authorization: PEXELS_API_KEY } }
+        const res = await fetch(
+          `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=5&safesearch=true`
         );
-        if (pRes.ok) {
-          const pData = await pRes.json();
-          const photo = pData.photos?.[0];
-          if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; }
+        if (res.ok) {
+          const data = await res.json();
+          const video = data.hits?.[0];
+          const file = video?.videos?.medium || video?.videos?.large || video?.videos?.small;
+          if (file?.url) { mediaUrl = file.url; mediaType = "video"; source = "pixabay-video"; }
         }
-      } catch {}
+      } catch (e) { console.log(`[recreate]     pixabay video err:`, e.message); }
     }
 
-    // Ultimate fallback: generate a gradient image with ffmpeg (ensures pipeline never fails)
+    /* ── Source 3: Pexels Photos ──────────────────────────────── */
+    if (!mediaUrl && PEXELS_API_KEY) {
+      try {
+        const res = await fetch(
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
+          { headers: { Authorization: PEXELS_API_KEY } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const photo = data.photos?.[0];
+          if (photo) {
+            mediaUrl = photo.src?.landscape || photo.src?.large || photo.src?.original;
+            mediaType = "image"; source = "pexels-photo";
+          }
+        }
+      } catch (e) { console.log(`[recreate]     pexels photo err:`, e.message); }
+    }
+
+    /* ── Source 4: Pixabay Photos ─────────────────────────────── */
+    if (!mediaUrl && PIXABAY_API_KEY) {
+      try {
+        const res = await fetch(
+          `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=5&orientation=horizontal&safesearch=true&image_type=photo`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const photo = data.hits?.[0];
+          if (photo) {
+            mediaUrl = photo.largeImageURL || photo.webformatURL;
+            mediaType = "image"; source = "pixabay-photo";
+          }
+        }
+      } catch (e) { console.log(`[recreate]     pixabay photo err:`, e.message); }
+    }
+
+    /* ── Fallback: simpler query (first 2 words) ─────────────── */
+    if (!mediaUrl) {
+      const simpleQ = query.split(" ").slice(0, 2).join(" ");
+      console.log(`[recreate]     retrying: "${simpleQ}"`);
+
+      if (PEXELS_API_KEY) {
+        try {
+          const res = await fetch(
+            `https://api.pexels.com/v1/search?query=${encodeURIComponent(simpleQ)}&per_page=5&orientation=landscape`,
+            { headers: { Authorization: PEXELS_API_KEY } }
+          );
+          if (res.ok) {
+            const photo = (await res.json()).photos?.[0];
+            if (photo) { mediaUrl = photo.src?.landscape || photo.src?.large; mediaType = "image"; source = "pexels-fallback"; }
+          }
+        } catch {}
+      }
+      if (!mediaUrl && PIXABAY_API_KEY) {
+        try {
+          const res = await fetch(
+            `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(simpleQ)}&per_page=5&orientation=horizontal&safesearch=true`
+          );
+          if (res.ok) {
+            const photo = (await res.json()).hits?.[0];
+            if (photo) { mediaUrl = photo.largeImageURL || photo.webformatURL; mediaType = "image"; source = "pixabay-fallback"; }
+          }
+        } catch {}
+      }
+    }
+
+    /* ── Download media file ──────────────────────────────────── */
     let localFile = null;
     if (mediaUrl) {
       try {
@@ -2597,44 +2694,33 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
         const dlRes = await fetch(mediaUrl);
         if (dlRes.ok) {
           fs.writeFileSync(localFile, Buffer.from(await dlRes.arrayBuffer()));
+          console.log(`[recreate]     ✅ ${source} (${mediaType})`);
         } else { localFile = null; }
       } catch { localFile = null; }
     }
 
-    // If still no media, generate a dark gradient background image
+    /* ── Ultimate fallback: solid color background ────────────── */
     if (!localFile) {
-      console.log(`[recreate]     ⚠ no media found, generating gradient fallback`);
+      console.log(`[recreate]     ⚠ no media, fallback bg`);
       localFile = path.join(mediaDir, `scene-${i}.png`);
-      mediaType = "image";
+      mediaType = "image"; source = "fallback-bg";
       try {
-        // Generate a gradient image using ffmpeg — dark blue to dark purple
-        const hue = (i * 30) % 360; // Different hue per scene
-        await execAsync(
-          `ffmpeg -f lavfi -i "color=c=#0a0720:s=1920x1080:d=1,format=rgb24" ` +
-          `-vf "drawbox=x=0:y=0:w=1920:h=1080:color=#0f0b2a@1:t=fill,` +
-          `drawtext=text='':fontcolor=white" ` +
-          `-frames:v 1 -y "${localFile}"`
-        );
+        await execAsync(`ffmpeg -f lavfi -i "color=c=#0f0b2a:s=1920x1080:d=1" -frames:v 1 -y "${localFile}"`);
         if (!fs.existsSync(localFile)) localFile = null;
-      } catch {
-        // Simplest fallback — solid color
-        try {
-          await execAsync(
-            `ffmpeg -f lavfi -i "color=c=#0f0b2a:s=1920x1080:d=1" -frames:v 1 -y "${localFile}"`
-          );
-        } catch { localFile = null; }
-      }
+      } catch { localFile = null; }
     }
 
-    updatedScenes.push({ ...scene, media_url: mediaUrl, media_type: mediaType, local_file: localFile });
+    updatedScenes.push({ ...scene, media_url: mediaUrl, media_type: mediaType, local_file: localFile, source });
 
     const pct = 35 + Math.round(((i + 1) / scenes.length) * 15);
     await updateReCreateStatus(projectId, "finding_media", pct);
 
-    if (i < scenes.length - 1) await new Promise((r) => setTimeout(r, 300));
+    if (i < scenes.length - 1) await new Promise((r) => setTimeout(r, 250));
   }
 
-  console.log(`[recreate] ✅ step 3 — ${updatedScenes.filter((s) => s.local_file).length}/${scenes.length} media found`);
+  const bySource = {};
+  updatedScenes.forEach((s) => { bySource[s.source || "none"] = (bySource[s.source || "none"] || 0) + 1; });
+  console.log(`[recreate] ✅ step 3 — ${updatedScenes.filter((s) => s.local_file).length}/${scenes.length} found:`, JSON.stringify(bySource));
 
   await updateReCreateStatus(projectId, "finding_media", 50, {
     scenes: updatedScenes.map(({ local_file, ...s }) => s),
@@ -2833,8 +2919,8 @@ function fmtSRT(s) {
 
 /* Language code mapper */
 function getReCreateLangCode(name) {
-  const m = { Vietnamese: "vi", Spanish: "es", Chinese: "zh", Korean: "ko", Japanese: "ja", Hindi: "hi", French: "fr", Portuguese: "pt", Arabic: "ar", Thai: "th", Indonesian: "id", German: "de", Russian: "ru", Turkish: "tr", Filipino: "tl" };
-  return m[name] || "vi";
+  const m = { English: "en", Vietnamese: "vi", Spanish: "es", Chinese: "zh", Korean: "ko", Japanese: "ja", Hindi: "hi", French: "fr", Portuguese: "pt", Arabic: "ar", Thai: "th", Indonesian: "id", German: "de", Russian: "ru", Turkish: "tr", Filipino: "tl" };
+  return m[name] || "en";
 }
 
 /* ── MAIN RECREATE PIPELINE ───────────────────────────────── */

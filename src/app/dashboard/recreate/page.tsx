@@ -57,6 +57,17 @@ const LANGUAGES: {
   voices: { id: string; name: string; gender: string }[];
 }[] = [
   {
+    code: "en", name: "English", flag: "🇺🇸",
+    voices: [
+      { id: "ZF6FPAbjXT4488VcRRnw", name: "Amelia", gender: "Female" },
+      { id: "kPzsL2i3teMYv0FxEYQ6", name: "Brittney", gender: "Female" },
+      { id: "tnSpp4vdxKPjI9w0GnoV", name: "Hope", gender: "Female" },
+      { id: "UgBBYS2sOqTuMpoF3BR0", name: "Mark", gender: "Male" },
+      { id: "1SM7GgM6IMuvQlz2BwM3", name: "Mark C.", gender: "Male" },
+      { id: "j9jfwdrw7BRfcR43Qohk", name: "Frederick", gender: "Male" },
+    ],
+  },
+  {
     code: "vi", name: "Vietnamese", flag: "🇻🇳",
     voices: [
       { id: "DvG3I1kDzdBY3u4EzYh6", name: "Ngân Nguyễn", gender: "Female" },
@@ -618,7 +629,9 @@ export default function ReCreatePage() {
           >
             {generating
               ? "🔄 ReCreating..."
-              : `🚀 ReCreate in ${selectedLang.flag} ${selectedLang.name}`}
+              : selectedLang.code === "en"
+                ? `🔄 Rewrite in ${selectedLang.flag} English (New Voice + Stock Footage)`
+                : `🚀 ReCreate in ${selectedLang.flag} ${selectedLang.name}`}
           </button>
 
           {/* How it works note */}
@@ -627,8 +640,11 @@ export default function ReCreatePage() {
           >
             <span className="text-xs mt-0.5">💡</span>
             <p className="text-[10px] text-gray-500 leading-relaxed">
-              <strong className="text-gray-400">How it works:</strong> AI transcribes the source video, writes a completely 
-              original script in {selectedLang.name}, finds matching stock footage from Pexels, generates 
+              <strong className="text-gray-400">How it works:</strong> AI transcribes the source video, 
+              {selectedLang.code === "en" 
+                ? " rewrites the content using completely different words while keeping the same facts," 
+                : ` writes a completely original script in ${selectedLang.name},`}
+              {" "}finds matching stock footage from Pexels + Pixabay, generates 
               voiceover narration, and renders a brand new video. The output contains zero original footage 
               — fully original and safe to monetize.
             </p>

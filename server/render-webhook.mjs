@@ -2451,13 +2451,26 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
 
     console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
 
+    // For news APIs, extract keywords from the scene TEXT (not scene_query)
+    // scene_query is for stock B-roll ("press conference podium")
+    // but news APIs need actual topic keywords ("Putin Russia energy Europe")
+    const sceneText = (scene.text || "").trim();
+    const newsQuery = sceneText
+      .split(/[.,!?;:]+/)[0]  // first sentence
+      .replace(/[^a-zA-Z0-9\s]/g, "")  // remove special chars
+      .split(/\s+/)
+      .filter((w) => w.length > 3)  // skip short words
+      .slice(0, 5)  // max 5 keywords
+      .join(" ")
+      .trim() || query;
+
     /* ── Source 0a: NewsAPI.org (ONLY for news style) ────────────── */
-    /* Returns editorial images from real news articles — CNN, BBC,  */
-    /* Reuters, etc. Much more relevant for current events content.  */
+    /* Uses keywords from scene TEXT to find relevant news articles   */
     if (!mediaUrl && isNewsStyle && NEWSAPI_ORG_KEY) {
       try {
+        console.log(`[recreate]     newsapi query: "${newsQuery}"`);
         const newsRes = await fetch(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=relevancy&pageSize=5&language=en&apiKey=${NEWSAPI_ORG_KEY}`
+          `https://newsapi.org/v2/everything?q=${encodeURIComponent(newsQuery)}&sortBy=relevancy&pageSize=5&language=en&apiKey=${NEWSAPI_ORG_KEY}`
         );
         if (newsRes.ok) {
           const newsData = await newsRes.json();
@@ -2479,8 +2492,9 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     /* Second news source — different coverage, more international.  */
     if (!mediaUrl && isNewsStyle && NEWSDATA_IO_KEY) {
       try {
+        console.log(`[recreate]     newsdata query: "${newsQuery}"`);
         const ndRes = await fetch(
-          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_IO_KEY}&q=${encodeURIComponent(query)}&language=en&prioritydomain=top`
+          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_IO_KEY}&q=${encodeURIComponent(newsQuery)}&language=en&prioritydomain=top`
         );
         if (ndRes.ok) {
           const ndData = await ndRes.json();
@@ -2943,78 +2957,92 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
 
     fs.writeFileSync(srtFile, srt);
 
-    console.log("[recreate] SRT written:", srt.split("\n\n").length - 1, "captions, file:", srtFile, "size:", fs.statSync(srtFile).size, "bytes");
-    // Log first caption for debugging
-    const firstLines = srt.split("\n").slice(0, 4).join(" | ");
-    console.log("[recreate] SRT preview:", firstLines);
+    console.log("[recreate] SRT written:", srt.split("\n\n").length - 1, "captions, file:", srtFile);
 
-    // ffmpeg subtitles path escaping — IMPROVED for Windows
-    let srtEscaped;
-    if (process.platform === "win32") {
-      // Windows needs double-escaped colons for the subtitles filter
-      srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
-    } else {
-      srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+    // ═══════════════════════════════════════════════════════════
+    // CAPTION STRATEGY: Write an ASS subtitle file directly
+    // The subtitles filter on Windows has persistent path escaping
+    // issues. Writing a proper ASS file with embedded styles
+    // avoids force_style escaping problems entirely.
+    // ═══════════════════════════════════════════════════════════
+    const assFile = path.join(workDir, "subs.ass");
+
+    // Parse SRT into events
+    const srtBlocks = srt.trim().split("\n\n").filter(Boolean);
+    const assEvents = [];
+    for (const block of srtBlocks) {
+      const lines = block.split("\n");
+      if (lines.length < 3) continue;
+      const timeLine = lines[1]; // "00:00:00,000 --> 00:00:05,000"
+      const text = lines.slice(2).join("\\N"); // join multi-line with ASS newline
+      const match = timeLine.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+      if (!match) continue;
+      const startASS = `${match[1]}:${match[2]}:${match[3]}.${match[4].slice(0,2)}`;
+      const endASS = `${match[5]}:${match[6]}:${match[7]}.${match[8].slice(0,2)}`;
+      assEvents.push(`Dialogue: 0,${startASS},${endASS},Default,,0,0,0,,${text}`);
     }
 
-    console.log("[recreate] SRT escaped path:", srtEscaped);
+    // Write complete ASS file with Motiversity-style embedded
+    const assContent = `[Script Info]
+Title: ReCreate Captions
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,3,1,2,80,80,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${assEvents.join("\n")}
+`;
+
+    fs.writeFileSync(assFile, assContent, "utf-8");
+    console.log("[recreate] ASS file written:", assEvents.length, "dialogue lines");
+
+    // ASS path escaping for ffmpeg — simpler than SRT subtitles filter
+    let assEscaped;
+    if (process.platform === "win32") {
+      assEscaped = assFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+    } else {
+      assEscaped = assFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+    }
 
     try {
-      // ═══════════════════════════════════════════════════════════
-      // MOTIVERSITY-STYLE CAPTIONS
-      // - Bold white UPPERCASE text
-      // - Positioned at bottom (Alignment=2, MarginV=50)
-      // - Clean outline for readability (no background box)
-      // - BorderStyle=1 = outline only (not box)
-      // - FontSize=24 for 1080p (scaled via ASS engine)
-      // ═══════════════════════════════════════════════════════════
-      const captionStyle = [
-        "FontName=Arial",
-        "Bold=1",
-        "FontSize=24",
-        "PrimaryColour=&H00FFFFFF",
-        "OutlineColour=&H00000000",
-        "BackColour=&H00000000",
-        "Outline=2",
-        "Shadow=1",
-        "Alignment=2",       // bottom-center
-        "BorderStyle=1",     // outline only, no box
-        "MarginV=50",        // distance from bottom edge
-        "MarginL=80",
-        "MarginR=80",
-      ].join(",");
-
       const fadeStart = Math.max(0, durationSec - 2);
       const ffmpegCmd = `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-        `-vf "subtitles='${srtEscaped}':force_style='${captionStyle}'" ` +
+        `-vf "ass='${assEscaped}'" ` +
         `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
         `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`;
 
-      console.log("[recreate] ffmpeg caption cmd:", ffmpegCmd.slice(0, 300) + "...");
+      console.log("[recreate] ffmpeg ASS cmd:", ffmpegCmd.slice(0, 300) + "...");
       await execAsync(ffmpegCmd);
-      console.log("[recreate] ✅ captions burned successfully");
-    } catch (subErr) {
-      const errMsg = subErr?.stderr || subErr?.message || String(subErr);
-      console.log("[recreate] ⚠ subtitle burn FAILED:", errMsg.slice(0, 300));
+      console.log("[recreate] ✅ ASS captions burned successfully");
+    } catch (assErr) {
+      const errMsg = assErr?.stderr || assErr?.message || String(assErr);
+      console.log("[recreate] ⚠ ASS burn failed:", errMsg.slice(0, 300));
 
-      // FALLBACK attempt: try with simpler path escaping
+      // Fallback 1: Try subtitles filter with SRT
       try {
-        console.log("[recreate] trying fallback subtitle approach...");
-        // Copy SRT to same directory as raw video (avoids path issues)
-        const simpleSrt = path.join(workDir, "s.srt");
-        fs.copyFileSync(srtFile, simpleSrt);
-        const simplePath = simpleSrt.replace(/\\/g, "/").replace(/:/g, "\\:");
-
+        console.log("[recreate] trying SRT subtitles fallback...");
+        let srtEscaped;
+        if (process.platform === "win32") {
+          srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+        } else {
+          srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+        }
         const fadeStart2 = Math.max(0, durationSec - 2);
         await execAsync(
           `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-          `-vf "subtitles='${simplePath}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
+          `-vf "subtitles='${srtEscaped}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
           `-af "afade=t=out:st=${fadeStart2.toFixed(2)}:d=2" ` +
           `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
         );
-        console.log("[recreate] ✅ fallback captions succeeded");
-      } catch (subErr2) {
-        console.log("[recreate] ⚠ all subtitle attempts failed, rendering WITHOUT captions:", subErr2?.message?.slice(0, 100));
+        console.log("[recreate] ✅ SRT fallback succeeded");
+      } catch (srtErr) {
+        console.log("[recreate] ⚠ ALL caption methods failed, rendering WITHOUT captions:", srtErr?.message?.slice(0, 100));
         await execAsync(
           `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
           `-af "afade=t=out:st=${Math.max(0, durationSec - 2).toFixed(2)}:d=2" ` +

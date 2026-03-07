@@ -61,6 +61,7 @@ const PORT = Number(process.env.PORT || 10000);
 
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY || "").trim();
+const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || "").trim();
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error(
@@ -2165,6 +2166,8 @@ app.post("/repurpose", async (req, res) => {
 
 const PEXELS_API_KEY = (process.env.PEXELS_API_KEY || "").trim();
 const PIXABAY_API_KEY = (process.env.PIXABAY_API_KEY || "").trim();
+const NEWSAPI_ORG_KEY = (process.env.NEWSAPI_ORG_KEY || "").trim();
+const NEWSDATA_IO_KEY = (process.env.NEWSDATA_IO_KEY || "").trim();
 const RECREATE_BUCKET = (process.env.RECREATE_BUCKET || "recreated-videos").trim();
 
 /* ── helper: update recreate project status ─────────────────── */
@@ -2252,7 +2255,7 @@ async function recreateStep1_Transcribe(projectId, sourceUrl, workDir) {
 async function recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style) {
   await updateReCreateStatus(projectId, "scripting", 20);
 
-  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+  if (!ANTHROPIC_API_KEY && !OPENAI_API_KEY) throw new Error("Missing ANTHROPIC_API_KEY or OPENAI_API_KEY");
 
   const styleGuide = {
     news: "Write as a professional news anchor. Authoritative, clear, informative. Structure: hook → details → context → analysis → conclusion.",
@@ -2328,29 +2331,60 @@ Return ONLY a JSON array, no markdown:
 TRANSCRIPT:
 ${transcript.slice(0, 12000)}`;
 
-  console.log("[recreate] generating script with GPT-4o-mini...");
-  const gRes = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 8000,
-    }),
-  });
+  let content;
 
-  if (!gRes.ok) throw new Error(`GPT error (${gRes.status}): ${await gRes.text()}`);
+  if (ANTHROPIC_API_KEY) {
+    // ✅ PRIMARY: Claude Sonnet — better at creative writing + structured instructions
+    console.log("[recreate] generating script with Claude Sonnet...");
+    const cRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8000,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+      }),
+    });
 
-  let content = (await gRes.json()).choices?.[0]?.message?.content || "[]";
+    if (!cRes.ok) {
+      const errText = await cRes.text();
+      throw new Error(`Claude API error (${cRes.status}): ${errText}`);
+    }
+
+    const cResult = await cRes.json();
+    content = (cResult.content?.[0]?.text || "[]");
+  } else {
+    // FALLBACK: GPT-4o-mini if no Anthropic key
+    console.log("[recreate] generating script with GPT-4o-mini (fallback)...");
+    const gRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        max_tokens: 8000,
+      }),
+    });
+
+    if (!gRes.ok) throw new Error(`GPT error (${gRes.status}): ${await gRes.text()}`);
+
+    content = (await gRes.json()).choices?.[0]?.message?.content || "[]";
+  }
+
   content = content.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
 
   let scenes;
-  try { scenes = JSON.parse(content); } catch { throw new Error("GPT returned invalid JSON"); }
-  if (!Array.isArray(scenes) || scenes.length === 0) throw new Error("GPT returned empty script");
+  try { scenes = JSON.parse(content); } catch { throw new Error("AI returned invalid JSON for script"); }
+  if (!Array.isArray(scenes) || scenes.length === 0) throw new Error("AI returned empty script");
 
   const fullScript = scenes.map((s) => s.text).join("\n\n");
   console.log("[recreate] ✅ step 2 — scenes:", scenes.length, "chars:", fullScript.length);
@@ -2364,13 +2398,16 @@ ${transcript.slice(0, 12000)}`;
 }
 
 /* ── [RECREATE STEP 3] Fetch stock media — with dedup + diversity ── */
-async function recreateStep3_FindMedia(projectId, scenes, workDir) {
+/* v7b: Added NewsAPI.org + NewsData.io as priority sources for news style */
+async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
   await updateReCreateStatus(projectId, "finding_media", 35);
 
   const mediaDir = path.join(workDir, "media");
   fs.mkdirSync(mediaDir, { recursive: true });
 
-  console.log("[recreate] PEXELS key:", !!PEXELS_API_KEY, "| PIXABAY key:", !!PIXABAY_API_KEY);
+  const isNewsStyle = (style || "").toLowerCase() === "news";
+  console.log("[recreate] PEXELS:", !!PEXELS_API_KEY, "| PIXABAY:", !!PIXABAY_API_KEY,
+    "| NEWSAPI:", !!NEWSAPI_ORG_KEY, "| NEWSDATA:", !!NEWSDATA_IO_KEY, "| style:", style);
 
   // ✅ FIX 3: Track used media URLs to prevent duplicate clips
   const usedMediaUrls = new Set();
@@ -2385,6 +2422,53 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir) {
     let source = "";
 
     console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
+
+    /* ── Source 0a: NewsAPI.org (ONLY for news style) ────────────── */
+    /* Returns editorial images from real news articles — CNN, BBC,  */
+    /* Reuters, etc. Much more relevant for current events content.  */
+    if (!mediaUrl && isNewsStyle && NEWSAPI_ORG_KEY) {
+      try {
+        const newsRes = await fetch(
+          `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=relevancy&pageSize=5&language=en&apiKey=${NEWSAPI_ORG_KEY}`
+        );
+        if (newsRes.ok) {
+          const newsData = await newsRes.json();
+          const candidates = (newsData.articles || []).filter((a) =>
+            a.urlToImage && !usedMediaUrls.has(a.urlToImage)
+            && !a.urlToImage.includes("removed") && a.urlToImage.startsWith("http")
+          );
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            mediaUrl = pick.urlToImage;
+            mediaType = "image"; source = "newsapi-org";
+            usedMediaUrls.add(mediaUrl);
+          }
+        }
+      } catch (e) { console.log(`[recreate]     newsapi.org err:`, e.message); }
+    }
+
+    /* ── Source 0b: NewsData.io (ONLY for news style) ───────────── */
+    /* Second news source — different coverage, more international.  */
+    if (!mediaUrl && isNewsStyle && NEWSDATA_IO_KEY) {
+      try {
+        const ndRes = await fetch(
+          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_IO_KEY}&q=${encodeURIComponent(query)}&language=en&prioritydomain=top`
+        );
+        if (ndRes.ok) {
+          const ndData = await ndRes.json();
+          const candidates = (ndData.results || []).filter((a) =>
+            a.image_url && !usedMediaUrls.has(a.image_url)
+            && a.image_url.startsWith("http")
+          );
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+            mediaUrl = pick.image_url;
+            mediaType = "image"; source = "newsdata-io";
+            usedMediaUrls.add(mediaUrl);
+          }
+        }
+      } catch (e) { console.log(`[recreate]     newsdata.io err:`, e.message); }
+    }
 
     /* ── Source 1: Pexels Videos (pick from top results, skip dupes) ── */
     if (!mediaUrl && PEXELS_API_KEY) {
@@ -2903,7 +2987,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
     const transcript = await recreateStep1_Transcribe(projectId, sourceUrl, workDir);
     const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style);
-    const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir);
+    const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir, style);
     const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, voiceId, workDir, langCode);
 
     // ✅ NEW: Get Whisper-synced captions for perfect timing

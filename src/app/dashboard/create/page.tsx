@@ -57,7 +57,7 @@ const VIDEO_TYPES: Record<string, VideoTypeConfig> = {
     label: "Conventional",
     description: "Standard YouTube video (16:9 landscape)",
     icon: "🎬",
-    lengthOptions: ["60 seconds", "5 minutes", "8 minutes", "12 minutes", "16 minutes", "20 minutes", "24 minutes", "30 minutes"],
+    lengthOptions: ["60 seconds", "2 minutes", "3 minutes", "4 minutes", "5 minutes", "8 minutes", "12 minutes", "16 minutes", "20 minutes", "24 minutes", "30 minutes"],
     defaultLength: "5 minutes",
     defaultResolution: "1080p",
     resolutionOptions: ["720p", "1080p"],

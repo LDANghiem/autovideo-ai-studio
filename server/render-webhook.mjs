@@ -2325,6 +2325,34 @@ INSTEAD, think: "What GENERIC visual would a news editor use as B-roll for this 
 IMPORTANT: Each scene_query must be DIFFERENT from every other scene. Never repeat the same query.
 Each query should be 3-5 words, descriptive of a VISUAL SCENE, not a news headline.
 
+═══ STYLE-SPECIFIC QUERY TIPS ═══
+For MOTIVATIONAL content, think cinematic B-roll that evokes emotion:
+✓ "athlete training gym weights" — for discipline/hard work themes
+✓ "runner sunrise mountain trail" — for persistence/journey themes
+✓ "person standing cliff ocean" — for courage/perspective themes
+✓ "boxer training punching bag" — for fighting spirit themes
+✓ "dark room single spotlight" — for introspection/turning point
+✓ "crowd cheering stadium victory" — for triumph/success themes
+✓ "person meditating peaceful nature" — for mindset/focus themes
+✓ "businessman walking city morning" — for ambition/hustle themes
+✓ "ocean waves crashing rocks" — for resilience themes
+✓ "lion walking savanna powerful" — for strength/courage themes
+✓ "empty road stretching horizon" — for journey/future themes
+✓ "hands typing laptop focused" — for work ethic themes
+✓ "sunrise over mountains golden" — for new beginnings/hope
+✓ "rain falling city street" — for struggle/adversity themes
+✓ "person climbing mountain peak" — for overcoming obstacles
+
+For NEWS content, think generic B-roll a news editor would use:
+✓ "government press conference podium"
+✓ "military jets flying formation"
+✓ "city skyline night aerial"
+
+For DOCUMENTARY content, think cinematic establishing shots:
+✓ "aerial forest canopy fog"
+✓ "time lapse city traffic night"
+✓ "underwater coral reef fish"
+
 Return ONLY a JSON array, no markdown:
 [{"text":"...","scene_query":"...","duration_sec":10}]
 
@@ -2899,7 +2927,8 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
       console.log("[recreate] using Whisper-synced captions:", syncedCaptions.length, "segments");
       for (let i = 0; i < syncedCaptions.length; i++) {
         const cap = syncedCaptions[i];
-        srt += `${i + 1}\n${fmtSRT(cap.start)} --> ${fmtSRT(cap.end)}\n${cap.text}\n\n`;
+        // UPPERCASE for Motiversity-style look
+        srt += `${i + 1}\n${fmtSRT(cap.start)} --> ${fmtSRT(cap.end)}\n${(cap.text || "").toUpperCase()}\n\n`;
       }
     } else {
       // Fallback: text-weighted timing (better than equal distribution)
@@ -2907,37 +2936,91 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
       let timeOffset = 0;
       for (let i = 0; i < scenes.length; i++) {
         const dur = finalDurations[i] || (durationSec / scenes.length);
-        srt += `${i + 1}\n${fmtSRT(timeOffset)} --> ${fmtSRT(timeOffset + dur)}\n${scenes[i].text || ""}\n\n`;
+        srt += `${i + 1}\n${fmtSRT(timeOffset)} --> ${fmtSRT(timeOffset + dur)}\n${(scenes[i].text || "").toUpperCase()}\n\n`;
         timeOffset += dur;
       }
     }
 
     fs.writeFileSync(srtFile, srt);
 
-    // ffmpeg subtitles path escaping
+    console.log("[recreate] SRT written:", srt.split("\n\n").length - 1, "captions, file:", srtFile, "size:", fs.statSync(srtFile).size, "bytes");
+    // Log first caption for debugging
+    const firstLines = srt.split("\n").slice(0, 4).join(" | ");
+    console.log("[recreate] SRT preview:", firstLines);
+
+    // ffmpeg subtitles path escaping — IMPROVED for Windows
     let srtEscaped;
     if (process.platform === "win32") {
+      // Windows needs double-escaped colons for the subtitles filter
       srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
     } else {
       srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
     }
 
+    console.log("[recreate] SRT escaped path:", srtEscaped);
+
     try {
-      // ✅ FIX 6: Add 2s audio fade-out at end for clean finish
+      // ═══════════════════════════════════════════════════════════
+      // MOTIVERSITY-STYLE CAPTIONS
+      // - Bold white UPPERCASE text
+      // - Positioned at bottom (Alignment=2, MarginV=50)
+      // - Clean outline for readability (no background box)
+      // - BorderStyle=1 = outline only (not box)
+      // - FontSize=24 for 1080p (scaled via ASS engine)
+      // ═══════════════════════════════════════════════════════════
+      const captionStyle = [
+        "FontName=Arial",
+        "Bold=1",
+        "FontSize=24",
+        "PrimaryColour=&H00FFFFFF",
+        "OutlineColour=&H00000000",
+        "BackColour=&H00000000",
+        "Outline=2",
+        "Shadow=1",
+        "Alignment=2",       // bottom-center
+        "BorderStyle=1",     // outline only, no box
+        "MarginV=50",        // distance from bottom edge
+        "MarginL=80",
+        "MarginR=80",
+      ].join(",");
+
       const fadeStart = Math.max(0, durationSec - 2);
-      await execAsync(
-        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-        `-vf "subtitles='${srtEscaped}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" ` +
+      const ffmpegCmd = `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+        `-vf "subtitles='${srtEscaped}':force_style='${captionStyle}'" ` +
         `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
-        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
-      );
+        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`;
+
+      console.log("[recreate] ffmpeg caption cmd:", ffmpegCmd.slice(0, 300) + "...");
+      await execAsync(ffmpegCmd);
+      console.log("[recreate] ✅ captions burned successfully");
     } catch (subErr) {
-      console.log("[recreate] ⚠ subtitle burn failed, rendering without captions:", subErr.message?.slice(0, 100));
-      await execAsync(
-        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-        `-af "afade=t=out:st=${Math.max(0, durationSec - 2).toFixed(2)}:d=2" ` +
-        `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
-      );
+      const errMsg = subErr?.stderr || subErr?.message || String(subErr);
+      console.log("[recreate] ⚠ subtitle burn FAILED:", errMsg.slice(0, 300));
+
+      // FALLBACK attempt: try with simpler path escaping
+      try {
+        console.log("[recreate] trying fallback subtitle approach...");
+        // Copy SRT to same directory as raw video (avoids path issues)
+        const simpleSrt = path.join(workDir, "s.srt");
+        fs.copyFileSync(srtFile, simpleSrt);
+        const simplePath = simpleSrt.replace(/\\/g, "/").replace(/:/g, "\\:");
+
+        const fadeStart2 = Math.max(0, durationSec - 2);
+        await execAsync(
+          `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+          `-vf "subtitles='${simplePath}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
+          `-af "afade=t=out:st=${fadeStart2.toFixed(2)}:d=2" ` +
+          `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
+        );
+        console.log("[recreate] ✅ fallback captions succeeded");
+      } catch (subErr2) {
+        console.log("[recreate] ⚠ all subtitle attempts failed, rendering WITHOUT captions:", subErr2?.message?.slice(0, 100));
+        await execAsync(
+          `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+          `-af "afade=t=out:st=${Math.max(0, durationSec - 2).toFixed(2)}:d=2" ` +
+          `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+        );
+      }
     }
   } else {
     const fadeStart = Math.max(0, durationSec - 2);

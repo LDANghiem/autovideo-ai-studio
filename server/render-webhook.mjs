@@ -36,6 +36,8 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 import { parseBuffer } from "music-metadata";
 
 const execAsync = promisify(exec);
+// Wrapper with larger buffer for ffmpeg commands (default 1MB is too small)
+const execBig = (cmd) => execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -62,6 +64,12 @@ const PORT = Number(process.env.PORT || 10000);
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY || "").trim();
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || "").trim();
+
+/* ── Startup diagnostics ───────────────────────────────────── */
+console.log("[startup] API keys loaded:");
+console.log("[startup]   OPENAI_API_KEY:", OPENAI_API_KEY ? `✅ (${OPENAI_API_KEY.slice(0,8)}...)` : "❌ MISSING");
+console.log("[startup]   ELEVENLABS_API_KEY:", ELEVENLABS_API_KEY ? `✅ (${ELEVENLABS_API_KEY.slice(0,8)}...)` : "❌ MISSING");
+console.log("[startup]   ANTHROPIC_API_KEY:", ANTHROPIC_API_KEY ? `✅ (${ANTHROPIC_API_KEY.slice(0,8)}...)` : "❌ MISSING — will fallback to GPT");
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error(
@@ -2170,6 +2178,10 @@ const NEWSAPI_ORG_KEY = (process.env.NEWSAPI_ORG_KEY || "").trim();
 const NEWSDATA_IO_KEY = (process.env.NEWSDATA_IO_KEY || "").trim();
 const RECREATE_BUCKET = (process.env.RECREATE_BUCKET || "recreated-videos").trim();
 
+console.log("[startup] ReCreate media keys:");
+console.log("[startup]   PEXELS:", !!PEXELS_API_KEY, "| PIXABAY:", !!PIXABAY_API_KEY,
+  "| NEWSAPI:", !!NEWSAPI_ORG_KEY, "| NEWSDATA:", !!NEWSDATA_IO_KEY);
+
 /* ── helper: update recreate project status ─────────────────── */
 async function updateReCreateStatus(projectId, status, progressPct, extra = {}) {
   await admin
@@ -2278,83 +2290,60 @@ async function recreateStep2_GenerateScript(projectId, transcript, targetLanguag
 - Write in natural, fluent ${targetLanguage}.
 - Add context and perspective for ${targetLanguage}-speaking audiences.`;
 
-  const prompt = `You are a professional video content creator. Based on the transcript below, ${isRewrite ? "rewrite" : "create"} a script.
+  const prompt = `You are a senior broadcast journalist writing a video script. Based on the transcript below, ${isRewrite ? "rewrite" : "create"} a compelling narration script.
 
 ${rewriteInstruction}
 - ${styleGuide[style] || styleGuide.news}
 
-Return a JSON array of 10-18 scenes. Each scene = one visual shot in the video.
+═══ SCRIPT STRUCTURE ═══
+Write a NATURAL, FLOWING narration that sounds like a real TV news anchor or documentary narrator.
 
-For each scene provide:
-- "text": The narration (2-3 sentences per scene)
-- "scene_query": A stock footage search query (SEE RULES BELOW)
-- "duration_sec": Estimated narration time (roughly 12-15 chars per second)
+Return a JSON array of 12-18 SCENES. Each scene is a PARAGRAPH of narration paired with 2-3 visual shots.
 
-═══ CRITICAL: SCENE_QUERY RULES ═══
-Stock footage libraries (Pexels, Pixabay) contain GENERIC B-roll footage, NOT specific news events or people.
+NARRATION RULES:
+- Each scene's "text" should be 2-4 natural sentences (40-100 words)
+- VARY sentence length: mix short punchy sentences ("The stakes have never been higher.") with longer explanatory ones
+- Connect ideas with transitions: "Meanwhile...", "But the real story is...", "What makes this significant is...", "Behind the scenes..."
+- Scene 1 must HOOK the viewer with a dramatic opening
+- Final scene must deliver a strong closing statement
+- Write like a REAL journalist — authoritative, engaging, with natural rhythm
+- Do NOT write choppy fragments. Write flowing prose that sounds good read aloud.
 
-NEVER use queries like:
-✗ "Trump speech" — no stock footage of Trump exists
-✗ "Iran missile attack" — no footage of specific attacks
-✗ "Khamenei biography" — no footage of specific leaders
-✗ "Tel Aviv damage" — no footage of specific damage events
-✗ "White House situation room" — classified, no stock footage
-✗ "Dubai explosion" — no footage of specific incidents
+VISUAL SHOTS:
+Each scene gets a "visuals" array of 2-3 stock footage queries. The video editor will cut between these shots WHILE the narration plays, creating dynamic pacing.
 
-INSTEAD, think: "What GENERIC visual would a news editor use as B-roll for this topic?"
+For each scene:
+- "text": Natural paragraph of narration (2-4 sentences, 40-100 words)
+- "visuals": Array of 2-3 stock footage search queries for this paragraph
+- "duration_sec": Estimated narration time (roughly 13-15 characters per second)
 
-✓ "government press conference podium" — for any political statement
-✓ "military jets flying formation" — for any military action topic
-✓ "missile launch smoke trail" — for any missile/weapons topic
-✓ "city skyline night aerial" — for any city/urban topic
-✓ "world map digital connections" — for any geopolitics topic
-✓ "satellite earth orbit space" — for satellite imagery topics
-✓ "hospital emergency room doctors" — for casualty/health topics
-✓ "protest crowd street signs" — for civil unrest topics
-✓ "stock market trading screens" — for economy topics
-✓ "news studio anchor desk" — for news intro/outro
-✓ "United Nations assembly hall" — for diplomacy topics
-✓ "cargo ship ocean container" — for trade/sanctions topics
-✓ "oil refinery industrial pipes" — for energy topics
-✓ "soldiers patrol desert military" — for ground forces topics
-✓ "cybersecurity code screen hacker" — for cyber/tech topics
-✓ "courtroom judge gavel legal" — for legal/justice topics
-✓ "family watching television home" — for audience reaction
-✓ "sunset city peaceful skyline" — for closing/hope segments
+═══ SCENE_QUERY RULES (for each visual in the visuals array) ═══
+Stock footage libraries contain GENERIC B-roll, NOT specific people or events.
 
-IMPORTANT: Each scene_query must be DIFFERENT from every other scene. Never repeat the same query.
-Each query should be 3-5 words, descriptive of a VISUAL SCENE, not a news headline.
+NEVER use: names of real people, specific news events, specific buildings.
+ALWAYS think: "What visual would a TV news editor cut to?"
 
-═══ STYLE-SPECIFIC QUERY TIPS ═══
-For MOTIVATIONAL content, think cinematic B-roll that evokes emotion:
-✓ "athlete training gym weights" — for discipline/hard work themes
-✓ "runner sunrise mountain trail" — for persistence/journey themes
-✓ "person standing cliff ocean" — for courage/perspective themes
-✓ "boxer training punching bag" — for fighting spirit themes
-✓ "dark room single spotlight" — for introspection/turning point
-✓ "crowd cheering stadium victory" — for triumph/success themes
-✓ "person meditating peaceful nature" — for mindset/focus themes
-✓ "businessman walking city morning" — for ambition/hustle themes
-✓ "ocean waves crashing rocks" — for resilience themes
-✓ "lion walking savanna powerful" — for strength/courage themes
-✓ "empty road stretching horizon" — for journey/future themes
-✓ "hands typing laptop focused" — for work ethic themes
-✓ "sunrise over mountains golden" — for new beginnings/hope
-✓ "rain falling city street" — for struggle/adversity themes
-✓ "person climbing mountain peak" — for overcoming obstacles
+Good queries are SPECIFIC and VISUAL:
+✓ "natural gas pipeline valve closeup" — not just "pipeline"
+✓ "oil tanker ship ocean aerial drone" — not just "cargo ship"
+✓ "electricity power grid tower sunset" — not just "energy"
+✓ "gas stove flame burning kitchen" — for consumer impact
+✓ "factory smokestacks industrial timelapse" — for industry
+✓ "digital world map glowing connections" — for geopolitics
+✓ "stock market red graph falling" — for economic impact
+✓ "military convoy trucks highway" — for military movements
+✓ "protest signs crowd angry street" — for public reaction
 
-For NEWS content, think generic B-roll a news editor would use:
-✓ "government press conference podium"
-✓ "military jets flying formation"
-✓ "city skyline night aerial"
+${style === "motivational" ? `For MOTIVATIONAL content — cinematic emotional B-roll:
+✓ "athlete training gym weights" ✓ "runner sunrise mountain trail"
+✓ "person standing cliff ocean" ✓ "boxer punching bag sweat"
+✓ "lion walking savanna powerful" ✓ "ocean waves crashing rocks"
+✓ "person climbing mountain peak" ✓ "sunrise golden mountains"` : ""}
 
-For DOCUMENTARY content, think cinematic establishing shots:
-✓ "aerial forest canopy fog"
-✓ "time lapse city traffic night"
-✓ "underwater coral reef fish"
+IMPORTANT: Every query in the visuals array must be UNIQUE across the entire script. Never repeat.
 
 Return ONLY a JSON array, no markdown:
-[{"text":"...","scene_query":"...","duration_sec":10}]
+[{"text":"Two to four flowing sentences of narration here.","visuals":["query one","query two","query three"],"duration_sec":8}]
 
 TRANSCRIPT:
 ${transcript.slice(0, 12000)}`;
@@ -2426,7 +2415,8 @@ ${transcript.slice(0, 12000)}`;
 }
 
 /* ── [RECREATE STEP 3] Fetch stock media — with dedup + diversity ── */
-/* v7b: Added NewsAPI.org + NewsData.io as priority sources for news style */
+/* v9: Handles new "visuals" array format (2-3 shots per scene)       */
+/* Flattens scenes into sub-scenes for visual variety                 */
 async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
   await updateReCreateStatus(projectId, "finding_media", 35);
 
@@ -2437,80 +2427,68 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
   console.log("[recreate] PEXELS:", !!PEXELS_API_KEY, "| PIXABAY:", !!PIXABAY_API_KEY,
     "| NEWSAPI:", !!NEWSAPI_ORG_KEY, "| NEWSDATA:", !!NEWSDATA_IO_KEY, "| style:", style);
 
-  // ✅ FIX 3: Track used media URLs to prevent duplicate clips
   const usedMediaUrls = new Set();
+
+  // Flatten scenes: each scene with visuals=[A,B,C] becomes 3 sub-scenes
+  // Each sub-scene inherits the text but gets its own media query
+  const flatScenes = [];
+  for (const scene of scenes) {
+    const visuals = Array.isArray(scene.visuals) ? scene.visuals : [];
+    const query = scene.scene_query || null; // backward compat with old format
+
+    if (visuals.length > 0) {
+      // New format: split scene text across its visuals
+      for (let v = 0; v < visuals.length; v++) {
+        flatScenes.push({
+          text: v === 0 ? scene.text : "", // only first sub-scene carries text (for captions)
+          full_text: scene.text, // keep full text for duration weighting
+          scene_query: visuals[v],
+          duration_sec: (scene.duration_sec || 8) / visuals.length,
+          _parent_index: flatScenes.length,
+        });
+      }
+    } else if (query) {
+      // Old format: single scene_query
+      flatScenes.push({ ...scene, full_text: scene.text });
+    } else {
+      // Fallback
+      flatScenes.push({ ...scene, scene_query: "aerial city landscape", full_text: scene.text });
+    }
+  }
+
+  console.log("[recreate] expanded", scenes.length, "scenes →", flatScenes.length, "visual shots");
 
   const updatedScenes = [];
 
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
+  for (let i = 0; i < flatScenes.length; i++) {
+    const scene = flatScenes[i];
     const query = scene.scene_query || "nature landscape";
     let mediaUrl = null;
     let mediaType = "image";
     let source = "";
 
-    console.log(`[recreate]   scene ${i + 1}/${scenes.length}: "${query}"`);
+    console.log(`[recreate]   shot ${i + 1}/${flatScenes.length}: "${query}"`);
 
-    // For news APIs, extract keywords from the scene TEXT (not scene_query)
-    // scene_query is for stock B-roll ("press conference podium")
-    // but news APIs need actual topic keywords ("Putin Russia energy Europe")
-    const sceneText = (scene.text || "").trim();
+    // For news APIs, extract keywords from scene TEXT
+    const sceneText = (scene.full_text || scene.text || "").trim();
     const newsQuery = sceneText
-      .split(/[.,!?;:]+/)[0]  // first sentence
-      .replace(/[^a-zA-Z0-9\s]/g, "")  // remove special chars
+      .split(/[.,!?;:]+/)[0]
+      .replace(/[^a-zA-Z0-9\s]/g, "")
       .split(/\s+/)
-      .filter((w) => w.length > 3)  // skip short words
-      .slice(0, 5)  // max 5 keywords
+      .filter((w) => w.length > 3)
+      .slice(0, 5)
       .join(" ")
       .trim() || query;
 
-    /* ── Source 0a: NewsAPI.org (ONLY for news style) ────────────── */
-    /* Uses keywords from scene TEXT to find relevant news articles   */
-    if (!mediaUrl && isNewsStyle && NEWSAPI_ORG_KEY) {
-      try {
-        console.log(`[recreate]     newsapi query: "${newsQuery}"`);
-        const newsRes = await fetch(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(newsQuery)}&sortBy=relevancy&pageSize=5&language=en&apiKey=${NEWSAPI_ORG_KEY}`
-        );
-        if (newsRes.ok) {
-          const newsData = await newsRes.json();
-          const candidates = (newsData.articles || []).filter((a) =>
-            a.urlToImage && !usedMediaUrls.has(a.urlToImage)
-            && !a.urlToImage.includes("removed") && a.urlToImage.startsWith("http")
-          );
-          if (candidates.length > 0) {
-            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
-            mediaUrl = pick.urlToImage;
-            mediaType = "image"; source = "newsapi-org";
-            usedMediaUrls.add(mediaUrl);
-          }
-        }
-      } catch (e) { console.log(`[recreate]     newsapi.org err:`, e.message); }
-    }
+    /* ── Source 0a: NewsAPI.org — DISABLED ─────────────────────── */
+    /* News article thumbnails are too unreliable — they return     */
+    /* random article images (Pokémon, album covers, etc.) that    */
+    /* have nothing to do with the video topic. Pexels/Pixabay     */
+    /* stock B-roll is more consistently relevant.                  */
+    /* TODO: Re-enable when we can filter by image relevance score  */
 
-    /* ── Source 0b: NewsData.io (ONLY for news style) ───────────── */
-    /* Second news source — different coverage, more international.  */
-    if (!mediaUrl && isNewsStyle && NEWSDATA_IO_KEY) {
-      try {
-        console.log(`[recreate]     newsdata query: "${newsQuery}"`);
-        const ndRes = await fetch(
-          `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_IO_KEY}&q=${encodeURIComponent(newsQuery)}&language=en&prioritydomain=top`
-        );
-        if (ndRes.ok) {
-          const ndData = await ndRes.json();
-          const candidates = (ndData.results || []).filter((a) =>
-            a.image_url && !usedMediaUrls.has(a.image_url)
-            && a.image_url.startsWith("http")
-          );
-          if (candidates.length > 0) {
-            const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
-            mediaUrl = pick.image_url;
-            mediaType = "image"; source = "newsdata-io";
-            usedMediaUrls.add(mediaUrl);
-          }
-        }
-      } catch (e) { console.log(`[recreate]     newsdata.io err:`, e.message); }
-    }
+    /* ── Source 0b: NewsData.io — DISABLED ──────────────────────── */
+    /* Same issue as NewsAPI — article thumbnails are unreliable.   */
 
     /* ── Source 1: Pexels Videos (pick from top results, skip dupes) ── */
     if (!mediaUrl && PEXELS_API_KEY) {
@@ -2673,12 +2651,12 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     const pct = 35 + Math.round(((i + 1) / scenes.length) * 15);
     await updateReCreateStatus(projectId, "finding_media", pct);
 
-    if (i < scenes.length - 1) await new Promise((r) => setTimeout(r, 250));
+    if (i < flatScenes.length - 1) await new Promise((r) => setTimeout(r, 250));
   }
 
   const bySource = {};
   updatedScenes.forEach((s) => { bySource[s.source || "none"] = (bySource[s.source || "none"] || 0) + 1; });
-  console.log(`[recreate] ✅ step 3 — ${updatedScenes.filter((s) => s.local_file).length}/${scenes.length} found:`, JSON.stringify(bySource));
+  console.log(`[recreate] ✅ step 3 — ${updatedScenes.filter((s) => s.local_file).length}/${flatScenes.length} visual shots found:`, JSON.stringify(bySource));
 
   await updateReCreateStatus(projectId, "finding_media", 50, {
     scenes: updatedScenes.map(({ local_file, ...s }) => s),
@@ -2816,23 +2794,22 @@ async function recreateStep4b_SyncCaptions(projectId, narrationFile, scenes, lan
   }
 }
 
-/* ── [RECREATE STEP 5] Assemble video — v7 improvements ────── */
-async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions) {
+/* ── [RECREATE STEP 5] Assemble video — v8 improvements ────── */
+async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style) {
   await updateReCreateStatus(projectId, "rendering", 70);
 
   const W = 1920, H = 1080, FPS = 30;
   const validScenes = scenes.filter((s) => s.local_file && fs.existsSync(s.local_file));
   if (validScenes.length === 0) throw new Error("No media found for any scene");
 
-  // ✅ FIX 1: Text-WEIGHTED scene durations
-  // Longer text = more screen time. This is WAY better than equal distribution
-  // because ElevenLabs speaks more text = takes more time = scene should be longer
-  const textLengths = validScenes.map((s) => (s.text || "").length);
+  // v9: Text-WEIGHTED durations using full_text (handles sub-scenes with empty text)
+  // Sub-scenes from the same parent paragraph share the narration duration equally
+  const textLengths = validScenes.map((s) => (s.full_text || s.text || "x").length);
   const totalTextLen = textLengths.reduce((a, b) => a + b, 0) || 1;
   const sceneDurations = textLengths.map((len) => {
     const weight = len / totalTextLen;
-    // Minimum 5s per scene, distribute rest proportionally
-    return Math.max(5, weight * durationSec);
+    // Minimum 2s per visual shot
+    return Math.max(2, weight * durationSec);
   });
 
   // Normalize to exactly match narration duration
@@ -2849,14 +2826,10 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
   const segDir = path.join(workDir, "segs");
   fs.mkdirSync(segDir, { recursive: true });
 
-  // ✅ FIX 5: Add crossfade overlap duration
-  const XFADE_DUR = 0.5; // 0.5s crossfade between scenes
-
   const segFiles = [];
   for (let i = 0; i < validScenes.length; i++) {
     const sc = validScenes[i];
-    // Add extra time to account for crossfade overlap (except last scene)
-    const dur = finalDurations[i] + (i < validScenes.length - 1 ? XFADE_DUR : 0);
+    const dur = finalDurations[i];
     const sf = path.join(segDir, `s-${String(i).padStart(3, "0")}.mp4`);
 
     if (sc.media_type === "video") {
@@ -2881,38 +2854,11 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
     await updateReCreateStatus(projectId, "rendering", 70 + Math.round(((i + 1) / validScenes.length) * 8));
   }
 
-  // ✅ FIX 5: Use xfade filter for smooth crossfade transitions
+  // v8: Simple concat — fast hard cuts work best for micro-scenes (news-style pacing)
   let rawVideo;
   if (segFiles.length === 1) {
     rawVideo = segFiles[0];
-  } else if (segFiles.length <= 3) {
-    // For 2-3 segments, use xfade chain directly
-    rawVideo = path.join(workDir, "raw.mp4");
-    let filterComplex = "";
-    let lastStream = "[0:v]";
-    for (let i = 1; i < segFiles.length; i++) {
-      const offset = finalDurations.slice(0, i).reduce((a, b) => a + b, 0) - (XFADE_DUR * (i - 1));
-      const outLabel = i < segFiles.length - 1 ? `[v${i}]` : `[vout]`;
-      filterComplex += `${lastStream}[${i}:v]xfade=transition=fade:duration=${XFADE_DUR}:offset=${offset.toFixed(3)}${outLabel};`;
-      lastStream = outLabel;
-    }
-    filterComplex = filterComplex.slice(0, -1); // remove trailing semicolon
-
-    const inputs = segFiles.map((f) => `-i "${f}"`).join(" ");
-    try {
-      await execAsync(
-        `ffmpeg ${inputs} -filter_complex "${filterComplex}" -map "[vout]" ` +
-        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -r ${FPS} -y "${rawVideo}"`
-      );
-    } catch (xfadeErr) {
-      // Fallback to simple concat if xfade fails
-      console.log("[recreate] xfade failed, falling back to concat:", xfadeErr?.message?.slice(0, 100));
-      const cl = path.join(segDir, "list.txt");
-      fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-      await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
-    }
   } else {
-    // For many segments, concat is more reliable (xfade chains get complex)
     rawVideo = path.join(workDir, "raw.mp4");
     const cl = path.join(segDir, "list.txt");
     fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
@@ -2957,33 +2903,60 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
 
     fs.writeFileSync(srtFile, srt);
 
-    console.log("[recreate] SRT written:", srt.split("\n\n").length - 1, "captions, file:", srtFile);
+    const captionCount = srt.trim().split("\n\n").filter(Boolean).length;
+    console.log("[recreate] SRT written:", captionCount, "captions");
 
     // ═══════════════════════════════════════════════════════════
-    // CAPTION STRATEGY: Write an ASS subtitle file directly
-    // The subtitles filter on Windows has persistent path escaping
-    // issues. Writing a proper ASS file with embedded styles
-    // avoids force_style escaping problems entirely.
+    // BULLETPROOF CAPTION STRATEGY
+    //
+    // The subtitles/ass filters on Windows have PERSISTENT path
+    // escaping issues (colons in C:\... paths break the filter).
+    //
+    // NEW APPROACH: Use drawtext filter with textfile= parameter.
+    // We write a PLAIN TEXT file for the CURRENT caption and use
+    // ffmpeg's drawtext which only needs simple quoted paths.
+    //
+    // But even simpler: we'll encode captions into the video in
+    // TWO PASSES:
+    //   Pass 1: Merge raw video + audio (no captions) = temp.mp4
+    //   Pass 2: For each SRT block, overlay text using drawtext
+    //
+    // SIMPLEST APPROACH: Just use the -vf subtitles filter but
+    // change to the workDir first so the path is just "subs.srt"
+    // with no drive letter / colons.
     // ═══════════════════════════════════════════════════════════
-    const assFile = path.join(workDir, "subs.ass");
 
-    // Parse SRT into events
-    const srtBlocks = srt.trim().split("\n\n").filter(Boolean);
-    const assEvents = [];
-    for (const block of srtBlocks) {
-      const lines = block.split("\n");
-      if (lines.length < 3) continue;
-      const timeLine = lines[1]; // "00:00:00,000 --> 00:00:05,000"
-      const text = lines.slice(2).join("\\N"); // join multi-line with ASS newline
-      const match = timeLine.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
-      if (!match) continue;
-      const startASS = `${match[1]}:${match[2]}:${match[3]}.${match[4].slice(0,2)}`;
-      const endASS = `${match[5]}:${match[6]}:${match[7]}.${match[8].slice(0,2)}`;
-      assEvents.push(`Dialogue: 0,${startASS},${endASS},Default,,0,0,0,,${text}`);
-    }
+    const fadeStart = Math.max(0, durationSec - 2);
+    let captionsBurned = false;
 
-    // Write complete ASS file with Motiversity-style embedded
-    const assContent = `[Script Info]
+    // METHOD 1: Change working directory to avoid Windows path escaping
+    // By using a relative path "subs.srt" instead of "C:\Users\...\subs.srt"
+    // we avoid the colon escaping issue entirely
+    try {
+      console.log("[recreate] METHOD 1: subtitles with relative path (cwd change)...");
+
+      // Build the ASS file for styled captions
+      const assFile = path.join(workDir, "subs.ass");
+      const srtBlocks = srt.trim().split("\n\n").filter(Boolean);
+      const assEvents = [];
+      for (const block of srtBlocks) {
+        const lines = block.split("\n");
+        if (lines.length < 3) continue;
+        const timeLine = lines[1];
+        const text = lines.slice(2).join("\\N");
+        const match = timeLine.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+        if (!match) continue;
+        const startASS = `${match[1]}:${match[2]}:${match[3]}.${match[4].slice(0,2)}`;
+        const endASS = `${match[5]}:${match[6]}:${match[7]}.${match[8].slice(0,2)}`;
+        assEvents.push(`Dialogue: 0,${startASS},${endASS},Default,,0,0,0,,${text}`);
+      }
+
+      const isNews = (style || "").toLowerCase() === "news";
+      const headlineText = isNews
+        ? (scenes[0]?.text || "Breaking News").split(/[.!?]/)[0].toUpperCase().slice(0, 80)
+        : "";
+
+      const assContent = `[Script Info]
 Title: ReCreate Captions
 ScriptType: v4.00+
 PlayResX: 1920
@@ -2993,62 +2966,98 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,3,1,2,80,80,60,1
+${isNews ? `Style: Headline,Arial,32,&H00FFFFFF,&H000000FF,&H000000CC,&HB40000CC,-1,0,0,0,100,100,1,0,3,0,0,1,30,30,12,1` : ""}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${isNews && headlineText ? `Dialogue: 2,0:00:00.00,${fmtASS(Math.min(10, durationSec))},Headline,,0,0,0,,${headlineText}` : ""}
 ${assEvents.join("\n")}
 `;
 
-    fs.writeFileSync(assFile, assContent, "utf-8");
-    console.log("[recreate] ASS file written:", assEvents.length, "dialogue lines");
+      fs.writeFileSync(assFile, assContent, "utf-8");
+      console.log("[recreate] ASS file written:", assEvents.length, "dialogue lines");
 
-    // ASS path escaping for ffmpeg — simpler than SRT subtitles filter
-    let assEscaped;
-    if (process.platform === "win32") {
-      assEscaped = assFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
-    } else {
-      assEscaped = assFile.replace(/\\/g, "/").replace(/:/g, "\\:");
-    }
-
-    try {
-      const fadeStart = Math.max(0, durationSec - 2);
+      // KEY TRICK: Run ffmpeg FROM the workDir so subtitle path is just "subs.ass"
+      // This completely avoids C:\path\colon escaping issues
       const ffmpegCmd = `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-        `-vf "ass='${assEscaped}'" ` +
+        `-vf "ass=subs.ass" ` +
         `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
         `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`;
 
-      console.log("[recreate] ffmpeg ASS cmd:", ffmpegCmd.slice(0, 300) + "...");
-      await execAsync(ffmpegCmd);
-      console.log("[recreate] ✅ ASS captions burned successfully");
-    } catch (assErr) {
-      const errMsg = assErr?.stderr || assErr?.message || String(assErr);
-      console.log("[recreate] ⚠ ASS burn failed:", errMsg.slice(0, 300));
+      console.log("[recreate] running from cwd:", workDir);
+      console.log("[recreate] ffmpeg cmd:", ffmpegCmd.slice(0, 250) + "...");
 
-      // Fallback 1: Try subtitles filter with SRT
+      // Execute with cwd set to workDir
+      await new Promise((resolve, reject) => {
+        exec(ffmpegCmd, { cwd: workDir, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
+          if (err) {
+            console.log("[recreate] METHOD 1 stderr:", (stderr || "").slice(0, 300));
+            reject(err);
+          } else {
+            resolve({ stdout, stderr });
+          }
+        });
+      });
+
+      captionsBurned = true;
+      console.log("[recreate] ✅ METHOD 1 succeeded — ASS captions burned!");
+
+    } catch (err1) {
+      console.log("[recreate] ⚠ METHOD 1 failed:", (err1?.message || "").slice(0, 200));
+    }
+
+    // METHOD 2: Try subtitles filter with forward-slash path
+    if (!captionsBurned) {
       try {
-        console.log("[recreate] trying SRT subtitles fallback...");
-        let srtEscaped;
-        if (process.platform === "win32") {
-          srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
-        } else {
-          srtEscaped = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
-        }
-        const fadeStart2 = Math.max(0, durationSec - 2);
-        await execAsync(
+        console.log("[recreate] METHOD 2: subtitles filter with forward slashes...");
+        const srtFwd = srtFile.replace(/\\/g, "/");
+        // On Windows, try both single and double colon escaping
+        const srtEsc = process.platform === "win32"
+          ? srtFwd.replace(/:/g, "\\\\:")
+          : srtFwd.replace(/:/g, "\\:");
+
+        await execBig(
           `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-          `-vf "subtitles='${srtEscaped}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
-          `-af "afade=t=out:st=${fadeStart2.toFixed(2)}:d=2" ` +
+          `-vf "subtitles='${srtEsc}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
+          `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
           `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
         );
-        console.log("[recreate] ✅ SRT fallback succeeded");
-      } catch (srtErr) {
-        console.log("[recreate] ⚠ ALL caption methods failed, rendering WITHOUT captions:", srtErr?.message?.slice(0, 100));
-        await execAsync(
-          `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
-          `-af "afade=t=out:st=${Math.max(0, durationSec - 2).toFixed(2)}:d=2" ` +
-          `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
-        );
+
+        captionsBurned = true;
+        console.log("[recreate] ✅ METHOD 2 succeeded — SRT subtitles burned!");
+      } catch (err2) {
+        console.log("[recreate] ⚠ METHOD 2 failed:", (err2?.message || "").slice(0, 200));
       }
+    }
+
+    // METHOD 3: Single-escape colons (some ffmpeg builds want this)
+    if (!captionsBurned) {
+      try {
+        console.log("[recreate] METHOD 3: subtitles with single-escaped colons...");
+        const srtSingle = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+
+        await execBig(
+          `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+          `-vf "subtitles='${srtSingle}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
+          `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
+          `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
+        );
+
+        captionsBurned = true;
+        console.log("[recreate] ✅ METHOD 3 succeeded!");
+      } catch (err3) {
+        console.log("[recreate] ⚠ METHOD 3 failed:", (err3?.message || "").slice(0, 200));
+      }
+    }
+
+    // LAST RESORT: No captions
+    if (!captionsBurned) {
+      console.log("[recreate] ❌ ALL 3 caption methods failed — rendering WITHOUT captions");
+      await execAsync(
+        `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
+        `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
+        `-c:v copy -c:a aac -b:a 192k -y "${finalFile}"`
+      );
     }
   } else {
     const fadeStart = Math.max(0, durationSec - 2);
@@ -3079,6 +3088,12 @@ function fmtSRT(s) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 }
 
+/* ASS timestamp (H:MM:SS.cc format) */
+function fmtASS(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60), cs = Math.round((s % 1) * 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
 /* Language code mapper */
 function getReCreateLangCode(name) {
   const m = { English: "en", Vietnamese: "vi", Spanish: "es", Chinese: "zh", Korean: "ko", Japanese: "ja", Hindi: "hi", French: "fr", Portuguese: "pt", Arabic: "ar", Thai: "th", Indonesian: "id", German: "de", Russian: "ru", Turkish: "tr", Filipino: "tl" };
@@ -3107,7 +3122,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
       syncedCaptions = await recreateStep4b_SyncCaptions(projectId, narrationFile, scenesMedia, langCode);
     }
 
-    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions);
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style);
 
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);
@@ -3168,4 +3183,12 @@ app.post("/recreate", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`[render-webhook] listening on :${PORT}`);
   console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate`);
+  console.log(`[render-webhook] API keys loaded:`);
+  console.log(`  OPENAI:    ${OPENAI_API_KEY ? "✅ " + OPENAI_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  ANTHROPIC: ${ANTHROPIC_API_KEY ? "✅ " + ANTHROPIC_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  ELEVENLABS:${ELEVENLABS_API_KEY ? "✅ " + ELEVENLABS_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  PEXELS:    ${PEXELS_API_KEY ? "✅ " + PEXELS_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  PIXABAY:   ${PIXABAY_API_KEY ? "✅ " + PIXABAY_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  NEWSAPI:   ${NEWSAPI_ORG_KEY ? "✅ " + NEWSAPI_ORG_KEY.slice(0, 8) + "..." : "❌ missing"}`);
+  console.log(`  NEWSDATA:  ${NEWSDATA_IO_KEY ? "✅ " + NEWSDATA_IO_KEY.slice(0, 8) + "..." : "❌ missing"}`);
 });

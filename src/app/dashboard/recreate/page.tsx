@@ -255,11 +255,8 @@ export default function ReCreatePage() {
   const [includeCaptions, setIncludeCaptions] = useState(true);
   const [voiceId, setVoiceId] = useState(LANGUAGES[0].voices[0]?.id || "");
 
-  // Derived: current voices for selected language
   const voices = selectedLang.voices;
-  const selectedVoice = voices.find((v) => v.id === voiceId);
 
-  // Auto-select first voice when language changes
   useEffect(() => {
     if (voices.length > 0 && !voices.find((v) => v.id === voiceId)) {
       setVoiceId(voices[0].id);
@@ -271,6 +268,11 @@ export default function ReCreatePage() {
   const [project, setProject] = useState<ReCreateProject | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
 
+  // YouTube publish state
+  const [ytConnected, setYtConnected] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<{ url?: string; error?: string } | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /* ── Auth helper ─────────────────────────────────────────── */
@@ -278,6 +280,20 @@ export default function ReCreatePage() {
     const { data } = await supabase.auth.getSession();
     return data?.session?.access_token || null;
   }
+
+  /* ── Check YouTube connection on mount ───────────────────── */
+  useEffect(() => {
+    async function checkYT() {
+      try {
+        const res = await fetch("/api/auth/youtube/status");
+        if (res.ok) {
+          const data = await res.json();
+          setYtConnected(data.connected === true);
+        }
+      } catch {}
+    }
+    checkYT();
+  }, []);
 
   /* ── Fetch video preview ─────────────────────────────────── */
   const fetchPreview = useCallback(async (inputUrl: string) => {
@@ -344,6 +360,7 @@ export default function ReCreatePage() {
   async function handleGenerate() {
     setError(null);
     setProject(null);
+    setPublishResult(null);
 
     const token = await getToken();
     if (!token) { setError("Not logged in. Please log in again."); return; }
@@ -352,7 +369,6 @@ export default function ReCreatePage() {
     setGenerating(true);
 
     try {
-      // Step 1: Create project
       const createRes = await fetch("/api/recreate/create", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -374,7 +390,6 @@ export default function ReCreatePage() {
       setProject(newProject);
       setProjectId(newProject.id);
 
-      // Step 2: Start pipeline
       const startRes = await fetch("/api/recreate/start", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -404,6 +419,57 @@ export default function ReCreatePage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(a.href);
     } catch {}
+  }
+
+  /* ── Publish to YouTube ──────────────────────────────────── */
+  async function handlePublishToYouTube() {
+    if (!project?.final_video_url) return;
+    setPublishing(true);
+    setPublishResult(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not logged in");
+
+      const title = project.source_title
+        ? `${project.source_title} — ReCreated in ${selectedLang.name}`
+        : `ReCreated Video — ${selectedLang.name} ${new Date().toLocaleDateString()}`;
+
+      const description = [
+        `AI-recreated version of "${project.source_title || "original video"}"`,
+        `Language: ${selectedLang.name}`,
+        `Style: ${selectedStyle}`,
+        "",
+        "Created with AutoVideo AI Studio — AI-powered content recreation",
+        "Original content rewritten with fresh narration and stock footage.",
+        "",
+        "#shorts #AI #AutoVideo",
+      ].join("\n");
+
+      const res = await fetch("/api/publish/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          video_url: project.final_video_url,
+          title: title.slice(0, 100),
+          description,
+          tags: ["AI", "AutoVideo", "ReCreate", selectedLang.name, selectedStyle],
+          privacy: "public",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Publish failed");
+      }
+
+      const result = await res.json();
+      setPublishResult({ url: result.youtube_url || result.url });
+    } catch (err: any) {
+      setPublishResult({ error: err?.message || "Publish failed" });
+    } finally {
+      setPublishing(false);
+    }
   }
 
   /* ── Derived state ───────────────────────────────────────── */
@@ -545,7 +611,7 @@ export default function ReCreatePage() {
             </div>
           </div>
 
-          {/* Captions toggle */}
+          {/* Voice */}
           <div className="mb-5">
             <label className="block text-sm font-medium text-gray-300 mb-2">
               🗣️ Voice — {selectedLang.flag} {voices.length} {selectedLang.name} narrator{voices.length > 1 ? "s" : ""}
@@ -580,7 +646,7 @@ export default function ReCreatePage() {
             </div>
           </div>
 
-          {/* Captions toggle — moved below voice */}
+          {/* Captions toggle */}
           <div className="flex items-center gap-3 mb-6">
             <button
               onClick={() => setIncludeCaptions(!includeCaptions)}
@@ -779,6 +845,66 @@ export default function ReCreatePage() {
                   >
                     ⬇️ Download Video
                   </button>
+
+                  {/* YouTube Publish Button */}
+                  {ytConnected && !publishResult?.url && (
+                    <button
+                      onClick={handlePublishToYouTube}
+                      disabled={publishing}
+                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-white transition hover:scale-[1.02] disabled:opacity-50"
+                      style={{
+                        background: publishing
+                          ? "rgba(220,38,38,0.3)"
+                          : "linear-gradient(135deg, rgba(220,38,38,0.6), rgba(185,28,28,0.5))",
+                        border: "1px solid rgba(220,38,38,0.4)",
+                        boxShadow: publishing ? "none" : "0 0 20px rgba(220,38,38,0.15)",
+                      }}
+                    >
+                      {publishing ? "⏳ Publishing..." : "▶ Publish to YouTube"}
+                    </button>
+                  )}
+
+                  {/* YouTube Published Success */}
+                  {publishResult?.url && (
+                    <a
+                      href={publishResult.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2.5 rounded-xl text-sm font-medium transition hover:scale-[1.02]"
+                      style={{
+                        background: "rgba(74,222,128,0.1)",
+                        border: "1px solid rgba(74,222,128,0.3)",
+                        color: "#4ade80",
+                      }}
+                    >
+                      ✅ Live on YouTube ↗
+                    </a>
+                  )}
+
+                  {/* YouTube Publish Error */}
+                  {publishResult?.error && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-400">⚠ {publishResult.error}</span>
+                      <button
+                        onClick={handlePublishToYouTube}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-300 transition"
+                        style={{ background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.2)" }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Not connected hint */}
+                  {!ytConnected && (
+                    <a
+                      href="/dashboard/settings"
+                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 transition hover:text-gray-300"
+                      style={{ background: "rgba(30,25,50,0.5)", border: "1px solid rgba(74,66,96,0.3)" }}
+                    >
+                      🔗 Connect YouTube to publish
+                    </a>
+                  )}
 
                   <button
                     onClick={() => {

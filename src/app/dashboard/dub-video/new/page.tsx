@@ -1,17 +1,18 @@
-// ======================
+// ============================================================
 // FILE: src/app/dashboard/dub-video/new/page.tsx
 // ============================================================
-// "Dub Any Video" form — multi-language dubbing with 18 languages
+// "Dub Any Video" — 3 source modes:
+//   [A] YouTube URL (full video)
+//   [B] Partial Dub (YouTube URL + time range)
+//   [C] Upload Video (drag & drop local file)
 //
-// FIXES:
-//   ✅ Language button selected state — pink glow + border via inline style
-//   ✅ Voice button selected state — green glow + border via inline style
-//   (Inline styles override layout.tsx's !important CSS rules)
+// All modes share: language picker, voice picker, caption style,
+// original audio toggle, and submit button.
 // ============================================================
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
@@ -231,15 +232,36 @@ const LANGUAGES: {
   },
 ];
 
+/* ── Source mode type ──────────────────────────────────────── */
+type SourceMode = "youtube" | "partial" | "upload";
+
 /* ============================================================
    Page Component
 ============================================================ */
 export default function DubVideoNewPage() {
   const router = useRouter();
 
+  // Source mode
+  const [sourceMode, setSourceMode] = useState<SourceMode>("youtube");
+
+  // YouTube URL (for youtube + partial modes)
   const [url, setUrl] = useState("");
-  const [preview, setPreview] = useState<{ title: string; thumbnail: string } | null>(null);
+  const [preview, setPreview] = useState<{ title: string; thumbnail: string; duration?: number } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+
+  // Partial dub time range
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+
+  // Upload mode
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // Shared settings
   const [langCode, setLangCode] = useState("vi");
   const [voiceId, setVoiceId] = useState("");
   const [captionStyle, setCaptionStyle] = useState("block");
@@ -268,9 +290,10 @@ export default function DubVideoNewPage() {
     }
   }, []);
 
+  /* ── YouTube preview fetch ───────────────────────────────── */
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (!url) { setPreview(null); return; }
+      if (!url || sourceMode === "upload") { setPreview(null); return; }
       const ytMatch = url.match(
         /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
       );
@@ -285,25 +308,153 @@ export default function DubVideoNewPage() {
         .finally(() => setLoadingPreview(false));
     }, 600);
     return () => clearTimeout(timer);
-  }, [url]);
+  }, [url, sourceMode]);
 
+  /* ── Parse time string "MM:SS" to seconds ────────────────── */
+  function parseTimeToSeconds(timeStr: string): number | null {
+    if (!timeStr) return null;
+    const parts = timeStr.trim().split(":").map(Number);
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      return parts[0] * 60 + parts[1];
+    }
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+    const num = Number(timeStr);
+    return isNaN(num) ? null : num;
+  }
+
+  /* ── File upload to Supabase ─────────────────────────────── */
+  async function handleFileUpload(file: File) {
+    if (file.size > 1024 * 1024 * 1024) {
+      setError("File too large. Maximum 1GB.");
+      return;
+    }
+
+    const validTypes = ["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska"];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i)) {
+      setError("Unsupported file type. Use MP4, MOV, WEBM, AVI, or MKV.");
+      return;
+    }
+
+    setUploadFile(file);
+    setUploading(true);
+    setUploadProgress(0);
+    setError("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user?.id;
+      if (!userId) throw new Error("Not logged in");
+
+      const ext = file.name.split(".").pop() || "mp4";
+      const fileName = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+
+      // Simulate progress (Supabase JS client doesn't support upload progress natively)
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 3, 90));
+      }, 500);
+
+      const { data, error: uploadErr } = await supabase.storage
+        .from("dub-uploads")
+        .upload(fileName, file, {
+          contentType: file.type || "video/mp4",
+          upsert: true,
+        });
+
+      clearInterval(progressInterval);
+
+      if (uploadErr) throw new Error(uploadErr.message);
+
+      const { data: urlData } = supabase.storage.from("dub-uploads").getPublicUrl(fileName);
+      setUploadedUrl(urlData?.publicUrl || null);
+      setUploadProgress(100);
+    } catch (err: any) {
+      setError(err.message || "Upload failed");
+      setUploadFile(null);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /* ── Drag & Drop handlers ────────────────────────────────── */
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileUpload(file);
+  }, []);
+
+  /* ── Submit ──────────────────────────────────────────────── */
   async function handleSubmit() {
     setError("");
+
+    // Validate based on mode
+    if (sourceMode === "upload") {
+      if (!uploadedUrl) { setError("Please upload a video file first."); return; }
+    } else {
+      if (!url) { setError("Please enter a YouTube URL."); return; }
+    }
+
+    if (sourceMode === "partial") {
+      const startSec = parseTimeToSeconds(startTime);
+      const endSec = parseTimeToSeconds(endTime);
+      if (startSec === null || endSec === null) {
+        setError("Please enter valid start and end times (MM:SS format).");
+        return;
+      }
+      if (endSec <= startSec) {
+        setError("End time must be after start time.");
+        return;
+      }
+      if (endSec - startSec < 10) {
+        setError("Segment must be at least 10 seconds long.");
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) { setError("Not logged in. Please log in again."); setSubmitting(false); return; }
 
+      // Build the source URL — either YouTube or uploaded file
+      const sourceUrl = sourceMode === "upload" ? uploadedUrl! : url;
+      const sourceType = sourceMode === "upload" ? "upload" : "youtube";
+
+      // Parse time range for partial mode
+      const startSec = sourceMode === "partial" ? parseTimeToSeconds(startTime) : null;
+      const endSec = sourceMode === "partial" ? parseTimeToSeconds(endTime) : null;
+
       const createRes = await fetch("/api/dub-video/create", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          source_url: url, source_type: "youtube",
-          target_language: selectedLang.name, target_language_code: selectedLang.code,
-          voice_id: voiceId, voice_name: selectedVoice?.name || "",
-          caption_style: captionStyle, keep_original_audio: keepOriginal,
+          source_url: sourceUrl,
+          source_type: sourceType,
+          target_language: selectedLang.name,
+          target_language_code: selectedLang.code,
+          voice_id: voiceId,
+          voice_name: selectedVoice?.name || "",
+          caption_style: captionStyle,
+          keep_original_audio: keepOriginal,
           original_audio_volume: originalVolume,
+          // Partial dub fields
+          start_time: startSec,
+          end_time: endSec,
+          // Upload metadata
+          uploaded_file_name: sourceMode === "upload" ? uploadFile?.name : null,
         }),
       });
       const createData = await createRes.json();
@@ -325,6 +476,11 @@ export default function DubVideoNewPage() {
     }
   }
 
+  /* ── Can submit? ─────────────────────────────────────────── */
+  const canSubmit = sourceMode === "upload"
+    ? !!uploadedUrl && !submitting
+    : !!url && !submitting;
+
   /* ── Render ────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -339,34 +495,196 @@ export default function DubVideoNewPage() {
           </div>
         </div>
 
-        {/* YouTube URL Input */}
+        {/* ════════════════════════════════════════════════════
+            SOURCE MODE SELECTOR — 3 tabs
+        ════════════════════════════════════════════════════ */}
         <section className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-2">YouTube URL</label>
-          <input
-            type="url"
-            placeholder="https://www.youtube.com/watch?v=... or youtube.com/shorts/..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          {loadingPreview && (
-            <div className="mt-3 p-3 bg-gray-800/50 rounded-lg text-gray-400 text-sm">Loading preview...</div>
-          )}
-          {preview && (
-            <div className="mt-3 flex gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
-              <img src={preview.thumbnail} alt="" className="w-32 h-20 object-cover rounded" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{preview.title}</p>
-                <p className="text-xs text-green-400 mt-1">✓ Video found</p>
-              </div>
-            </div>
-          )}
+          <label className="block text-sm font-medium text-gray-300 mb-3">Source</label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { mode: "youtube" as SourceMode, icon: "🔗", label: "YouTube URL", desc: "Paste any YouTube link" },
+              { mode: "partial" as SourceMode, icon: "✂️", label: "Partial Dub", desc: "Dub a specific time range" },
+              { mode: "upload" as SourceMode, icon: "📤", label: "Upload Video", desc: "Upload your own file" },
+            ]).map(({ mode, icon, label, desc }) => {
+              const isSelected = sourceMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => { setSourceMode(mode); setError(""); }}
+                  className="p-3 rounded-xl text-left transition-all duration-200"
+                  style={isSelected ? {
+                    border: "2px solid #8b5cf6",
+                    background: "linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(109,40,217,0.08) 100%)",
+                    boxShadow: "0 0 20px rgba(139,92,246,0.2)",
+                  } : {
+                    border: "1px solid #374151",
+                    background: "rgba(31,41,55,0.4)",
+                  }}
+                >
+                  <div className="text-lg mb-1">{icon}</div>
+                  <div className="text-sm font-semibold" style={{ color: isSelected ? "#c4b5fd" : "#d1d5db" }}>{label}</div>
+                  <div className="text-[10px]" style={{ color: isSelected ? "#a78bfa" : "#6b7280" }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
         </section>
 
         {/* ════════════════════════════════════════════════════
-            TARGET LANGUAGE — Pink glow when selected
-            ✅ FIX: All visual props in inline style to override
-               layout.tsx's !important CSS rules
+            SOURCE INPUT — changes based on mode
+        ════════════════════════════════════════════════════ */}
+
+        {/* YouTube URL (for youtube + partial modes) */}
+        {(sourceMode === "youtube" || sourceMode === "partial") && (
+          <section className="mb-6">
+            <label className="block text-sm font-medium text-gray-300 mb-2">YouTube URL</label>
+            <input
+              type="url"
+              placeholder="https://www.youtube.com/watch?v=... or youtube.com/shorts/..."
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+            />
+            {loadingPreview && (
+              <div className="mt-3 p-3 bg-gray-800/50 rounded-lg text-gray-400 text-sm">Loading preview...</div>
+            )}
+            {preview && (
+              <div className="mt-3 flex gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                <img src={preview.thumbnail} alt="" className="w-32 h-20 object-cover rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{preview.title}</p>
+                  <p className="text-xs text-green-400 mt-1">✓ Video found</p>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Partial Dub — Time Range Inputs */}
+        {sourceMode === "partial" && (
+          <section className="mb-6">
+            <label className="block text-sm font-medium text-gray-300 mb-2">⏱ Time Range to Dub</label>
+            <div className="flex gap-3 items-center">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+                <input
+                  type="text"
+                  placeholder="0:00"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 text-center text-lg font-mono"
+                />
+              </div>
+              <span className="text-gray-500 text-2xl mt-5">→</span>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">End Time</label>
+                <input
+                  type="text"
+                  placeholder="5:30"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 text-center text-lg font-mono"
+                />
+              </div>
+            </div>
+            {startTime && endTime && (() => {
+              const s = parseTimeToSeconds(startTime);
+              const e = parseTimeToSeconds(endTime);
+              if (s !== null && e !== null && e > s) {
+                const dur = e - s;
+                return (
+                  <p className="mt-2 text-xs text-violet-400">
+                    Dubbing {Math.floor(dur / 60)}:{String(Math.floor(dur % 60)).padStart(2, "0")} of video — saves time & ElevenLabs credits
+                  </p>
+                );
+              }
+              return null;
+            })()}
+            <p className="mt-2 text-[10px] text-gray-600">Format: MM:SS (e.g., 2:30 for 2 minutes 30 seconds) or H:MM:SS for longer videos</p>
+          </section>
+        )}
+
+        {/* Upload Video — Drag & Drop Zone */}
+        {sourceMode === "upload" && (
+          <section className="mb-6">
+            <label className="block text-sm font-medium text-gray-300 mb-2">📤 Upload Your Video</label>
+
+            {!uploadFile ? (
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
+                style={{
+                  borderColor: dragOver ? "#8b5cf6" : "#374151",
+                  background: dragOver ? "rgba(139,92,246,0.08)" : "rgba(31,41,55,0.3)",
+                }}
+              >
+                <div className="text-4xl mb-3">{dragOver ? "📥" : "🎬"}</div>
+                <p className="text-sm text-gray-300 font-medium mb-1">
+                  {dragOver ? "Drop your video here" : "Drag & drop video file here"}
+                </p>
+                <p className="text-xs text-gray-500 mb-3">or click to browse</p>
+                <p className="text-[10px] text-gray-600">MP4, MOV, WEBM, AVI, MKV — up to 1GB</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*,.mp4,.mov,.webm,.avi,.mkv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">🎬</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{uploadFile.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {(uploadFile.size / (1024 * 1024)).toFixed(1)} MB
+                    </p>
+                  </div>
+                  {uploadedUrl && (
+                    <span className="text-xs text-green-400 font-medium">✓ Uploaded</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      setUploadFile(null);
+                      setUploadedUrl(null);
+                      setUploadProgress(0);
+                    }}
+                    className="text-gray-500 hover:text-red-400 transition text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Upload progress bar */}
+                {(uploading || (uploadProgress > 0 && uploadProgress < 100)) && (
+                  <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${uploadProgress}%`,
+                        background: "linear-gradient(90deg, #8b5cf6, #6366f1)",
+                      }}
+                    />
+                  </div>
+                )}
+                {uploading && (
+                  <p className="text-xs text-violet-400 mt-2">Uploading... {uploadProgress}%</p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ════════════════════════════════════════════════════
+            TARGET LANGUAGE
         ════════════════════════════════════════════════════ */}
         <section className="mb-6">
           <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -402,8 +720,7 @@ export default function DubVideoNewPage() {
         </section>
 
         {/* ════════════════════════════════════════════════════
-            VOICE PICKER — Green glow when selected
-            ✅ FIX: All visual props in inline style
+            VOICE PICKER
         ════════════════════════════════════════════════════ */}
         <section className="mb-6">
           <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -513,23 +830,26 @@ export default function DubVideoNewPage() {
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={!url || submitting}
+          disabled={!canSubmit}
           className="w-full py-5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed font-normal text-xl tracking-wide transition-all duration-300 hover:scale-[1.01] active:scale-[0.99]"
           style={{
-            background: !url || submitting ? "#252040" : "#5b21b6",
-            border: !url || submitting ? "1px solid #3a3555" : "1px solid rgba(167,139,250,0.6)",
-            boxShadow: !url || submitting ? "none" : "0 0 24px rgba(91,33,182,0.35)",
-            color: !url || submitting ? "#5a5070" : "#ffffff",
+            background: !canSubmit ? "#252040" : "#5b21b6",
+            border: !canSubmit ? "1px solid #3a3555" : "1px solid rgba(167,139,250,0.6)",
+            boxShadow: !canSubmit ? "none" : "0 0 24px rgba(91,33,182,0.35)",
+            color: !canSubmit ? "#5a5070" : "#ffffff",
           }}
         >
           {submitting
             ? "✨ Creating..."
-            : <>🚀 Start Dubbing into {selectedLang.flag} {selectedLang.name}</>}
+            : sourceMode === "partial"
+              ? <>✂️ Dub Segment into {selectedLang.flag} {selectedLang.name}</>
+              : sourceMode === "upload"
+                ? <>📤 Dub Uploaded Video into {selectedLang.flag} {selectedLang.name}</>
+                : <>🚀 Start Dubbing into {selectedLang.flag} {selectedLang.name}</>}
         </button>
 
         <p className="text-xs text-gray-500 mt-4 text-center">
           By using this feature, you confirm you have the rights to dub this content.
-          Downloading YouTube videos may be subject to YouTube&apos;s Terms of Service.
         </p>
 
         {/* Copyright Guidance */}
@@ -551,20 +871,17 @@ export default function DubVideoNewPage() {
                 </li>
                 <li>
                   <span className="text-green-400 font-bold">✅ Safe:</span>{" "}
-                  Dubbing content you have <strong className="text-gray-300">written permission</strong> to translate (licensing agreement, creator partnership).
+                  Dubbing content you have <strong className="text-gray-300">written permission</strong> to translate.
                 </li>
                 <li>
                   <span className="text-yellow-400 font-bold">⚡ Caution:</span>{" "}
-                  Dubbing others&apos; content with <strong className="text-gray-300">substantial added value</strong> — your own commentary, analysis, new visuals, on-camera hosting. Must be clearly transformative.
+                  Dubbing others&apos; content with <strong className="text-gray-300">substantial added value</strong> — commentary, new visuals, on-camera hosting.
                 </li>
                 <li>
                   <span className="text-red-400 font-bold">🚫 Not allowed:</span>{" "}
-                  Simply dubbing someone else&apos;s video into another language and reuploading. This violates both copyright law (derivative work) and YouTube&apos;s reused content policy — even with credit.
+                  Simply dubbing someone else&apos;s video into another language and reuploading.
                 </li>
               </ul>
-              <p className="text-[9px] text-gray-500 mt-2">
-                YouTube&apos;s reused content policy applies even if you have the creator&apos;s permission. Translated-only content without original additions may be demonetized.
-              </p>
             </div>
           </div>
         </div>

@@ -254,6 +254,7 @@ export default function ReCreatePage() {
   const [selectedStyle, setSelectedStyle] = useState("news");
   const [includeCaptions, setIncludeCaptions] = useState(true);
   const [voiceId, setVoiceId] = useState(LANGUAGES[0].voices[0]?.id || "");
+  const [music, setMusic] = useState("none");
 
   const voices = selectedLang.voices;
 
@@ -378,6 +379,7 @@ export default function ReCreatePage() {
           style: selectedStyle,
           voice_id: voiceId,
           include_captions: includeCaptions,
+          music,
         }),
       });
 
@@ -665,6 +667,42 @@ export default function ReCreatePage() {
               />
             </button>
             <span className="text-xs text-gray-400">Include captions in video</span>
+          </div>
+
+          {/* Background Music */}
+          <div className="mb-5">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              🎵 Background Music
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { id: "none", label: "None", desc: "Voice only" },
+                { id: "cinematic", label: "Cinematic", desc: "News & drama" },
+                { id: "ambient", label: "Ambient", desc: "Subtle & calm" },
+                { id: "uplifting", label: "Uplifting", desc: "Energetic & bright" },
+              ].map((m) => {
+                const active = music === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setMusic(m.id)}
+                    disabled={generating}
+                    className="px-3 py-2.5 rounded-lg text-left transition-all"
+                    style={{
+                      background: active ? "rgba(6,182,212,0.12)" : "rgba(30,25,50,0.5)",
+                      border: active ? "1px solid rgba(6,182,212,0.4)" : "1px solid rgba(74,66,96,0.2)",
+                    }}
+                  >
+                    <div className="text-xs font-medium" style={{ color: active ? "#22d3ee" : "#d1d5db" }}>
+                      {m.label}
+                    </div>
+                    <div className="text-[10px] mt-0.5" style={{ color: active ? "rgba(6,182,212,0.7)" : "#6b7280" }}>
+                      {m.desc}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Error */}

@@ -424,29 +424,60 @@ async function updateDubStatus(projectId, status, progressPct, extra = {}) {
   console.log(`[dub] status → ${status} (${progressPct}%)`);
 }
 
-/* ── [DUB STEP 1] Download video + audio from YouTube ──────── */
-async function dubStep1_Download(projectId, sourceUrl, workDir) {
+/* ── [DUB STEP 1] Download video + audio ───────────────────── */
+/* v2: Supports 3 source modes:                                  */
+/*   - youtube: Download full video from YouTube (existing)      */
+/*   - partial: Download from YouTube, trim to time range        */
+/*   - upload:  Download from Supabase Storage URL               */
+async function dubStep1_Download(projectId, sourceUrl, workDir, opts = {}) {
   await updateDubStatus(projectId, "downloading", 5);
 
+  const { sourceType = "youtube", startTime = null, endTime = null } = opts;
   const videoFile = path.join(workDir, "source-video.mp4");
   const audioFile = path.join(workDir, "source-audio.mp3");
 
-  // Use youtube-dl-exec (bundles yt-dlp binary)
-  const ytdlp = (await import("youtube-dl-exec")).default;
+  if (sourceType === "upload") {
+    // ═══ UPLOAD MODE: Download from Supabase Storage URL ═══
+    console.log("[dub] downloading uploaded file from:", sourceUrl.slice(0, 80) + "...");
+    const dlRes = await fetch(sourceUrl);
+    if (!dlRes.ok) throw new Error(`Failed to download uploaded file (${dlRes.status})`);
+    fs.writeFileSync(videoFile, Buffer.from(await dlRes.arrayBuffer()));
+    console.log("[dub] uploaded file saved:", (fs.statSync(videoFile).size / (1024 * 1024)).toFixed(1), "MB");
 
-  // Download video (720p max for reasonable size, no embedded subs)
-  console.log("[dub] downloading video...");
-  await ytdlp(sourceUrl, {
-    format: "best[height<=720][ext=mp4]/best[height<=720]/best",
-    output: videoFile,
-    noPlaylist: true,
-    noWriteSub: true,         // don't write subtitle files
-    noWriteAutoSub: true,     // don't write auto-generated subs
-    noEmbedSubs: true,        // don't embed subs in video
-  });
+  } else {
+    // ═══ YOUTUBE MODE: Download via yt-dlp ═══
+    const ytdlp = (await import("youtube-dl-exec")).default;
+
+    console.log("[dub] downloading video from YouTube...");
+    await ytdlp(sourceUrl, {
+      format: "best[height<=720][ext=mp4]/best[height<=720]/best",
+      output: videoFile,
+      noPlaylist: true,
+      noWriteSub: true,
+      noWriteAutoSub: true,
+      noEmbedSubs: true,
+    });
+  }
 
   if (!fs.existsSync(videoFile)) {
     throw new Error("Video download failed — file not found");
+  }
+
+  // ═══ PARTIAL DUB: Trim video to time range ═══
+  if (startTime !== null && endTime !== null && endTime > startTime) {
+    console.log(`[dub] trimming to ${startTime}s → ${endTime}s (${(endTime - startTime).toFixed(0)}s segment)`);
+    const trimmedFile = path.join(workDir, "source-trimmed.mp4");
+    await execAsync(
+      `ffmpeg -ss ${startTime} -i "${videoFile}" -t ${endTime - startTime} ` +
+      `-c:v libx264 -preset fast -crf 23 -c:a aac -y "${trimmedFile}"`
+    );
+    if (fs.existsSync(trimmedFile)) {
+      fs.unlinkSync(videoFile);
+      fs.renameSync(trimmedFile, videoFile);
+      console.log("[dub] ✅ trimmed successfully");
+    } else {
+      console.warn("[dub] ⚠ trim failed, using full video");
+    }
   }
 
   // Extract audio from video using ffmpeg
@@ -468,26 +499,30 @@ async function dubStep1_Download(projectId, sourceUrl, workDir) {
     durationSec = parseFloat(stdout.trim());
   } catch {}
 
-  // Get video metadata from yt-dlp
+  // Get video metadata from yt-dlp (only for YouTube sources)
   let title = null;
-  try {
-    const info = await ytdlp(sourceUrl, { dumpSingleJson: true, noPlaylist: true });
-    title = info?.title || null;
-    durationSec = durationSec || info?.duration || null;
-  } catch {}
+  if (sourceType !== "upload") {
+    try {
+      const ytdlp = (await import("youtube-dl-exec")).default;
+      const info = await ytdlp(sourceUrl, { dumpSingleJson: true, noPlaylist: true });
+      title = info?.title || null;
+      durationSec = durationSec || info?.duration || null;
+    } catch {}
+  }
 
   // Update project with metadata
   await admin
     .from("dub_projects")
     .update({
       source_duration_sec: durationSec,
-      source_title: title,
+      ...(title ? { source_title: title } : {}),
     })
     .eq("id", projectId);
 
   await updateDubStatus(projectId, "downloading", 10);
 
-  console.log("[dub] ✅ step 1 done — video:", videoFile, "audio:", audioFile, "duration:", durationSec);
+  const modeLabel = sourceType === "upload" ? "uploaded" : startTime ? `partial ${startTime}→${endTime}s` : "full";
+  console.log(`[dub] ✅ step 1 done — mode: ${modeLabel}, video: ${videoFile}, duration: ${durationSec}s`);
   return { videoFile, audioFile, durationSec };
 }
 
@@ -974,12 +1009,83 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     `Spacing=${Math.max(0, Math.round(0.5 * assScaleFactor))}`,
   ].join(",");
 
-  await execAsync(
-    `ffmpeg -i "${noSubsFile}" ` +
-    `-vf "drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill,` +
-    `subtitles='${escapedSrtPath}':force_style='${subtitleStyle}'" ` +
-    `-c:a copy -y "${finalOutputFile}"`
-  );
+  // ═══ BULLETPROOF CAPTION BURNING (same fix as ReCreate) ═══
+  // Windows paths like C:\Users\... have colons that break
+  // ffmpeg's subtitles= filter. METHOD 1 uses cwd trick.
+  let captionsBurned = false;
+
+  // METHOD 1: Run ffmpeg FROM workDir so SRT path is just "vietnamese.srt"
+  try {
+    console.log("[dub] METHOD 1: subtitles with relative path (cwd change)...");
+    const srtRelative = path.basename(srtFile); // just "vietnamese.srt"
+
+    const ffmpegCmd = `ffmpeg -i "${noSubsFile}" ` +
+      `-vf "drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill,` +
+      `subtitles='${srtRelative}':force_style='${subtitleStyle}'" ` +
+      `-c:a copy -y "${finalOutputFile}"`;
+
+    await new Promise((resolve, reject) => {
+      exec(ffmpegCmd, { cwd: workDir, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) {
+          console.log("[dub] METHOD 1 stderr:", (stderr || "").slice(0, 300));
+          reject(err);
+        } else {
+          resolve({ stdout, stderr });
+        }
+      });
+    });
+
+    captionsBurned = true;
+    console.log("[dub] ✅ METHOD 1 succeeded — captions burned!");
+  } catch (err1) {
+    console.log("[dub] ⚠ METHOD 1 failed:", (err1?.message || "").slice(0, 200));
+  }
+
+  // METHOD 2: Forward-slash path with escaped colons
+  if (!captionsBurned) {
+    try {
+      console.log("[dub] METHOD 2: subtitles with escaped path...");
+      const srtEsc = process.platform === "win32"
+        ? escapedSrtPath.replace(/:/g, "\\\\:")
+        : escapedSrtPath;
+
+      await execBig(
+        `ffmpeg -i "${noSubsFile}" ` +
+        `-vf "drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill,` +
+        `subtitles='${srtEsc}':force_style='${subtitleStyle}'" ` +
+        `-c:a copy -y "${finalOutputFile}"`
+      );
+
+      captionsBurned = true;
+      console.log("[dub] ✅ METHOD 2 succeeded!");
+    } catch (err2) {
+      console.log("[dub] ⚠ METHOD 2 failed:", (err2?.message || "").slice(0, 200));
+    }
+  }
+
+  // METHOD 3: Original single-escape approach
+  if (!captionsBurned) {
+    try {
+      console.log("[dub] METHOD 3: subtitles with single-escaped colons...");
+      await execBig(
+        `ffmpeg -i "${noSubsFile}" ` +
+        `-vf "drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill,` +
+        `subtitles='${escapedSrtPath}':force_style='${subtitleStyle}'" ` +
+        `-c:a copy -y "${finalOutputFile}"`
+      );
+
+      captionsBurned = true;
+      console.log("[dub] ✅ METHOD 3 succeeded!");
+    } catch (err3) {
+      console.log("[dub] ⚠ METHOD 3 failed:", (err3?.message || "").slice(0, 200));
+    }
+  }
+
+  // LAST RESORT: No captions — just copy video as-is
+  if (!captionsBurned) {
+    console.log("[dub] ❌ ALL caption methods failed — using video WITHOUT burned captions");
+    fs.copyFileSync(noSubsFile, finalOutputFile);
+  }
 
   if (!fs.existsSync(finalOutputFile)) {
     throw new Error("Video assembly failed");
@@ -1056,10 +1162,14 @@ async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
 }
 
 /* ── Main dub orchestrator ─────────────────────────────────── */
-async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyle, keepOriginal, originalVolume, targetLanguageCode) {
+/* v2: Accepts opts for sourceType, startTime, endTime          */
+async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyle, keepOriginal, originalVolume, targetLanguageCode, opts = {}) {
+  const { sourceType = "youtube", startTime = null, endTime = null } = opts;
+
   console.log("[dub] ═══════════════════════════════════════");
   console.log("[dub] Starting dub pipeline for project:", projectId);
-  console.log("[dub] source:", sourceUrl);
+  console.log("[dub] source:", sourceUrl.slice(0, 80));
+  console.log("[dub] mode:", sourceType, startTime ? `(${startTime}→${endTime}s)` : "(full)");
   console.log("[dub] target:", targetLanguage, "(code:", targetLanguageCode, ") voice:", voiceId);
   console.log("[dub] ═══════════════════════════════════════");
 
@@ -1075,8 +1185,9 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
   const userId = project?.user_id || "unknown";
 
   try {
+    // [1] Download/trim/upload — now mode-aware
     const { videoFile, audioFile, durationSec } =
-      await dubStep1_Download(projectId, sourceUrl, workDir);
+      await dubStep1_Download(projectId, sourceUrl, workDir, { sourceType, startTime, endTime });
 
     const { detectedLanguage, segments } =
       await dubStep2_Transcribe(projectId, audioFile);
@@ -1176,18 +1287,24 @@ app.post("/dub", async (req, res) => {
   const {
     project_id,
     source_url,
+    source_type,
     target_language,
     target_language_code,
     voice_id,
     caption_style,
     keep_original_audio,
     original_audio_volume,
+    start_time,
+    end_time,
   } = req.body || {};
 
   if (!project_id) return jsonError(res, 400, "Missing project_id");
   if (!source_url) return jsonError(res, 400, "Missing source_url");
 
-  console.log("[dub] received request — project:", project_id, "lang:", target_language, "code:", target_language_code);
+  console.log("[dub] received request — project:", project_id,
+    "lang:", target_language, "code:", target_language_code,
+    "mode:", source_type || "youtube",
+    start_time ? `range: ${start_time}→${end_time}s` : "");
 
   res.status(202).json({ ok: true, accepted: true, project_id });
 
@@ -1201,7 +1318,12 @@ app.post("/dub", async (req, res) => {
         caption_style || "block",
         keep_original_audio !== false,
         original_audio_volume ?? 0.15,
-        target_language_code || "vi"
+        target_language_code || "vi",
+        {
+          sourceType: source_type || "youtube",
+          startTime: typeof start_time === "number" ? start_time : null,
+          endTime: typeof end_time === "number" ? end_time : null,
+        }
       );
     } catch (e) {
       const msg = String(e?.message || e);
@@ -3100,9 +3222,68 @@ function getReCreateLangCode(name) {
   return m[name] || "en";
 }
 
-/* ── MAIN RECREATE PIPELINE v7 ────────────────────────────── */
+/* ── [RECREATE STEP 4c] Mix background music with narration ── */
+/* Downloads music from Supabase Storage, loops to match duration, */
+/* mixes at low volume underneath the narration.                    */
+async function recreateStep4c_MixMusic(projectId, narrationFile, durationSec, musicChoice, workDir) {
+  console.log(`[recreate] mixing background music: ${musicChoice}`);
+
+  const musicBucket = process.env.MUSIC_BUCKET || "music";
+
+  // Map style-appropriate music choices
+  const musicMap = {
+    ambient: "ambient.mp3",
+    cinematic: "dramatic.mp3",
+    uplifting: "uplifting.mp3",
+    dramatic: "dramatic.mp3",
+    tension: "dramatic.mp3",    // alias for news content
+    news: "dramatic.mp3",       // news = dramatic/tension
+  };
+
+  const musicFile = musicMap[musicChoice] || musicMap.ambient;
+  const musicUrl = `${SUPABASE_URL}/storage/v1/object/public/${musicBucket}/${musicFile}`;
+
+  const localMusic = path.join(workDir, "bg-music.mp3");
+  const mixedFile = path.join(workDir, "narration-with-music.mp3");
+
+  try {
+    // Download music track
+    console.log(`[recreate]   downloading: ${musicUrl.slice(0, 80)}...`);
+    const dlRes = await fetch(musicUrl);
+    if (!dlRes.ok) {
+      console.warn(`[recreate]   ⚠ music download failed (${dlRes.status}) — skipping music`);
+      return narrationFile;
+    }
+    fs.writeFileSync(localMusic, Buffer.from(await dlRes.arrayBuffer()));
+
+    // Mix: narration at full volume + music at 8% volume, loop music, trim to narration duration
+    // Music fades in over 2s at start and fades out over 3s at end
+    const fadeOutStart = Math.max(0, durationSec - 3);
+    await execAsync(
+      `ffmpeg -i "${narrationFile}" -stream_loop -1 -i "${localMusic}" -t ${durationSec.toFixed(2)} ` +
+      `-filter_complex "[1:a]volume=0.08,afade=t=in:st=0:d=2,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=3[music];` +
+      `[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[out]" ` +
+      `-map "[out]" -c:a libmp3lame -b:a 192k -y "${mixedFile}"`
+    );
+
+    if (fs.existsSync(mixedFile)) {
+      console.log("[recreate]   ✅ music mixed successfully");
+      try { fs.unlinkSync(localMusic); } catch {}
+      return mixedFile;
+    } else {
+      console.warn("[recreate]   ⚠ music mix output missing — using narration only");
+      return narrationFile;
+    }
+  } catch (e) {
+    console.warn("[recreate]   ⚠ music mix failed:", e?.message?.slice(0, 200));
+    try { fs.unlinkSync(localMusic); } catch {}
+    return narrationFile; // graceful fallback — video still works, just no music
+  }
+}
+
+/* ── MAIN RECREATE PIPELINE ────────────────────────────────── */
 async function runReCreate(projectId, sourceUrl, opts = {}) {
-  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true } = opts;
+  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true, music = "none" } = opts;
   const langCode = getReCreateLangCode(targetLanguage);
   const workDir = path.join(os.tmpdir(), `recreate-${projectId}`);
   fs.mkdirSync(workDir, { recursive: true });
@@ -3122,7 +3303,13 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
       syncedCaptions = await recreateStep4b_SyncCaptions(projectId, narrationFile, scenesMedia, langCode);
     }
 
-    const finalFile = await recreateStep5_Render(projectId, scenesMedia, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style);
+    // ✅ NEW: Mix background music with narration
+    let finalNarrationFile = narrationFile;
+    if (music && music !== "none") {
+      finalNarrationFile = await recreateStep4c_MixMusic(projectId, narrationFile, durationSec, music, workDir);
+    }
+
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style);
 
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);
@@ -3150,12 +3337,12 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
 /* ── POST /recreate ───────────────────────────────────────── */
 app.post("/recreate", async (req, res) => {
-  const { project_id, source_url, target_language, style, voice_id, include_captions } = req.body || {};
+  const { project_id, source_url, target_language, style, voice_id, include_captions, music } = req.body || {};
 
   if (!project_id) return jsonError(res, 400, "Missing project_id");
   if (!source_url) return jsonError(res, 400, "Missing source_url");
 
-  console.log("[recreate] POST — project:", project_id, "lang:", target_language, "style:", style);
+  console.log("[recreate] POST — project:", project_id, "lang:", target_language, "style:", style, "music:", music || "none");
   res.status(202).json({ ok: true, accepted: true, project_id });
 
   setImmediate(async () => {
@@ -3165,6 +3352,7 @@ app.post("/recreate", async (req, res) => {
         style: style || "news",
         voiceId: voice_id || null,
         includeCaptions: include_captions !== false,
+        music: music || "none",
       });
     } catch (e) {
       console.error("[recreate] ❌ FAILED:", e?.message || e);

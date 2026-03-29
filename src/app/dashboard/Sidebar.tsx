@@ -1,12 +1,18 @@
 // src/app/dashboard/Sidebar.tsx
 // ------------------------------------------------------------
-// AutoVideo AI Studio — Professional Dashboard Sidebar
-// Featured items: Dub a Video, Thumbnail Creator, SEO Generator
-// get glowing icons, gradient hover, and micro-animations
+// AutoVideo AI Studio — Simplified Dashboard Sidebar
+// Phase 2: Grouped navigation, 9 items instead of 12
+//
+// SECTIONS:
+//   CREATE:    Create Video, ReCreate, Dub Video
+//   REPURPOSE: AI Shorts (merged)
+//   OPTIMIZE:  Thumbnails, SEO Generator
+//   MANAGE:    My Projects, Library, Settings
 // ------------------------------------------------------------
 
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUserTier } from "@/lib/useUserTier";
@@ -23,20 +29,23 @@ function IconDashboard() {
   );
 }
 
-function IconProjects() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
 function IconCreate() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function IconReCreate() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
     </svg>
   );
 }
@@ -48,6 +57,14 @@ function IconDub() {
       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <line x1="12" y1="19" x2="12" y2="23" />
       <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function IconShorts() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2z" />
     </svg>
   );
 }
@@ -70,21 +87,10 @@ function IconSeo() {
   );
 }
 
-function IconShorts() {
+function IconProjects() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2z" />
-    </svg>
-  );
-}
-
-function IconRepurpose() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="17 1 21 5 17 9" />
-      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-      <polyline points="7 23 3 19 7 15" />
-      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -94,26 +100,6 @@ function IconLibrary() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  );
-}
-
-function IconHistory() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  );
-}
-
-function IconReCreate() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
     </svg>
   );
 }
@@ -136,7 +122,7 @@ function IconUpgrade() {
 }
 
 /* ── Featured item themes ─────────────────────────────────── */
-const FEATURED_THEMES: Record<string, {
+const THEMES: Record<string, {
   gradient: string;
   glow: string;
   hoverBg: string;
@@ -153,6 +139,24 @@ const FEATURED_THEMES: Record<string, {
     badgeText: "NEW",
     badgeBg: "rgba(16,185,129,0.15)",
     badgeBorder: "rgba(16,185,129,0.3)",
+  },
+  "/dashboard/recreate": {
+    gradient: "linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(59,130,246,0.08) 100%)",
+    glow: "0 0 16px rgba(6,182,212,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(6,182,212,0.22) 0%, rgba(59,130,246,0.15) 100%)",
+    iconColor: "#22d3ee",
+    badgeText: "NEW",
+    badgeBg: "rgba(6,182,212,0.15)",
+    badgeBorder: "rgba(6,182,212,0.35)",
+  },
+  "/dashboard/shorts": {
+    gradient: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.08) 100%)",
+    glow: "0 0 16px rgba(245,158,11,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(245,158,11,0.22) 0%, rgba(251,191,36,0.15) 100%)",
+    iconColor: "#fbbf24",
+    badgeText: "NEW",
+    badgeBg: "rgba(245,158,11,0.15)",
+    badgeBorder: "rgba(251,191,36,0.35)",
   },
   "/dashboard/thumbnails": {
     gradient: "linear-gradient(135deg, rgba(236,72,153,0.12) 0%, rgba(244,114,182,0.08) 100%)",
@@ -172,49 +176,58 @@ const FEATURED_THEMES: Record<string, {
     badgeBg: "rgba(168,85,247,0.12)",
     badgeBorder: "rgba(168,85,247,0.3)",
   },
-  "/dashboard/shorts": {
-    gradient: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.08) 100%)",
-    glow: "0 0 16px rgba(245,158,11,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(245,158,11,0.22) 0%, rgba(251,191,36,0.15) 100%)",
-    iconColor: "#fbbf24",
-    badgeText: "NEW",
-    badgeBg: "rgba(245,158,11,0.15)",
-    badgeBorder: "rgba(251,191,36,0.35)",
-  },
-  "/dashboard/repurpose": {
-    gradient: "linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(168,85,247,0.08) 100%)",
-    glow: "0 0 16px rgba(139,92,246,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(139,92,246,0.22) 0%, rgba(168,85,247,0.15) 100%)",
-    iconColor: "#a78bfa",
-    badgeText: "NEW",
-    badgeBg: "rgba(139,92,246,0.15)",
-    badgeBorder: "rgba(168,85,247,0.35)",
-  },
-  "/dashboard/recreate": {
-    gradient: "linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(59,130,246,0.08) 100%)",
-    glow: "0 0 16px rgba(6,182,212,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(6,182,212,0.22) 0%, rgba(59,130,246,0.15) 100%)",
-    iconColor: "#22d3ee",
-    badgeText: "NEW",
-    badgeBg: "rgba(6,182,212,0.15)",
-    badgeBorder: "rgba(6,182,212,0.35)",
-  },
 };
 
-/* ── Navigation Config ────────────────────────────────────── */
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", Icon: IconDashboard },
-  { href: "/dashboard/projects", label: "Projects", Icon: IconProjects },
-  { href: "/dashboard/create", label: "Create Project", Icon: IconCreate },
-  { href: "/dashboard/dub-video/new", label: "Dub a Video", Icon: IconDub, featured: true },
-  { href: "/dashboard/shorts", label: "AI Shorts", Icon: IconShorts, featured: true },
-  { href: "/dashboard/repurpose", label: "Auto-Repurpose", Icon: IconRepurpose, featured: true },
-  { href: "/dashboard/repurpose/history", label: "My Repurpose", Icon: IconHistory },
-  { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
-  { href: "/dashboard/thumbnails", label: "Thumbnail Creator", Icon: IconThumbnail, featured: true, proOnly: true },
-  { href: "/dashboard/seo", label: "SEO Generator", Icon: IconSeo, featured: true, proOnly: true },
-  { href: "/dashboard/library", label: "Library", Icon: IconLibrary },
-  { href: "/dashboard/settings", label: "Settings", Icon: IconSettings },
+/* ── Navigation sections ──────────────────────────────────── */
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: () => React.ReactElement;
+  featured?: boolean;
+  proOnly?: boolean;
+};
+
+type NavSection = {
+  title: string | null; // null = no section header (for Dashboard)
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    title: null,
+    items: [
+      { href: "/dashboard", label: "Dashboard", Icon: IconDashboard },
+    ],
+  },
+  {
+    title: "CREATE",
+    items: [
+      { href: "/dashboard/create", label: "Create Video", Icon: IconCreate },
+      { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
+      { href: "/dashboard/dub-video/new", label: "Dub Video", Icon: IconDub, featured: true },
+    ],
+  },
+  {
+    title: "REPURPOSE",
+    items: [
+      { href: "/dashboard/shorts", label: "AI Shorts", Icon: IconShorts, featured: true },
+    ],
+  },
+  {
+    title: "OPTIMIZE",
+    items: [
+      { href: "/dashboard/thumbnails", label: "Thumbnails", Icon: IconThumbnail, featured: true, proOnly: true },
+      { href: "/dashboard/seo", label: "SEO Generator", Icon: IconSeo, featured: true, proOnly: true },
+    ],
+  },
+  {
+    title: "MANAGE",
+    items: [
+      { href: "/dashboard/projects", label: "My Projects", Icon: IconProjects },
+      { href: "/dashboard/library", label: "Library", Icon: IconLibrary },
+      { href: "/dashboard/settings", label: "Settings", Icon: IconSettings },
+    ],
+  },
 ];
 
 /* ── Sidebar Component ────────────────────────────────────── */
@@ -229,7 +242,7 @@ export default function Sidebar() {
         background: "linear-gradient(180deg, #120e1e 0%, #15112a 50%, #120e1e 100%)",
       }}
     >
-      {/* Keyframe animations */}
+      {/* Animations */}
       <style>{`
         @keyframes glowPulse {
           0%, 100% { opacity: 0.6; }
@@ -274,102 +287,112 @@ export default function Sidebar() {
       </div>
 
       {/* ── Navigation ─────────────────────────────────────── */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {NAV_ITEMS.map((item) => {
-          const { Icon } = item;
-          const isActive =
-            item.href === "/dashboard"
-              ? pathname === "/dashboard"
-              : pathname?.startsWith(item.href);
+      <nav className="flex-1 px-3 py-4 space-y-1">
+        {NAV_SECTIONS.map((section, sIdx) => (
+          <div key={sIdx}>
+            {/* Section header */}
+            {section.title && (
+              <div
+                className="px-3 pt-4 pb-1.5 text-[9px] font-bold tracking-[0.15em] uppercase"
+                style={{ color: "#4a4260" }}
+              >
+                {section.title}
+              </div>
+            )}
 
-          const isPro = item.proOnly;
-          const isLocked = isPro && userTier !== "pro" && userTier !== "loading";
-          const theme = FEATURED_THEMES[item.href];
-          const isFeatured = item.featured && theme;
+            {/* Section items */}
+            {section.items.map((item) => {
+              const { Icon } = item;
+              const isActive =
+                item.href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : pathname?.startsWith(item.href);
 
-          /* ── Featured items (Dub, Thumbnail, SEO) ──────── */
-          if (isFeatured) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="featured-item group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 text-white"
-                style={{
-                  background: isActive ? theme.hoverBg : theme.gradient,
-                  boxShadow: isActive ? theme.glow : "none",
-                  border: isActive ? `1px solid ${theme.iconColor}33` : "1px solid transparent",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = theme.hoverBg;
-                  e.currentTarget.style.boxShadow = theme.glow;
-                  e.currentTarget.style.border = `1px solid ${theme.iconColor}33`;
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = theme.gradient;
-                    e.currentTarget.style.boxShadow = "none";
-                    e.currentTarget.style.border = "1px solid transparent";
+              const isPro = item.proOnly;
+              const isLocked = isPro && userTier !== "pro" && userTier !== "loading";
+              const theme = THEMES[item.href];
+              const isFeatured = item.featured && theme;
+
+              /* Featured items */
+              if (isFeatured) {
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="featured-item group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 text-white"
+                    style={{
+                      background: isActive ? theme.hoverBg : theme.gradient,
+                      boxShadow: isActive ? theme.glow : "none",
+                      border: isActive ? `1px solid ${theme.iconColor}33` : "1px solid transparent",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = theme.hoverBg;
+                      e.currentTarget.style.boxShadow = theme.glow;
+                      e.currentTarget.style.border = `1px solid ${theme.iconColor}33`;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = theme.gradient;
+                        e.currentTarget.style.boxShadow = "none";
+                        e.currentTarget.style.border = "1px solid transparent";
+                      }
+                    }}
+                  >
+                    <span
+                      className="featured-icon flex-shrink-0"
+                      style={{
+                        color: theme.iconColor,
+                        filter: `drop-shadow(0 0 6px ${theme.iconColor}80)`,
+                      }}
+                    >
+                      <Icon />
+                    </span>
+                    <span className="flex-1 truncate">{item.label}</span>
+                    <span
+                      className="featured-glow text-[8px] font-bold px-1.5 py-0.5 rounded-full tracking-wider"
+                      style={{
+                        backgroundColor: theme.badgeBg,
+                        color: theme.badgeText === "NEW" ? "#34d399" : "#c084fc",
+                        border: `1px solid ${theme.badgeBorder}`,
+                      }}
+                    >
+                      {isLocked ? "🔒" : theme.badgeText}
+                    </span>
+                  </Link>
+                );
+              }
+
+              /* Regular items */
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={
+                    "group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 " +
+                    (isActive
+                      ? "bg-white/[0.07] text-white"
+                      : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.03]")
                   }
-                }}
-              >
-                {/* Glowing icon */}
-                <span
-                  className="featured-icon flex-shrink-0"
-                  style={{
-                    color: theme.iconColor,
-                    filter: `drop-shadow(0 0 6px ${theme.iconColor}80)`,
-                  }}
+                  style={
+                    isActive
+                      ? { boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.2)" }
+                      : undefined
+                  }
                 >
-                  <Icon />
-                </span>
-                <span className="flex-1 truncate">{item.label}</span>
-
-                {/* Badge */}
-                <span
-                  className="featured-glow text-[8px] font-bold px-1.5 py-0.5 rounded-full tracking-wider"
-                  style={{
-                    backgroundColor: theme.badgeBg,
-                    color: theme.badgeText === "NEW" ? "#34d399" : "#c084fc",
-                    border: `1px solid ${theme.badgeBorder}`,
-                  }}
-                >
-                  {isLocked ? "🔒" : theme.badgeText}
-                </span>
-              </Link>
-            );
-          }
-
-          /* ── Regular items ─────────────────────────────── */
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={
-                "group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 " +
-                (isActive
-                  ? "bg-white/[0.07] text-white"
-                  : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.03]")
-              }
-              style={
-                isActive
-                  ? { boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.2)" }
-                  : undefined
-              }
-            >
-              <span
-                className={
-                  "flex-shrink-0 transition-colors duration-200 " +
-                  (isActive
-                    ? "text-blue-400"
-                    : "text-gray-600 group-hover:text-gray-400")
-                }
-              >
-                <Icon />
-              </span>
-              <span className="flex-1 truncate">{item.label}</span>
-            </Link>
-          );
-        })}
+                  <span
+                    className={
+                      "flex-shrink-0 transition-colors duration-200 " +
+                      (isActive ? "text-blue-400" : "text-gray-600 group-hover:text-gray-400")
+                    }
+                  >
+                    <Icon />
+                  </span>
+                  <span className="flex-1 truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* ── Tier / Upgrade ─────────────────────────────────── */}
@@ -419,7 +442,7 @@ export default function Sidebar() {
         )}
 
         <div className="text-center mt-3">
-          <span className="text-[9px] text-gray-800 tracking-wider font-medium">v2.0</span>
+          <span className="text-[9px] text-gray-800 tracking-wider font-medium">v2.1</span>
         </div>
       </div>
     </aside>

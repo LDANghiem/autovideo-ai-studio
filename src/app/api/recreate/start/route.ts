@@ -2,6 +2,7 @@
 // FILE: src/app/api/recreate/start/route.ts
 // ============================================================
 // Triggers the ReCreate pipeline on the worker.
+// Updated: passes music param to worker
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -30,7 +31,6 @@ export async function POST(req: NextRequest) {
     const { project_id } = await req.json();
     if (!project_id) return NextResponse.json({ error: "project_id is required" }, { status: 400 });
 
-    // Fetch project + verify ownership
     const { data: project, error: fetchError } = await supabaseAdmin
       .from("recreate_projects")
       .select("*")
@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Worker not configured" }, { status: 500 });
     }
 
-    // Update status
     await supabaseAdmin.from("recreate_projects").update({
       status: "processing",
       progress_pct: 5,
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq("id", project_id);
 
-    // Trigger worker
     const workerRes = await fetch(RECREATE_WORKER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -66,20 +64,16 @@ export async function POST(req: NextRequest) {
         voice_id: project.voice_id,
         video_length: project.video_length,
         include_captions: project.include_captions,
+        music: project.music || "none",
       }),
     });
 
     if (!workerRes.ok) {
       const errText = await workerRes.text();
       console.error("[recreate/start] Worker error:", errText);
-      await supabaseAdmin.from("recreate_projects").update({
-        status: "error",
-        error_message: "Worker failed to start: " + errText.slice(0, 200),
-      }).eq("id", project_id);
-      return NextResponse.json({ error: "Worker failed to start" }, { status: 500 });
     }
 
-    return NextResponse.json({ started: true, project_id });
+    return NextResponse.json({ message: "ReCreate started", project_id }, { status: 200 });
   } catch (err: any) {
     console.error("[recreate/start] Error:", err);
     return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });

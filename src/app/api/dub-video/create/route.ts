@@ -2,25 +2,12 @@
 // FILE: src/app/api/dub-video/create/route.ts
 // ============================================================
 // Creates a new dub_projects record in Supabase.
-//
-// AUTH: Reads Bearer token from Authorization header,
-//       verifies via supabase.auth.getUser(token).
-//       Same pattern as your existing /api/projects/create.
-//
-// WHAT IT DOES:
-//   [1] Verifies user via Bearer token
-//   [2] Parses request body (source_url, voice_id, etc.)
-//   [3] Fetches YouTube metadata via oEmbed (title, thumbnail)
-//   [4] Inserts a new row into dub_projects table
-//   [5] Returns the project object with ID
-//
-// CALLED BY: /dashboard/dub-video/new/page.tsx (handleSubmit)
+// Supports 3 source modes: youtube, partial (youtube+time range), upload
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-/* ── Supabase admin client (service role) ────────────────── */
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -28,7 +15,6 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    /* ── [1] Verify auth via Bearer token ────────────────── */
     const authHeader = req.headers.get("authorization");
     const token = authHeader?.replace("Bearer ", "");
 
@@ -42,7 +28,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    /* ── [2] Parse request body ──────────────────────────── */
     const body = await req.json();
     const {
       source_url,
@@ -54,23 +39,38 @@ export async function POST(req: NextRequest) {
       caption_style = "block",
       keep_original_audio = true,
       original_audio_volume = 0.15,
+      // New fields for partial dub + upload
+      start_time = null,
+      end_time = null,
+      uploaded_file_name = null,
     } = body;
 
-    if (source_type === "youtube" && !source_url) {
+    if (!source_url) {
       return NextResponse.json(
-        { error: "YouTube URL is required" },
+        { error: "Source URL is required" },
         { status: 400 }
       );
     }
 
-    /* ── [3] Fetch YouTube metadata via oEmbed ───────────── */
-    // oEmbed works on Vercel serverless (no yt-dlp needed)
-    // Gives us title + thumbnail. Duration comes from the worker later.
+    // Validate partial dub time range
+    if (start_time !== null && end_time !== null) {
+      if (typeof start_time !== "number" || typeof end_time !== "number") {
+        return NextResponse.json({ error: "start_time and end_time must be numbers (seconds)" }, { status: 400 });
+      }
+      if (end_time <= start_time) {
+        return NextResponse.json({ error: "end_time must be after start_time" }, { status: 400 });
+      }
+      if (end_time - start_time < 10) {
+        return NextResponse.json({ error: "Segment must be at least 10 seconds" }, { status: 400 });
+      }
+    }
+
+    // Fetch YouTube metadata (only for youtube/partial modes)
     let source_title = null;
     let source_thumbnail = null;
     let source_duration_sec = null;
 
-    if (source_type === "youtube" && source_url) {
+    if (source_type !== "upload" && source_url) {
       try {
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(source_url)}&format=json`;
         const oembedRes = await fetch(oembedUrl);
@@ -79,12 +79,14 @@ export async function POST(req: NextRequest) {
           source_title = oembed.title || null;
           source_thumbnail = oembed.thumbnail_url || null;
         }
-      } catch {
-        // Non-fatal — the Render worker will get metadata later
-      }
+      } catch {}
     }
 
-    /* ── [4] Insert dub project into Supabase ────────────── */
+    // For uploaded files, use the filename as title
+    if (source_type === "upload" && uploaded_file_name) {
+      source_title = uploaded_file_name.replace(/\.[^.]+$/, ""); // strip extension
+    }
+
     const { data: project, error: insertError } = await supabaseAdmin
       .from("dub_projects")
       .insert({
@@ -101,6 +103,9 @@ export async function POST(req: NextRequest) {
         caption_style,
         keep_original_audio,
         original_audio_volume,
+        // New fields
+        start_time: start_time,
+        end_time: end_time,
         status: "draft",
         progress_pct: 0,
       })
@@ -109,19 +114,12 @@ export async function POST(req: NextRequest) {
 
     if (insertError) {
       console.error("[dub-video/create] Insert error:", insertError);
-      return NextResponse.json(
-        { error: insertError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    /* ── [5] Return project ──────────────────────────────── */
     return NextResponse.json({ project }, { status: 201 });
   } catch (err: any) {
     console.error("[dub-video/create] Error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
   }
 }

@@ -1,7 +1,8 @@
 // ============================================================
 // FILE: src/app/api/recreate/create/route.ts
 // ============================================================
-// Creates a new recreate_projects record in Supabase.
+// Creates a new recreate_projects record.
+// Updated: accepts music param
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -29,11 +30,11 @@ export async function POST(req: NextRequest) {
       voice_id = null,
       video_length = "auto",
       include_captions = true,
+      music = "none",
     } = body;
 
-    if (!source_url) return NextResponse.json({ error: "YouTube URL is required" }, { status: 400 });
+    if (!source_url) return NextResponse.json({ error: "Source URL is required" }, { status: 400 });
 
-    // Validate YouTube URL
     const ytMatch = source_url.match(
       /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
     );
@@ -41,11 +42,9 @@ export async function POST(req: NextRequest) {
 
     const youtube_video_id = ytMatch[1];
 
-    // Fetch metadata via oEmbed
     let source_title = null;
     let source_thumbnail = null;
     let source_channel = null;
-
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(source_url)}&format=json`;
       const oembedRes = await fetch(oembedUrl);
@@ -71,6 +70,7 @@ export async function POST(req: NextRequest) {
         voice_id,
         video_length,
         include_captions,
+        music,
         status: "draft",
         progress_pct: 0,
       })

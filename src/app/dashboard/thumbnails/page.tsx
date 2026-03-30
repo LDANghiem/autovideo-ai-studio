@@ -1,945 +1,738 @@
-// src/app/dashboard/thumbnails/page.tsx
 "use client";
 
-/* ============================================================
-   AutoVideo AI Studio — Thumbnail Creator v2 (PRO ONLY)
-   
-   ✅ Generates 4 VARIATIONS at once (different angles)
-   ✅ 2x2 grid comparison view
-   ✅ 8 style presets with visual previews
-   ✅ Download any / regenerate
-   ✅ History of previous batches
-   🔒 Gated: Free users see upgrade prompt
-============================================================ */
+import { useRef, useEffect, useState, useCallback } from "react";
+import { Download, RotateCcw, Image as ImageIcon, ChevronRight } from "lucide-react";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { useUserTier } from "@/lib/useUserTier";
+// ─── Template Definitions ────────────────────────────────────────────────────
 
-/* ============================================================
-   Style Presets
-============================================================ */
-const STYLE_PRESETS = [
-  { id: "bold_red", name: "Bold Red", preview: "bg-red-600 text-white", textColor: "#FFFFFF", strokeColor: "#CC0000", bgGradient: true, desc: "Classic YouTube" },
-  { id: "clean_white", name: "Clean White", preview: "bg-white text-gray-900 border", textColor: "#FFFFFF", strokeColor: "#000000", bgGradient: true, desc: "Professional" },
-  { id: "neon_glow", name: "Neon", preview: "bg-purple-900 text-cyan-400", textColor: "#00FFFF", strokeColor: "#FF00FF", bgGradient: false, desc: "Eye-catching" },
-  { id: "gold_luxury", name: "Gold", preview: "bg-gray-900 text-yellow-400", textColor: "#FFD700", strokeColor: "#000000", bgGradient: true, desc: "Premium" },
-  { id: "fire_orange", name: "Fire", preview: "bg-orange-600 text-white", textColor: "#FF6600", strokeColor: "#000000", bgGradient: true, desc: "Energetic" },
-  { id: "electric_blue", name: "Electric", preview: "bg-blue-700 text-white", textColor: "#00BFFF", strokeColor: "#000033", bgGradient: true, desc: "Tech" },
-  { id: "dark_minimal", name: "Dark", preview: "bg-gray-800 text-gray-100", textColor: "#F0F0F0", strokeColor: "#1A1A1A", bgGradient: true, desc: "Minimal" },
-  { id: "green_nature", name: "Nature", preview: "bg-green-700 text-white", textColor: "#90EE90", strokeColor: "#003300", bgGradient: true, desc: "Fresh" },
-];
+const TEMPLATES = [
+  {
+    id: "news",
+    name: "Breaking News",
+    desc: "Bold bar · face cutouts · drama",
+    thumbBg: "#1e293b",
+    thumbAccent: "#e11d48",
+    presets: ["#e11d48", "#f97316", "#facc15", "#16a34a", "#2563eb"],
+    defaults: { accentColor: "#e11d48", textColor: "#ffffff", bgColor: "#1e293b", barColor: "#facc15" },
+    controls: { sub: true, num: false, img2: true },
+    labels: { h1: "Breaking headline", sub: "Channel / Source name", img1: "Face photo (optional)", img2: "Second face (optional)" },
+  },
+  {
+    id: "bigface",
+    name: "Big Face + Text",
+    desc: "MrBeast style · huge face · 1-3 words",
+    thumbBg: "#111827",
+    thumbAccent: "#a855f7",
+    presets: ["#a855f7", "#ec4899", "#f97316", "#22c55e", "#facc15"],
+    defaults: { accentColor: "#a855f7", textColor: "#ffffff", bgColor: "#111827", barColor: "#facc15" },
+    controls: { sub: false, num: false, img2: false },
+    labels: { h1: "1-3 huge words", sub: "", img1: "Upload face photo", img2: "" },
+  },
+  {
+    id: "vs",
+    name: "VS Confrontation",
+    desc: "Two faces · VS center · topic text",
+    thumbBg: "#0f172a",
+    thumbAccent: "#ef4444",
+    presets: ["#ef4444", "#f97316", "#7c3aed", "#0ea5e9", "#facc15"],
+    defaults: { accentColor: "#ef4444", textColor: "#ffffff", bgColor: "#0f172a", barColor: "#facc15" },
+    controls: { sub: true, num: false, img2: true },
+    labels: { h1: "VS topic / Context text", sub: "Name left vs Name right", img1: "Left person photo", img2: "Right person photo" },
+  },
+  {
+    id: "question",
+    name: "Question Hook",
+    desc: "Giant question · gradient bg · curiosity",
+    thumbBg: "#1e1b4b",
+    thumbAccent: "#818cf8",
+    presets: ["#818cf8", "#a78bfa", "#f472b6", "#34d399", "#fbbf24"],
+    defaults: { accentColor: "#818cf8", textColor: "#ffffff", bgColor: "#1e1b4b", barColor: "#a78bfa" },
+    controls: { sub: true, num: false, img2: false },
+    labels: { h1: "Your big question here?", sub: "Teaser answer or channel name", img1: "Background image (optional)", img2: "" },
+  },
+  {
+    id: "beforeafter",
+    name: "Before / After",
+    desc: "Split screen · two images · transformation",
+    thumbBg: "#1f2937",
+    thumbAccent: "#10b981",
+    presets: ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"],
+    defaults: { accentColor: "#10b981", textColor: "#ffffff", bgColor: "#1f2937", barColor: "#f59e0b" },
+    controls: { sub: false, num: false, img2: true },
+    labels: { h1: "Transformation topic", sub: "", img1: "BEFORE image", img2: "AFTER image" },
+  },
+  {
+    id: "product",
+    name: "Product Showcase",
+    desc: "Clean bg · product centered · minimal text",
+    thumbBg: "#f8fafc",
+    thumbAccent: "#0ea5e9",
+    presets: ["#0ea5e9", "#6366f1", "#ec4899", "#f59e0b", "#10b981"],
+    defaults: { accentColor: "#0ea5e9", textColor: "#0f172a", bgColor: "#f8fafc", barColor: "#0ea5e9" },
+    controls: { sub: true, num: false, img2: false },
+    labels: { h1: "Product name / Tagline", sub: "Key benefit or price", img1: "Product photo", img2: "" },
+  },
+  {
+    id: "listicle",
+    name: "Listicle / Number",
+    desc: "Giant number · topic · bold list vibe",
+    thumbBg: "#18181b",
+    thumbAccent: "#facc15",
+    presets: ["#facc15", "#fb923c", "#4ade80", "#22d3ee", "#a78bfa"],
+    defaults: { accentColor: "#facc15", textColor: "#ffffff", bgColor: "#18181b", barColor: "#facc15" },
+    controls: { sub: true, num: true, img2: false },
+    labels: { h1: "Topic of the list", sub: "Hook phrase or teaser", img1: "Background / topic image", img2: "" },
+  },
+  {
+    id: "reaction",
+    name: "Reaction / Shocked",
+    desc: "Big shocked face · context image · bold text",
+    thumbBg: "#0f172a",
+    thumbAccent: "#f97316",
+    presets: ["#f97316", "#ef4444", "#eab308", "#8b5cf6", "#06b6d4"],
+    defaults: { accentColor: "#f97316", textColor: "#ffffff", bgColor: "#0f172a", barColor: "#ef4444" },
+    controls: { sub: true, num: false, img2: true },
+    labels: { h1: "Shocking headline text", sub: "Channel / Context", img1: "Shocked face photo", img2: "Context / reaction image" },
+  },
+] as const;
 
-type ThumbResult = {
-  thumbnailUrl: string;
-  titleText: string;
-  textPosition: string;
-  angle: string;
+type TemplateId = (typeof TEMPLATES)[number]["id"];
+
+interface FormValues {
+  headline: string;
+  subline: string;
+  bigNum: number;
+  accentColor: string;
+  textColor: string;
+  bgColor: string;
+  barColor: string;
+  overlay: number;
+}
+
+// ─── Canvas Drawing Helpers ───────────────────────────────────────────────────
+
+function hexA(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function autoFontSize(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxSize: number, font: string): number {
+  let size = maxSize;
+  while (size > 20) {
+    ctx.font = `bold ${size}px ${font}`;
+    if (ctx.measureText(text).width <= maxW) break;
+    size -= 4;
+  }
+  return size;
+}
+
+function drawBg(ctx: CanvasRenderingContext2D, W: number, H: number, bg: string, img: HTMLImageElement | null, overlay: number) {
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  if (img) {
+    const scale = Math.max(W / img.width, H / img.height);
+    const sw = img.width * scale, sh = img.height * scale;
+    ctx.drawImage(img, (W - sw) / 2, (H - sh) / 2, sw, sh);
+    ctx.fillStyle = `rgba(0,0,0,${overlay})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawFace(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, x: number, y: number, w: number, h: number, font: string) {
+  if (!img) {
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.font = `22px ${font}`;
+    ctx.textAlign = "center";
+    ctx.fillText("Upload photo", x + w / 2, y + h / 2 + 8);
+    return;
+  }
+  const scale = Math.max(w / img.width, h / img.height);
+  const sw = img.width * scale, sh = img.height * scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
+  ctx.restore();
+}
+
+// ─── Template Renderers ───────────────────────────────────────────────────────
+
+function renderNews(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  drawBg(ctx, W, H, v.bgColor, imgs.img1, v.overlay);
+  const barH = 130;
+  ctx.fillStyle = v.accentColor;
+  ctx.fillRect(0, H - barH, W, barH);
+  if (imgs.img1) {
+    const fw = 320, fh = 420;
+    ctx.save(); ctx.beginPath(); ctx.rect(80, H - barH - fh, fw, fh); ctx.clip();
+    const sc = Math.max(fw / imgs.img1.width, fh / imgs.img1.height);
+    ctx.drawImage(imgs.img1, 80 + (fw - imgs.img1.width * sc) / 2, H - barH - fh + (fh - imgs.img1.height * sc) / 2, imgs.img1.width * sc, imgs.img1.height * sc);
+    ctx.restore();
+    if (imgs.img2) {
+      const fw2 = 260, fh2 = fh - 80;
+      ctx.save(); ctx.beginPath(); ctx.rect(W - fw2 - 80, H - barH - fh + 80, fw2, fh2); ctx.clip();
+      const sc2 = Math.max(fw2 / imgs.img2.width, fh2 / imgs.img2.height);
+      ctx.drawImage(imgs.img2, W - fw2 - 80 + (fw2 - imgs.img2.width * sc2) / 2, H - barH - fh + 80 + (fh2 - imgs.img2.height * sc2) / 2, imgs.img2.width * sc2, imgs.img2.height * sc2);
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = v.barColor;
+  ctx.fillRect(0, H - barH, 14, barH);
+  const hl = v.headline.toUpperCase();
+  const fs = autoFontSize(ctx, hl, W - 100, 72, font);
+  ctx.font = `bold ${fs}px ${font}`;
+  ctx.fillStyle = v.textColor;
+  ctx.textAlign = "left";
+  ctx.fillText(hl, 30, H - barH + fs + 8);
+  ctx.font = `bold 32px ${font}`;
+  ctx.fillStyle = hexA(v.textColor, 0.7);
+  ctx.fillText(v.subline.toUpperCase(), 30, H - 20);
+}
+
+function renderBigface(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  ctx.fillStyle = v.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  if (imgs.img1) {
+    const fw = 700;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, fw, H); ctx.clip();
+    const sc = Math.max(fw / imgs.img1.width, H / imgs.img1.height);
+    ctx.drawImage(imgs.img1, (fw - imgs.img1.width * sc) / 2, (H - imgs.img1.height * sc) / 2, imgs.img1.width * sc, imgs.img1.height * sc);
+    ctx.restore();
+    const bg = v.bgColor;
+    const r = parseInt(bg.slice(1, 3), 16), g = parseInt(bg.slice(3, 5), 16), b = parseInt(bg.slice(5, 7), 16);
+    const grad = ctx.createLinearGradient(400, 0, W, 0);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+    grad.addColorStop(0.4, hexA(v.bgColor, 0.7));
+    grad.addColorStop(1, v.bgColor);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fillRect(0, 0, 500, H);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.font = `22px ${font}`;
+    ctx.textAlign = "center";
+    ctx.fillText("Upload face photo", 250, H / 2);
+  }
+  const words = v.headline.toUpperCase().split(/\s+/).slice(0, 3);
+  let y = 180;
+  words.forEach((w) => {
+    const fs = autoFontSize(ctx, w, 560, 180, font);
+    ctx.font = `bold ${fs}px ${font}`;
+    ctx.textAlign = "right";
+    ctx.fillStyle = v.accentColor;
+    ctx.fillText(w, W - 40, y);
+    ctx.fillStyle = v.textColor;
+    ctx.fillText(w, W - 44, y - 4);
+    y += fs + 20;
+  });
+}
+
+function renderVs(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  ctx.fillStyle = v.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  const hw = W / 2;
+  drawFace(ctx, imgs.img1, 0, 0, hw, H, font);
+  drawFace(ctx, imgs.img2, hw, 0, hw, H, font);
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(0, 0, hw, H);
+  ctx.fillRect(hw, 0, hw, H);
+  const vsR = 110;
+  ctx.fillStyle = v.accentColor;
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2, vsR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = `bold 88px ${font}`;
+  ctx.fillStyle = v.textColor;
+  ctx.textAlign = "center";
+  ctx.fillText("VS", W / 2, H / 2 + 28);
+  const fs = autoFontSize(ctx, v.headline.toUpperCase(), W - 260, 52, font);
+  ctx.font = `bold ${fs}px ${font}`;
+  ctx.fillStyle = v.textColor;
+  ctx.fillText(v.headline.toUpperCase(), W / 2, 90);
+  if (v.subline) {
+    const parts = v.subline.split(/vs\.?/i);
+    ctx.font = `bold 38px ${font}`;
+    ctx.fillStyle = v.barColor;
+    ctx.fillText((parts[0] || "Name 1").trim().toUpperCase(), hw / 2, H - 50);
+    ctx.fillText((parts[1] || "Name 2").trim().toUpperCase(), hw + hw / 2, H - 50);
+  }
+}
+
+function renderQuestion(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  if (imgs.img1) {
+    const sc = Math.max(W / imgs.img1.width, H / imgs.img1.height);
+    ctx.drawImage(imgs.img1, (W - imgs.img1.width * sc) / 2, (H - imgs.img1.height * sc) / 2, imgs.img1.width * sc, imgs.img1.height * sc);
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, hexA(v.bgColor, 0.6));
+    grad.addColorStop(0.5, hexA(v.bgColor, 0.3));
+    grad.addColorStop(1, hexA(v.bgColor, 0.85));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, W, H);
+    grad.addColorStop(0, v.bgColor);
+    grad.addColorStop(1, v.accentColor + "88");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.textAlign = "center";
+  const hl = v.headline;
+  const fs = autoFontSize(ctx, hl, W - 120, 120, font);
+  ctx.font = `bold ${fs}px ${font}`;
+  ctx.fillStyle = v.textColor;
+  const lines = (hl.match(/.{1,30}(\s|$)/g) || [hl]);
+  lines.forEach((l, i) => ctx.fillText(l.trim().toUpperCase(), W / 2, 280 + i * (fs + 20)));
+  ctx.fillStyle = v.accentColor;
+  ctx.fillRect(W / 2 - 200, H - 110, 400, 5);
+  ctx.font = `bold 38px ${font}`;
+  ctx.fillStyle = hexA(v.textColor, 0.8);
+  ctx.fillText(v.subline.toUpperCase(), W / 2, H - 60);
+}
+
+function renderBeforeafter(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  const hw = W / 2;
+  if (imgs.img1) {
+    const sc = Math.max(hw / imgs.img1.width, H / imgs.img1.height);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, hw, H); ctx.clip();
+    ctx.drawImage(imgs.img1, (hw - imgs.img1.width * sc) / 2, (H - imgs.img1.height * sc) / 2, imgs.img1.width * sc, imgs.img1.height * sc);
+    ctx.restore();
+  } else { ctx.fillStyle = "#374151"; ctx.fillRect(0, 0, hw, H); }
+  if (imgs.img2) {
+    const sc = Math.max(hw / imgs.img2.width, H / imgs.img2.height);
+    ctx.save(); ctx.beginPath(); ctx.rect(hw, 0, hw, H); ctx.clip();
+    ctx.drawImage(imgs.img2, hw + (hw - imgs.img2.width * sc) / 2, (H - imgs.img2.height * sc) / 2, imgs.img2.width * sc, imgs.img2.height * sc);
+    ctx.restore();
+  } else { ctx.fillStyle = "#1f2937"; ctx.fillRect(hw, 0, hw, H); }
+  ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(0, 0, hw, H);
+  ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(hw, 0, hw, H);
+  ctx.fillStyle = v.accentColor; ctx.fillRect(hw - 3, 0, 6, H);
+  const lH = 80;
+  ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, hw, lH); ctx.fillRect(hw, 0, hw, lH);
+  ctx.font = `bold 52px ${font}`; ctx.textAlign = "center";
+  ctx.fillStyle = "#94a3b8"; ctx.fillText("BEFORE", hw / 2, 56);
+  ctx.fillStyle = v.accentColor; ctx.fillText("AFTER", hw + hw / 2, 56);
+  if (v.headline) {
+    ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(0, H - 110, W, 110);
+    const fs = autoFontSize(ctx, v.headline.toUpperCase(), W - 80, 58, font);
+    ctx.font = `bold ${fs}px ${font}`; ctx.textAlign = "center"; ctx.fillStyle = v.textColor;
+    ctx.fillText(v.headline.toUpperCase(), W / 2, H - 35);
+  }
+}
+
+function renderProduct(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  ctx.fillStyle = v.bgColor; ctx.fillRect(0, 0, W, H);
+  if (imgs.img1) {
+    const maxW = 560, maxH = 440;
+    const sc = Math.min(maxW / imgs.img1.width, maxH / imgs.img1.height);
+    const iw = imgs.img1.width * sc, ih = imgs.img1.height * sc;
+    ctx.drawImage(imgs.img1, (W - iw) / 2, (H - ih) / 2 - 40, iw, ih);
+  } else {
+    ctx.strokeStyle = v.accentColor + "55"; ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 180, H / 2 - 180 - 40, 360, 360);
+    ctx.fillStyle = "rgba(0,0,0,0.06)"; ctx.fillRect(W / 2 - 180, H / 2 - 180 - 40, 360, 360);
+    ctx.font = `22px ${font}`; ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.textAlign = "center";
+    ctx.fillText("Product image", W / 2, H / 2);
+  }
+  ctx.textAlign = "center";
+  const fs = autoFontSize(ctx, v.headline, W - 200, 80, font);
+  ctx.font = `bold ${fs}px ${font}`; ctx.fillStyle = v.textColor;
+  ctx.fillText(v.headline, W / 2, H - 90);
+  ctx.font = `400 34px ${font}`; ctx.fillStyle = v.accentColor;
+  ctx.fillText(v.subline, W / 2, H - 42);
+  ctx.strokeStyle = v.accentColor; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(W / 2 - 80, H - 112); ctx.lineTo(W / 2 + 80, H - 112); ctx.stroke();
+}
+
+function renderListicle(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  drawBg(ctx, W, H, v.bgColor, imgs.img1, v.overlay);
+  const num = String(v.bigNum);
+  ctx.font = `bold 480px ${font}`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillStyle = v.accentColor + "22"; ctx.fillText(num, -20, -40);
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `bold 320px ${font}`;
+  ctx.fillStyle = v.barColor + "55"; ctx.fillText(num, -20, H - 60);
+  ctx.fillStyle = v.barColor; ctx.fillText(num, -24, H - 64);
+  const topicX = num.length > 1 ? 280 : 200;
+  ctx.textAlign = "left";
+  const fs = autoFontSize(ctx, v.headline.toUpperCase(), W - topicX - 80, 100, font);
+  ctx.font = `bold ${fs}px ${font}`; ctx.fillStyle = v.textColor;
+  ctx.fillText(v.headline.toUpperCase(), topicX, 300);
+  ctx.fillStyle = v.accentColor; ctx.fillRect(topicX, 340, W - topicX - 80, 6);
+  if (v.subline) {
+    ctx.font = `bold 40px ${font}`; ctx.fillStyle = hexA(v.textColor, 0.65);
+    ctx.fillText(v.subline.toUpperCase(), topicX, 420);
+  }
+}
+
+function renderReaction(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
+  ctx.fillStyle = v.bgColor; ctx.fillRect(0, 0, W, H);
+  drawFace(ctx, imgs.img1, 0, 0, 800, H, font);
+  if (imgs.img1) {
+    const grad = ctx.createLinearGradient(600, 0, W, 0);
+    grad.addColorStop(0, hexA(v.bgColor, 0));
+    grad.addColorStop(1, v.bgColor);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  }
+  if (imgs.img2) {
+    const cW = 380, cH = 280;
+    ctx.fillStyle = "#000"; ctx.fillRect(W - cW - 40, 60, cW, cH);
+    const sc = Math.max(cW / imgs.img2.width, cH / imgs.img2.height);
+    ctx.save(); ctx.beginPath(); ctx.rect(W - cW - 40, 60, cW, cH); ctx.clip();
+    ctx.drawImage(imgs.img2, W - cW - 40 + (cW - imgs.img2.width * sc) / 2, 60 + (cH - imgs.img2.height * sc) / 2, imgs.img2.width * sc, imgs.img2.height * sc);
+    ctx.restore();
+    ctx.strokeStyle = v.accentColor; ctx.lineWidth = 5;
+    ctx.strokeRect(W - cW - 40, 60, cW, cH);
+  }
+  const barH = 120;
+  ctx.fillStyle = v.accentColor; ctx.fillRect(0, H - barH, W, barH);
+  ctx.textAlign = "left";
+  const fs = autoFontSize(ctx, v.headline.toUpperCase(), W - 80, 72, font);
+  ctx.font = `bold ${fs}px ${font}`; ctx.fillStyle = v.textColor;
+  ctx.fillText(v.headline.toUpperCase(), 30, H - barH + fs + 12);
+  ctx.font = `bold 30px ${font}`; ctx.fillStyle = hexA(v.textColor, 0.75);
+  ctx.fillText(v.subline.toUpperCase(), 30, H - 18);
+}
+
+const RENDERERS: Record<TemplateId, (ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) => void> = {
+  news: renderNews,
+  bigface: renderBigface,
+  vs: renderVs,
+  question: renderQuestion,
+  beforeafter: renderBeforeafter,
+  product: renderProduct,
+  listicle: renderListicle,
+  reaction: renderReaction,
 };
 
-/* ============================================================
-   YouTube Preview Simulator Component
-   Shows thumbnail in real YouTube contexts
-============================================================ */
-function YouTubePreview({ thumb, videoTitle }: { thumb: ThumbResult; videoTitle: string }) {
-  const [mode, setMode] = useState<"search" | "home" | "sidebar" | "mobile">("home");
+// ─── Upload Button Component ──────────────────────────────────────────────────
 
-  const channelName = "Your Channel";
-  const views = "12K views";
-  const time = "3 days ago";
-  const duration = "10:24";
+function UploadBtn({
+  id, label, onLoad,
+}: {
+  id: string;
+  label: string;
+  onLoad: (img: HTMLImageElement, src: string) => void;
+}) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const modes = [
-    { id: "home" as const, label: "Home Feed" },
-    { id: "search" as const, label: "Search" },
-    { id: "sidebar" as const, label: "Suggested" },
-    { id: "mobile" as const, label: "Mobile" },
-  ];
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target?.result as string;
+      const img = new Image();
+      img.onload = () => { onLoad(img, src); setPreview(src); };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  };
 
   return (
     <div>
-      {/* Mode tabs */}
-      <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
-        {modes.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setMode(m.id)}
-            className={"px-3 py-1.5 text-xs font-medium rounded-md transition-all " + (mode === m.id ? "bg-white shadow text-black" : "text-gray-500 hover:text-gray-700")}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Simulated YouTube background */}
-      <div className={"rounded-lg p-4 " + (mode === "mobile" ? "bg-black max-w-[375px] mx-auto" : "bg-[#f1f1f1]")}>
-
-        {/* === HOME FEED === */}
-        {mode === "home" && (
-          <div className="max-w-[360px]">
-            {/* Thumbnail with duration badge */}
-            <div className="relative rounded-xl overflow-hidden">
-              <img src={thumb.thumbnailUrl} alt="" className="w-full" />
-              <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] font-medium px-1 py-0.5 rounded">
-                {duration}
-              </div>
-            </div>
-            {/* Video info */}
-            <div className="flex gap-2.5 mt-3">
-              <div className="w-9 h-9 rounded-full bg-gray-300 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium leading-tight line-clamp-2 text-[#0f0f0f]">
-                  {videoTitle}
-                </div>
-                <div className="text-xs text-[#606060] mt-1">{channelName}</div>
-                <div className="text-xs text-[#606060]">{views} · {time}</div>
-              </div>
-            </div>
-            <div className="mt-3 text-[10px] text-gray-400 text-center">YouTube Home Feed — Desktop</div>
+      <p className="text-xs text-slate-500 mb-1.5">{label}</p>
+      {preview ? (
+        <div className="relative group cursor-pointer" onClick={() => inputRef.current?.click()}>
+          <img src={preview} alt="uploaded" className="w-full h-20 object-cover rounded-lg border border-slate-200 dark:border-slate-700" />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+            <span className="text-white text-xs font-medium">Change</span>
           </div>
-        )}
-
-        {/* === SEARCH RESULTS === */}
-        {mode === "search" && (
-          <div className="space-y-3">
-            {/* Search bar mockup */}
-            <div className="flex items-center gap-2 bg-white border rounded-full px-4 py-2 max-w-[500px]">
-              <span className="text-gray-400 text-sm">🔍</span>
-              <span className="text-sm text-gray-700">{videoTitle.toLowerCase()}</span>
-            </div>
-            {/* Search result row */}
-            <div className="flex gap-4 max-w-[700px]">
-              <div className="relative flex-shrink-0 w-[360px] rounded-xl overflow-hidden">
-                <img src={thumb.thumbnailUrl} alt="" className="w-full" />
-                <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] font-medium px-1 py-0.5 rounded">
-                  {duration}
-                </div>
-              </div>
-              <div className="flex-1 min-w-0 pt-0.5">
-                <div className="text-lg font-normal leading-snug text-[#0f0f0f] line-clamp-2">
-                  {videoTitle}
-                </div>
-                <div className="text-xs text-[#606060] mt-1">{views} · {time}</div>
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="w-6 h-6 rounded-full bg-gray-300" />
-                  <span className="text-xs text-[#606060]">{channelName}</span>
-                </div>
-                <div className="text-xs text-[#606060] mt-2 line-clamp-2">
-                  In this video, we explore the topic of {videoTitle.toLowerCase()}. Watch to learn more...
-                </div>
-              </div>
-            </div>
-            {/* Fake second result (dimmed) */}
-            <div className="flex gap-4 max-w-[700px] opacity-30">
-              <div className="flex-shrink-0 w-[360px] h-[90px] rounded-xl bg-gray-300" />
-              <div className="flex-1 pt-1">
-                <div className="h-4 bg-gray-300 rounded w-3/4 mb-2" />
-                <div className="h-3 bg-gray-200 rounded w-1/2" />
-              </div>
-            </div>
-            <div className="mt-2 text-[10px] text-gray-400 text-center">YouTube Search Results — Desktop</div>
-          </div>
-        )}
-
-        {/* === SUGGESTED SIDEBAR === */}
-        {mode === "sidebar" && (
-          <div className="flex gap-6 max-w-[700px]">
-            {/* Main video area (placeholder) */}
-            <div className="flex-1">
-              <div className="bg-gray-800 rounded-lg aspect-video flex items-center justify-center">
-                <span className="text-white/30 text-3xl">▶</span>
-              </div>
-              <div className="mt-2 text-sm font-medium text-[#0f0f0f]">Currently watching another video...</div>
-              <div className="text-xs text-[#606060]">Some Channel · 45K views</div>
-            </div>
-            {/* Suggested sidebar */}
-            <div className="w-[300px] flex-shrink-0 space-y-3">
-              <div className="text-xs font-medium text-[#0f0f0f] mb-1">Up next</div>
-              {/* YOUR video */}
-              <div className="flex gap-2 bg-blue-50/50 rounded-lg p-1.5 border border-blue-200">
-                <div className="relative flex-shrink-0 w-[168px] rounded overflow-hidden">
-                  <img src={thumb.thumbnailUrl} alt="" className="w-full" />
-                  <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-white text-[8px] px-1 rounded">
-                    {duration}
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium leading-tight line-clamp-2 text-[#0f0f0f]">
-                    {videoTitle}
-                  </div>
-                  <div className="text-[10px] text-[#606060] mt-0.5">{channelName}</div>
-                  <div className="text-[10px] text-[#606060]">{views}</div>
-                </div>
-              </div>
-              {/* Other suggested (dimmed) */}
-              {[1, 2, 3].map((n) => (
-                <div key={n} className="flex gap-2 opacity-30">
-                  <div className="flex-shrink-0 w-[168px] h-[50px] rounded bg-gray-300" />
-                  <div className="flex-1">
-                    <div className="h-3 bg-gray-300 rounded w-full mb-1" />
-                    <div className="h-2 bg-gray-200 rounded w-2/3" />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-[10px] text-gray-400 text-center">Suggested Sidebar — Desktop</div>
-          </div>
-        )}
-
-        {/* === MOBILE FEED === */}
-        {mode === "mobile" && (
-          <div className="max-w-[375px] mx-auto">
-            {/* Status bar mockup */}
-            <div className="flex justify-between items-center px-4 py-1.5 text-white text-[10px]">
-              <span>9:41</span>
-              <span>📶 🔋</span>
-            </div>
-            {/* YouTube mobile header */}
-            <div className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="text-red-600 text-lg font-bold">▶</span>
-                <span className="text-white text-sm font-semibold">YouTube</span>
-              </div>
-              <div className="flex gap-3 text-white/60 text-sm">
-                <span>🔍</span>
-                <span>🔔</span>
-                <div className="w-6 h-6 rounded-full bg-gray-600" />
-              </div>
-            </div>
-            {/* Video card */}
-            <div className="px-0">
-              <div className="relative">
-                <img src={thumb.thumbnailUrl} alt="" className="w-full" />
-                <div className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
-                  {duration}
-                </div>
-              </div>
-              <div className="flex gap-3 px-3 mt-3">
-                <div className="w-9 h-9 rounded-full bg-gray-600 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium leading-tight text-white line-clamp-2">
-                    {videoTitle}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {channelName} · {views} · {time}
-                  </div>
-                </div>
-                <span className="text-gray-500 text-sm mt-0.5">⋮</span>
-              </div>
-            </div>
-            {/* Fake next video (dimmed) */}
-            <div className="px-0 mt-5 opacity-30">
-              <div className="w-full h-[100px] bg-gray-700" />
-              <div className="flex gap-3 px-3 mt-2">
-                <div className="w-9 h-9 rounded-full bg-gray-600" />
-                <div>
-                  <div className="h-3 bg-gray-600 rounded w-48 mb-1" />
-                  <div className="h-2 bg-gray-700 rounded w-32" />
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 text-[10px] text-gray-500 text-center pb-2">YouTube Mobile Feed — iPhone</div>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="w-full h-16 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-400 hover:border-slate-400 hover:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all flex flex-col items-center justify-center gap-1"
+        >
+          <ImageIcon size={16} />
+          <span>Click to upload</span>
+        </button>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
     </div>
   );
 }
 
-export default function ThumbnailCreatorPage() {
-  const router = useRouter();
-  const userTier = useUserTier();
+// ─── Main Page Component ──────────────────────────────────────────────────────
 
-  // Mode tab
-  const [mode, setMode] = useState<"ai" | "face">("ai");
+export default function ThumbnailsPage() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [fontFamily, setFontFamily] = useState("Impact, Arial Black, sans-serif");
+  const [imgs, setImgs] = useState<Record<string, HTMLImageElement | null>>({ img1: null, img2: null });
+  const [form, setForm] = useState<FormValues>({
+    headline: "",
+    subline: "",
+    bigNum: 5,
+    ...TEMPLATES[0].defaults,
+    overlay: 0.5,
+  });
 
-  const [topic, setTopic] = useState("");
-  const [customTitle, setCustomTitle] = useState("");
-  const [selectedStyle, setSelectedStyle] = useState("bold_red");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
+  const t = TEMPLATES[activeIdx];
 
-  const [thumbnails, setThumbnails] = useState<ThumbResult[]>([]);
-  const [history, setHistory] = useState<ThumbResult[][]>([]);
-  const [previewThumb, setPreviewThumb] = useState<ThumbResult | null>(null);
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const W = 1280, H = 720;
+    ctx.clearRect(0, 0, W, H);
+    ctx.textBaseline = "alphabetic";
+    const fn = RENDERERS[t.id as TemplateId];
+    if (fn) fn(ctx, W, H, form, imgs, fontFamily);
+  }, [t.id, form, imgs, fontFamily]);
 
-  // Face upload state
-  const [faceFile, setFaceFile] = useState<File | null>(null);
-  const [facePreview, setFacePreview] = useState<string | null>(null);
-  const [facePosition, setFacePosition] = useState<"left" | "right">("left");
-  const [faceTopic, setFaceTopic] = useState("");
-  const [faceTitle, setFaceTitle] = useState("");
-  const [faceStyle, setFaceStyle] = useState("bold_red");
-  const [faceBusy, setFaceBusy] = useState(false);
-  const [faceProgress, setFaceProgress] = useState("");
-  const [faceResult, setFaceResult] = useState<{ thumbnailUrl: string; titleText: string } | null>(null);
-  const [faceHistory, setFaceHistory] = useState<{ thumbnailUrl: string; titleText: string }[]>([]);
+  useEffect(() => { render(); }, [render]);
 
-  function handleFaceFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFaceFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setFacePreview(reader.result as string);
-    reader.readAsDataURL(file);
-  }
+  const selectTemplate = (idx: number) => {
+    setActiveIdx(idx);
+    setImgs({ img1: null, img2: null });
+    setForm((prev) => ({
+      ...prev,
+      ...TEMPLATES[idx].defaults,
+      headline: "",
+      subline: "",
+      bigNum: 5,
+    }));
+  };
 
-  async function generateFaceThumbnail() {
-    if (!facePreview) { setError("Upload a photo of yourself first"); return; }
-    if (!faceTopic.trim()) { setError("Enter a video topic"); return; }
+  const setField = (key: keyof FormValues, value: string | number) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
-    setFaceBusy(true); setError(null);
-    setFaceProgress("Step 1/4: Removing background from your photo...");
+  const exportPNG = () => {
+    render();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `thumbnail-${t.id}-1280x720.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
 
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Not logged in");
-
-      const preset = STYLE_PRESETS.find((s) => s.id === faceStyle) || STYLE_PRESETS[0];
-
-      setFaceProgress("Step 2/4: Generating AI scene background...");
-
-      const res = await fetch("/api/projects/generate-thumbnail-face", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-        body: JSON.stringify({
-          topic: faceTopic.trim(),
-          title: faceTitle.trim() || undefined,
-          faceImageBase64: facePreview,
-          facePosition,
-          textColor: preset.textColor,
-          strokeColor: preset.strokeColor,
-        }),
-      });
-
-      setFaceProgress("Step 3/4: Compositing your face onto the scene...");
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed");
-
-      setFaceProgress("Step 4/4: Done!");
-      const result = { thumbnailUrl: json.thumbnailUrl, titleText: json.titleText };
-      setFaceResult(result);
-      setFaceHistory((prev) => [result, ...prev.slice(0, 9)]);
-      setFaceProgress("");
-    } catch (err: any) {
-      setError(err?.message || "Face thumbnail generation failed");
-      setFaceProgress("");
-    } finally {
-      setFaceBusy(false);
-    }
-  }
-
-  async function generateThumbnails() {
-    if (!topic.trim()) { setError("Please enter a topic"); return; }
-
-    setBusy(true);
-    setError(null);
-    setProgress("Creating 4 unique concepts with AI...");
-
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Not logged in");
-
-      const preset = STYLE_PRESETS.find((s) => s.id === selectedStyle) || STYLE_PRESETS[0];
-
-      setProgress("Generating 4 thumbnail variations (this takes ~30 seconds)...");
-
-      const res = await fetch("/api/projects/generate-thumbnail", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token,
-        },
-        body: JSON.stringify({
-          topic: topic.trim(),
-          title: customTitle.trim() || undefined,
-          count: 4,
-          stylePreset: preset.id,
-          textColor: preset.textColor,
-          strokeColor: preset.strokeColor,
-          bgGradient: preset.bgGradient,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed");
-
-      const results: ThumbResult[] = json.thumbnails || [];
-      setThumbnails(results);
-
-      if (results.length > 0) {
-        setHistory((prev) => [results, ...prev.slice(0, 4)]);
-      }
-
-      setProgress("");
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong");
-      setProgress("");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* ── Loading state ──────────────────────────────────────── */
-  if (userTier === "loading") {
-    return (
-      <div className="max-w-5xl mx-auto p-6">
-        <div className="text-sm text-gray-400">Loading...</div>
-      </div>
-    );
-  }
-
-  /* ── Free user: Upgrade prompt ──────────────────────────── */
-  if (userTier === "free") {
-    return (
-      <div className="max-w-5xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Thumbnail Creator</h1>
-            <p className="text-sm text-gray-500 mt-1">Generate click-worthy YouTube thumbnails with AI</p>
-          </div>
-          <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2">Back</button>
-        </div>
-
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
-          <div className="text-4xl mb-4">🔒</div>
-          <h2 className="text-xl font-bold mb-2">Pro Feature</h2>
-          <p className="text-gray-600 mb-4 max-w-md mx-auto">
-            The standalone Thumbnail Creator is a Pro feature. Generate unlimited thumbnails with 4 variations, 
-            8 style presets, and regenerate as many times as you want.
-          </p>
-          <p className="text-sm text-gray-500 mb-6">
-            Free users get 1 free thumbnail per video project.
-          </p>
-          <button
-            className="bg-black text-white rounded-lg px-6 py-3 font-semibold hover:bg-gray-800 transition-colors"
-            onClick={() => {
-              // TODO: Redirect to Stripe checkout or pricing page
-              alert("Stripe payment integration coming soon! For now, upgrade via the Settings page.");
-            }}
-          >
-            Upgrade to Pro
-          </button>
-          <p className="text-xs text-gray-400 mt-3">Cancel anytime. Instant access after upgrade.</p>
-        </div>
-
-        {/* Preview of what Pro gets */}
-        <div className="mt-8 border rounded-xl p-5 bg-gray-50">
-          <h3 className="font-semibold mb-3">What Pro Includes:</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Generate 4 unique thumbnail variations per click</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>8 professional text style presets</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Unlimited regenerations</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Standalone tool — no video project needed</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Custom title text override</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Batch history — compare previous generations</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── Pro user: Full Thumbnail Creator ───────────────────── */
+  const resetAll = () => {
+    setImgs({ img1: null, img2: null });
+    setForm({ ...TEMPLATES[activeIdx].defaults, headline: "", subline: "", bigNum: 5, overlay: 0.5 });
+  };
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Thumbnail Creator</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Generate click-worthy YouTube thumbnail variations with one click
-          </p>
+    <div className="flex h-full bg-slate-50 dark:bg-slate-900 overflow-hidden" style={{ height: "calc(100vh - 64px)" }}>
+
+      {/* ── Template Sidebar ── */}
+      <aside className="w-52 flex-shrink-0 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Templates</h2>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">8 styles · 1280×720</p>
         </div>
-        <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2">Back</button>
-      </div>
-
-      {/* Mode Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
-        <button
-          onClick={() => { setMode("ai"); setError(null); }}
-          className={"px-4 py-2 rounded-md text-sm font-medium transition-all " + (mode === "ai" ? "bg-white shadow text-black" : "text-gray-500 hover:text-gray-700")}
-        >
-          🎨 AI Generated
-        </button>
-        <button
-          onClick={() => { setMode("face"); setError(null); }}
-          className={"px-4 py-2 rounded-md text-sm font-medium transition-all " + (mode === "face" ? "bg-white shadow text-black" : "text-gray-500 hover:text-gray-700")}
-        >
-          🧑 Face Upload
-        </button>
-      </div>
-
-      {error && <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">{error}</div>}
-
-      {/* ============================================================
-          TAB 1: AI GENERATED (original feature)
-      ============================================================ */}
-      {mode === "ai" && (<>
-
-      {/* Form */}
-      <div className="border rounded-xl p-5 bg-white mb-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="font-medium">Video Topic</label>
-            <input
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              placeholder="e.g. 5 Morning Habits That Changed My Life"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="font-medium">Custom Title <span className="text-gray-400 font-normal">(optional)</span></label>
-            <input
-              value={customTitle}
-              onChange={(e) => setCustomTitle(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              placeholder="e.g. WAKE UP AT 5AM"
-              maxLength={40}
-            />
-          </div>
-        </div>
-
-        {/* Style Presets - compact */}
-        <div className="space-y-2">
-          <label className="font-medium text-sm">Text Style</label>
-          <div className="flex flex-wrap gap-2">
-            {STYLE_PRESETS.map((preset) => {
-              const isActive = selectedStyle === preset.id;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => setSelectedStyle(preset.id)}
-                  className={
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 transition-all text-sm " +
-                    (isActive ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300")
-                  }
-                >
-                  <span className={"w-5 h-5 rounded text-[8px] font-black flex items-center justify-center " + preset.preview}>A</span>
-                  <span className={isActive ? "font-semibold text-blue-700" : "text-gray-700"}>{preset.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={generateThumbnails}
-            disabled={busy}
-            className="bg-black text-white rounded px-5 py-2.5 font-semibold disabled:opacity-50"
-          >
-            {busy ? "Generating 4 thumbnails..." : "Generate 4 Thumbnails"}
-          </button>
-
-          {thumbnails.length > 0 && !busy && (
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {TEMPLATES.map((tmpl, i) => (
             <button
-              onClick={generateThumbnails}
-              className="border-2 border-gray-300 rounded px-4 py-2 font-medium hover:border-gray-400"
+              key={tmpl.id}
+              onClick={() => selectTemplate(i)}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all ${
+                i === activeIdx
+                  ? "bg-blue-50 dark:bg-blue-950/50"
+                  : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
+              }`}
             >
-              Regenerate All
-            </button>
-          )}
-        </div>
-
-        {progress && (
-          <div className="flex items-center gap-2 text-sm text-blue-600">
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            {progress}
-          </div>
-        )}
-      </div>
-
-      {/* Results: 2x2 Grid */}
-      {thumbnails.length > 0 && (
-        <div className="mb-6">
-          <h3 className="font-semibold mb-3">Pick Your Favorite ({thumbnails.length} variations)</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {thumbnails.map((thumb, i) => {
-              const isSelected = previewThumb?.thumbnailUrl === thumb.thumbnailUrl;
-              return (
-                <div
-                  key={i}
-                  className={"border-2 rounded-xl overflow-hidden bg-white cursor-pointer transition-all " + (isSelected ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300")}
-                  onClick={() => setPreviewThumb(thumb)}
-                >
-                  <div className="relative">
-                    <img src={thumb.thumbnailUrl} alt={thumb.titleText} className="w-full" />
-                    <div className="absolute top-2 left-2 bg-black/70 text-white text-xs font-semibold px-2 py-1 rounded">
-                      {thumb.angle}
-                    </div>
-                    {isSelected && (
-                      <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs font-semibold px-2 py-1 rounded">
-                        Previewing
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-3 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium">{thumb.titleText}</div>
-                      <div className="text-xs text-gray-400">Click to preview on YouTube</div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const res = await fetch(thumb.thumbnailUrl);
-                            const blob = await res.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = "thumbnail-" + (i + 1) + ".jpg";
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                          } catch { window.open(thumb.thumbnailUrl, "_blank"); }
-                        }}
-                        className="border rounded px-2.5 py-1 text-xs font-medium hover:bg-gray-50"
-                      >
-                        Download
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================
-          YouTube Preview Simulator
-          Shows how the selected thumbnail looks in real YouTube contexts
-      ============================================================ */}
-      {previewThumb && (
-        <div className="border rounded-xl p-5 bg-white mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">YouTube Preview</h3>
-            <button onClick={() => setPreviewThumb(null)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
-          </div>
-
-          {/* Tab selector */}
-          <YouTubePreview thumb={previewThumb} videoTitle={topic || "My Amazing Video"} />
-        </div>
-      )}
-
-      {/* History */}
-      {history.length > 1 && (
-        <div className="border rounded-xl p-5 bg-white mb-6">
-          <h3 className="font-semibold mb-3">Previous Batches</h3>
-          {history.slice(1).map((batch, batchIdx) => (
-            <div key={batchIdx} className="mb-4">
-              <div className="text-xs text-gray-400 mb-2">Batch {batchIdx + 2}</div>
-              <div className="grid grid-cols-4 gap-2">
-                {batch.map((thumb, i) => (
-                  <a key={i} href={thumb.thumbnailUrl} download className="block rounded border overflow-hidden hover:shadow">
-                    <img src={thumb.thumbnailUrl} alt={thumb.titleText} className="w-full" />
-                  </a>
-                ))}
+              <div
+                className="w-11 h-6 rounded flex-shrink-0 flex items-center justify-center overflow-hidden"
+                style={{ background: tmpl.thumbBg }}
+              >
+                <div className="w-3/5 h-2/3 rounded-sm opacity-80" style={{ background: tmpl.thumbAccent }} />
               </div>
-            </div>
+              <span className={`text-xs font-medium leading-tight ${i === activeIdx ? "text-blue-600 dark:text-blue-400" : "text-slate-700 dark:text-slate-300"}`}>
+                {tmpl.name}
+              </span>
+              {i === activeIdx && <ChevronRight size={12} className="ml-auto text-blue-400 flex-shrink-0" />}
+            </button>
           ))}
         </div>
-      )}
+      </aside>
 
-      {/* Tips */}
-      {thumbnails.length === 0 && !busy && (
-        <div className="border rounded-xl p-5 bg-gray-50">
-          <h3 className="font-semibold mb-2">How It Works</h3>
-          <div className="text-sm text-gray-600 space-y-1">
-            <p>1. Enter your video topic — AI creates 4 unique thumbnail concepts</p>
-            <p>2. Each variation has a different visual angle (close-up, epic scene, symbolic, dynamic)</p>
-            <p>3. Pick your favorite and download — or regenerate for fresh options</p>
-            <p>4. Tip: Try different styles (Neon, Gold, Fire) for different vibes</p>
+      {/* ── Canvas Area ── */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-5 py-2.5 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t.name}</h1>
+            <p className="text-xs text-slate-400 dark:text-slate-500">{t.desc}</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={resetAll} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+              <RotateCcw size={13} /> Reset
+            </button>
+            <button onClick={exportPNG} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+              <Download size={13} /> Export PNG
+            </button>
           </div>
         </div>
-      )}
 
-      </>)} {/* End AI Generated Tab */}
-
-      {/* ============================================================
-          TAB 2: FACE UPLOAD
-      ============================================================ */}
-      {mode === "face" && (
-        <>
-          {/* Face Upload Form */}
-          <div className="border rounded-xl p-5 bg-white mb-6 space-y-4">
-            {/* Photo upload */}
-            <div>
-              <label className="font-medium block mb-2">Upload Your Photo</label>
-              <div className="flex items-start gap-4">
-                {/* Upload area */}
-                <label className={"flex flex-col items-center justify-center border-2 border-dashed rounded-xl cursor-pointer transition-colors w-40 h-40 " + (facePreview ? "border-green-300 bg-green-50" : "border-gray-300 hover:border-gray-400 bg-gray-50")}>
-                  {facePreview ? (
-                    <img src={facePreview} alt="Your face" className="w-full h-full object-cover rounded-lg" />
-                  ) : (
-                    <div className="text-center p-3">
-                      <div className="text-2xl mb-1">📸</div>
-                      <div className="text-xs text-gray-500">Click to upload</div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">JPG, PNG</div>
-                    </div>
-                  )}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFaceFileChange} className="hidden" />
-                </label>
-
-                {/* Tips */}
-                <div className="text-xs text-gray-500 space-y-1 mt-1">
-                  <p className="font-medium text-gray-700">Best results:</p>
-                  <p>• Clear headshot or upper body</p>
-                  <p>• Good lighting, solid background</p>
-                  <p>• Expressive face (surprise, excitement)</p>
-                  <p>• High resolution (at least 500×500)</p>
-                  {facePreview && (
-                    <button
-                      onClick={() => { setFaceFile(null); setFacePreview(null); }}
-                      className="text-red-500 hover:underline mt-1"
-                    >
-                      Remove photo
-                    </button>
-                  )}
-                </div>
-              </div>
+        {/* Canvas */}
+        <div className="flex-1 flex items-center justify-center p-6 overflow-hidden">
+          <div className="relative shadow-2xl rounded" style={{ maxWidth: "min(640px, 100%)" }}>
+            <canvas
+              ref={canvasRef}
+              width={1280}
+              height={720}
+              className="block w-full h-auto rounded"
+            />
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full pointer-events-none">
+              1280 × 720
             </div>
-
-            {/* Topic + Title */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="font-medium">Video Topic</label>
-                <input
-                  value={faceTopic}
-                  onChange={(e) => setFaceTopic(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="e.g. How I Made $100K in 30 Days"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="font-medium">Custom Title <span className="text-gray-400 font-normal">(optional)</span></label>
-                <input
-                  value={faceTitle}
-                  onChange={(e) => setFaceTitle(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="e.g. I DID IT"
-                  maxLength={30}
-                />
-              </div>
-            </div>
-
-            {/* Face Position */}
-            <div className="space-y-2">
-              <label className="font-medium text-sm">Face Position</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFacePosition("left")}
-                  className={"flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all " + (facePosition === "left" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300")}
-                >
-                  <div className="w-16 h-10 rounded border flex overflow-hidden">
-                    <div className="w-1/2 bg-blue-200 flex items-center justify-center text-[10px]">🧑</div>
-                    <div className="w-1/2 bg-gray-100 flex items-center justify-center text-[8px] font-bold text-gray-500">TEXT</div>
-                  </div>
-                  <span className={"text-sm " + (facePosition === "left" ? "font-semibold text-blue-700" : "text-gray-600")}>Face Left</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFacePosition("right")}
-                  className={"flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all " + (facePosition === "right" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300")}
-                >
-                  <div className="w-16 h-10 rounded border flex overflow-hidden">
-                    <div className="w-1/2 bg-gray-100 flex items-center justify-center text-[8px] font-bold text-gray-500">TEXT</div>
-                    <div className="w-1/2 bg-blue-200 flex items-center justify-center text-[10px]">🧑</div>
-                  </div>
-                  <span className={"text-sm " + (facePosition === "right" ? "font-semibold text-blue-700" : "text-gray-600")}>Face Right</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Text Style */}
-            <div className="space-y-2">
-              <label className="font-medium text-sm">Text Style</label>
-              <div className="flex flex-wrap gap-2">
-                {STYLE_PRESETS.map((preset) => {
-                  const isActive = faceStyle === preset.id;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => setFaceStyle(preset.id)}
-                      className={
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 transition-all text-sm " +
-                        (isActive ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300")
-                      }
-                    >
-                      <span className={"w-5 h-5 rounded text-[8px] font-black flex items-center justify-center " + preset.preview}>A</span>
-                      <span className={isActive ? "font-semibold text-blue-700" : "text-gray-700"}>{preset.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Generate button */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={generateFaceThumbnail}
-                disabled={faceBusy || !facePreview}
-                className={"rounded px-5 py-2.5 font-semibold disabled:opacity-50 transition-colors " + (facePreview ? "bg-black text-white hover:bg-gray-800" : "bg-gray-300 text-gray-500 cursor-not-allowed")}
-              >
-                {faceBusy ? "Generating..." : "Generate Face Thumbnail"}
-              </button>
-              {faceResult && !faceBusy && (
-                <button
-                  onClick={generateFaceThumbnail}
-                  className="border-2 border-gray-300 rounded px-4 py-2 font-medium hover:border-gray-400"
-                >
-                  Regenerate
-                </button>
-              )}
-            </div>
-
-            {faceProgress && (
-              <div className="flex items-center gap-2 text-sm text-blue-600">
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                {faceProgress}
-              </div>
-            )}
           </div>
+        </div>
+      </main>
 
-          {/* Face Thumbnail Result */}
-          {faceResult && (
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3">Your Face Thumbnail</h3>
-              <div className="border-2 rounded-xl overflow-hidden bg-white max-w-2xl">
-                <div className="relative">
-                  <img src={faceResult.thumbnailUrl} alt={faceResult.titleText} className="w-full" />
-                  <div className="absolute top-2 left-2 bg-black/70 text-white text-xs font-semibold px-2 py-1 rounded">
-                    🧑 Face + AI Scene
-                  </div>
-                </div>
-                <div className="p-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">{faceResult.titleText}</div>
-                    <div className="text-xs text-gray-400">Your face composited onto AI-generated scene</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          const res = await fetch(faceResult.thumbnailUrl);
-                          const blob = await res.blob();
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = "face-thumbnail.jpg";
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          URL.revokeObjectURL(url);
-                        } catch { window.open(faceResult.thumbnailUrl, "_blank"); }
-                      }}
-                      className="border rounded px-3 py-1.5 text-xs font-medium hover:bg-gray-50"
-                    >
-                      Download
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPreviewThumb({
-                          thumbnailUrl: faceResult.thumbnailUrl,
-                          titleText: faceResult.titleText,
-                          textPosition: "center",
-                          angle: "Face Upload",
-                        });
-                      }}
-                      className="border rounded px-3 py-1.5 text-xs font-medium hover:bg-gray-50"
-                    >
-                      YouTube Preview
-                    </button>
-                  </div>
-                </div>
-              </div>
+      {/* ── Controls Panel ── */}
+      <aside className="w-64 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 overflow-y-auto flex flex-col">
+
+        {/* Text */}
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
+          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Text</h3>
+          <div>
+            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t.labels.h1}</label>
+            <textarea
+              value={form.headline}
+              onChange={(e) => setField("headline", e.target.value)}
+              rows={2}
+              placeholder="Type headline..."
+              className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+          </div>
+          {t.controls.sub && (
+            <div>
+              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t.labels.sub}</label>
+              <input
+                type="text"
+                value={form.subline}
+                onChange={(e) => setField("subline", e.target.value)}
+                placeholder="Supporting text..."
+                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
             </div>
           )}
-
-          {/* YouTube Preview for face thumbnail */}
-          {previewThumb && mode === "face" && (
-            <div className="border rounded-xl p-5 bg-white mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">YouTube Preview</h3>
-                <button onClick={() => setPreviewThumb(null)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
-              </div>
-              <YouTubePreview thumb={previewThumb} videoTitle={faceTopic || "My Amazing Video"} />
+          {t.controls.num && (
+            <div>
+              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Number</label>
+              <input
+                type="number"
+                value={form.bigNum}
+                min={1}
+                max={99}
+                onChange={(e) => setField("bigNum", parseInt(e.target.value) || 5)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
             </div>
           )}
+        </div>
 
-          {/* Face Thumbnail History */}
-          {faceHistory.length > 1 && (
-            <div className="border rounded-xl p-5 bg-white mb-6">
-              <h3 className="font-semibold mb-3">Previous Face Thumbnails</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {faceHistory.slice(1).map((thumb, i) => (
-                  <a key={i} href={thumb.thumbnailUrl} download className="block rounded-lg border overflow-hidden hover:shadow-md transition-shadow">
-                    <img src={thumb.thumbnailUrl} alt={thumb.titleText} className="w-full" />
-                    <div className="p-1.5 text-xs text-gray-600 truncate">{thumb.titleText}</div>
-                  </a>
-                ))}
-              </div>
+        {/* Colors */}
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
+          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Colors</h3>
+          <div>
+            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">Accent presets</label>
+            <div className="flex gap-2 flex-wrap">
+              {t.presets.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setField("accentColor", c)}
+                  title={c}
+                  className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110"
+                  style={{
+                    background: c,
+                    borderColor: form.accentColor === c ? "#0f172a" : "transparent",
+                  }}
+                />
+              ))}
             </div>
-          )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {(["accentColor", "textColor", "bgColor", "barColor"] as const).map((key) => (
+              <div key={key}>
+                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1 capitalize">
+                  {key === "accentColor" ? "Accent" : key === "textColor" ? "Text" : key === "bgColor" ? "Background" : "Bar / Highlight"}
+                </label>
+                <input
+                  type="color"
+                  value={form[key] as string}
+                  onChange={(e) => setField(key, e.target.value)}
+                  className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-600 cursor-pointer p-0.5"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
 
-          {/* Face Upload Tips */}
-          {!faceResult && !faceBusy && (
-            <div className="border rounded-xl p-5 bg-gray-50">
-              <h3 className="font-semibold mb-2">How Face Thumbnails Work</h3>
-              <div className="text-sm text-gray-600 space-y-1">
-                <p>1. Upload a photo of yourself — AI removes the background automatically</p>
-                <p>2. Enter your video topic — AI generates a cinematic scene related to your content</p>
-                <p>3. Your face is composited onto the scene with bold title text overlay</p>
-                <p>4. Choose face position (left/right) and text style to match your brand</p>
-              </div>
-              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="text-xs font-semibold text-blue-700 mb-1">💡 Pro Tip</div>
-                <div className="text-xs text-blue-600">
-                  Use a photo with an expressive face (surprised, excited, focused) — thumbnails with strong emotion 
-                  get up to 38% higher click-through rates according to research on 300K+ YouTube videos.
-                </div>
-              </div>
-            </div>
+        {/* Photos */}
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
+          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Photos</h3>
+          <UploadBtn
+            id="img1"
+            label={t.labels.img1}
+            onLoad={(img) => setImgs((prev) => ({ ...prev, img1: img }))}
+          />
+          {t.controls.img2 && (
+            <UploadBtn
+              id="img2"
+              label={t.labels.img2}
+              onLoad={(img) => setImgs((prev) => ({ ...prev, img2: img }))}
+            />
           )}
-        </>
-      )} {/* End Face Upload Tab */}
+        </div>
+
+        {/* Font */}
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-2">
+          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Font style</h3>
+          <div className="flex gap-1.5">
+            {[
+              { label: "Impact", value: "Impact, Arial Black, sans-serif" },
+              { label: "Bold", value: "Arial Black, sans-serif" },
+              { label: "Serif", value: 'Georgia, "Times New Roman", serif' },
+            ].map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFontFamily(f.value)}
+                className={`flex-1 py-1.5 text-xs rounded-lg border transition-all ${
+                  fontFamily === f.value
+                    ? "bg-blue-50 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400"
+                    : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Overlay */}
+        <div className="px-4 py-3 space-y-2">
+          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Overlay</h3>
+          <div>
+            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">
+              Darkness: {Math.round(form.overlay * 100)}%
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={90}
+              value={Math.round(form.overlay * 100)}
+              onChange={(e) => setField("overlay", parseInt(e.target.value) / 100)}
+              className="w-full"
+            />
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

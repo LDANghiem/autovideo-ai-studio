@@ -944,11 +944,43 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
   console.log("[dub] SRT file created with", segs.length, "subtitles");
 
   const noSubsFile = path.join(workDir, "output-no-subs.mp4");
-  console.log("[dub] replacing audio track + stripping embedded subtitle streams...");
+  console.log("[dub] replacing audio + stripping embedded subtitle streams + blurring hardcoded caption zone...");
+
+  // Step A: strip soft subtitle streams + swap audio (fast copy)
+  const noSubsRaw = path.join(workDir, "output-no-subs-raw.mp4");
   await execAsync(
     `ffmpeg -i "${videoFile}" -i "${finalAudioFile}" ` +
-    `-c:v copy -c:a aac -map 0:v -map 1:a -sn -shortest -y "${noSubsFile}"`
+    `-c:v copy -c:a aac -map 0:v -map 1:a -sn -shortest -y "${noSubsRaw}"`
   );
+
+  // Step B: detect video dimensions, then blur bottom ~12% where hardcoded captions live
+  let dubW = 1280, dubH = 720;
+  try {
+    const { stdout: dimOut } = await execAsync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${noSubsRaw}"`
+    );
+    const [dw, dh] = dimOut.trim().split(",").map(Number);
+    if (dw > 0 && dh > 0) { dubW = dw; dubH = dh; }
+  } catch {}
+
+  const captionZoneH = Math.round(dubH * 0.14);  // bottom 14% — covers most hardcoded caption bars
+  const captionZoneY = dubH - captionZoneH;
+
+  // Use delogo (black fill) on caption zone — faster than blur, works reliably
+  // delogo: x,y,w,h of the region to erase
+  try {
+    await execAsync(
+      `ffmpeg -i "${noSubsRaw}" ` +
+      `-vf "delogo=x=0:y=${captionZoneY}:w=${dubW}:h=${captionZoneH}:show=0" ` +
+      `-c:v libx264 -preset fast -crf 20 -c:a copy -y "${noSubsFile}"`
+    );
+    console.log(`[dub] ✅ hardcoded caption zone erased (bottom ${captionZoneH}px of ${dubH}px)`);
+    try { fs.unlinkSync(noSubsRaw); } catch {}
+  } catch (delogoErr) {
+    // delogo not available on all ffmpeg builds — fall back to original
+    console.log("[dub] delogo unavailable, using raw strip only:", (delogoErr?.message || "").slice(0, 100));
+    fs.renameSync(noSubsRaw, noSubsFile);
+  }
 
   const finalOutputFile = path.join(workDir, "final-output.mp4");
 
@@ -1100,6 +1132,104 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
 }
 
 /* ── SRT timestamp formatter ───────────────────────────────── */
+/* ── Karaoke ASS builder ─────────────────────────────────────────
+   Generates a proper ASS file with word-level {\k} karaoke tags.
+   Each LINE stays visible for its full duration — only the active
+   word is highlighted in yellow. This eliminates SRT-style flashing.
+   Falls back gracefully to segment-level if no word timestamps exist.
+──────────────────────────────────────────────────────────────── */
+function buildKaraokeASS({
+  segments, words, ffmpegStart, ffmpegDuration,
+  fontSize, marginV, marginL, marginR, outline, shadow,
+}) {
+  // Group words into display lines of ≤6 words (feels natural on screen)
+  const MAX_WORDS_PER_LINE = 6;
+
+  // Build word list relative to clip start
+  const clipWords = (words || [])
+    .filter((w) => w.start >= (ffmpegStart - 0.1) && w.start < (ffmpegStart + ffmpegDuration))
+    .map((w) => ({
+      word: (w.word || "").trim().toUpperCase(),
+      start: Math.max(0, w.start - ffmpegStart),
+      end:   Math.min(ffmpegDuration, (w.end || w.start + 0.3) - ffmpegStart),
+    }))
+    .filter((w) => w.word);
+
+  // If no word-level data, fall back to segment blocks (no highlight)
+  const useWordLevel = clipWords.length > 0;
+
+  const header = `[Script Info]
+Title: Karaoke Captions
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,${fontSize},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0.5,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
+Style: Highlight,Arial,${fontSize},&H0000FFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0.5,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+
+  const dialogues = [];
+
+  if (useWordLevel) {
+    // Group words into lines
+    const lines = [];
+    for (let i = 0; i < clipWords.length; i += MAX_WORDS_PER_LINE) {
+      lines.push(clipWords.slice(i, i + MAX_WORDS_PER_LINE));
+    }
+
+    for (const lineWords of lines) {
+      if (!lineWords.length) continue;
+      const lineStart = lineWords[0].start;
+      const lineEnd   = lineWords[lineWords.length - 1].end;
+      if (lineEnd <= lineStart) continue;
+
+      // Build {\k} tagged text — duration in centiseconds
+      let assText = "";
+      for (let wi = 0; wi < lineWords.length; wi++) {
+        const w = lineWords[wi];
+        const nextStart = lineWords[wi + 1]?.start ?? lineEnd;
+        // Duration this word "holds" until next word starts (centiseconds)
+        const holdCs = Math.max(1, Math.round((nextStart - w.start) * 100));
+        assText += `{\\kf${holdCs}}${w.word}`;
+        if (wi < lineWords.length - 1) assText += " ";
+      }
+
+      dialogues.push(`Dialogue: 0,${fmtASSTime(lineStart)},${fmtASSTime(lineEnd)},Default,,0,0,0,,${assText}`);
+    }
+  } else {
+    // Fallback: segment blocks, no word highlight
+    const clipSegs = (segments || []).filter(
+      (s) => s.end > ffmpegStart && s.start < (ffmpegStart + ffmpegDuration)
+    );
+    for (const seg of clipSegs) {
+      const relStart = Math.max(0, seg.start - ffmpegStart);
+      const relEnd   = Math.min(ffmpegDuration, seg.end - ffmpegStart);
+      const text = (seg.text || "").trim().toUpperCase();
+      if (text && relEnd > relStart) {
+        dialogues.push(`Dialogue: 0,${fmtASSTime(relStart)},${fmtASSTime(relEnd)},Default,,0,0,0,,${text}`);
+      }
+    }
+  }
+
+  return header + "\n" + dialogues.join("\n") + "\n";
+}
+
+/* ASS timestamp for karaoke (H:MM:SS.cc) */
+function fmtASSTime(s) {
+  const safe = Math.max(0, Number(s) || 0);
+  const h  = Math.floor(safe / 3600);
+  const m  = Math.floor((safe % 3600) / 60);
+  const sc = Math.floor(safe % 60);
+  const cs = Math.round((safe % 1) * 100);
+  return `${h}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"0")}.${String(cs).padStart(2,"0")}`;
+}
+
 function formatSrtTime(seconds) {
   const s = Math.max(0, Number(seconds) || 0);
   const hrs = Math.floor(s / 3600);
@@ -1667,23 +1797,43 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     console.log(`[shorts] clip #${clip.index}: ${ffmpegStart.toFixed(2)}→${smartEndTime.toFixed(2)}s (${ffmpegDuration.toFixed(1)}s total)`);
 
     if (captionStyle !== "none") {
-      let srtContent = "";
-      let idx = 1;
-
-      const clipSegs = segments.filter((seg) => seg.end > ffmpegStart && seg.start < smartEndTime);
-
-      for (const seg of clipSegs) {
-        const relStart = Math.max(0, seg.start - ffmpegStart);
-        const relEnd = Math.min(ffmpegDuration, seg.end - ffmpegStart);
-        const rawText = (seg.text || "").trim();
-
-        if (rawText && relEnd > relStart) {
-          srtContent += `${idx}\n${formatSrtTime(relStart)} --> ${formatSrtTime(relEnd)}\n${rawText.toUpperCase()}\n\n`;
-          idx++;
+      if (captionStyle === "karaoke") {
+        // ── TRUE KARAOKE: ASS with word-level {\kf} tags ──────────────
+        // Uses Whisper word timestamps for smooth per-word highlighting.
+        // Each line stays on screen for its full duration — no SRT flash.
+        const assFile = srtFile.replace(/\.srt$/, ".ass");
+        const assContent = buildKaraokeASS({
+          segments,
+          words,
+          ffmpegStart,
+          ffmpegDuration,
+          fontSize:  scaledShortsFontSize,
+          marginV:   scaledShortsMarginV,
+          marginL:   scaledShortsMarginLR,
+          marginR:   scaledShortsMarginLR,
+          outline:   scaledShortsOutline,
+          shadow:    scaledShortsShadow,
+        });
+        fs.writeFileSync(assFile, assContent, "utf-8");
+        // Store ass path in srtFile variable so filter code picks it up
+        clip._assFile = assFile;
+        console.log(`[shorts]   #${clip.index}: karaoke ASS written (${assContent.split("\n").filter(l=>l.startsWith("Dialogue")).length} lines)`);
+      } else {
+        // ── STANDARD SRT for block/centered styles ───────────────────
+        let srtContent = "";
+        let idx = 1;
+        const clipSegs = segments.filter((seg) => seg.end > ffmpegStart && seg.start < smartEndTime);
+        for (const seg of clipSegs) {
+          const relStart = Math.max(0, seg.start - ffmpegStart);
+          const relEnd = Math.min(ffmpegDuration, seg.end - ffmpegStart);
+          const rawText = (seg.text || "").trim();
+          if (rawText && relEnd > relStart) {
+            srtContent += `${idx}\n${formatSrtTime(relStart)} --> ${formatSrtTime(relEnd)}\n${rawText.toUpperCase()}\n\n`;
+            idx++;
+          }
         }
+        if (srtContent) fs.writeFileSync(srtFile, srtContent, "utf-8");
       }
-
-      if (srtContent) fs.writeFileSync(srtFile, srtContent, "utf-8");
     }
 
     const barHeight = Math.round(outHeight * 0.12);
@@ -1691,39 +1841,53 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
     let filter = `crop=${cropW}:${cropH}:${cropX}:0,scale=${outWidth}:${outHeight}:flags=lanczos`;
     filter += `,drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill`;
 
-    if (captionStyle !== "none" && fs.existsSync(srtFile)) {
-      let srtPath;
+    if (captionStyle !== "none") {
+      // Karaoke uses ASS file; other styles use SRT
+      const captionFile = (captionStyle === "karaoke" && clip._assFile) ? clip._assFile : srtFile;
+      const captionExists = fs.existsSync(captionFile);
 
-      if (process.platform === "win32") {
-        srtPath = srtFile.replace(/\\/g, "/");
-        srtPath = srtPath.replace(/:/g, "\\\\:");
+      if (captionExists) {
+        const isAss = captionFile.endsWith(".ass");
+
+        if (isAss) {
+          // ASS karaoke — use `ass=` filter (relative path via cwd trick)
+          const assRelative = path.basename(captionFile);
+          filter += `,ass='${assRelative}'`;
+          clip._captionCwd = path.dirname(captionFile);
+          console.log(`[shorts]   #${clip.index}: karaoke ASS filter set (cwd=${clip._captionCwd})`);
+        } else {
+          // SRT — use subtitles= with force_style
+          let srtPath;
+          if (process.platform === "win32") {
+            srtPath = captionFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+          } else {
+            srtPath = captionFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+          }
+          console.log(`[shorts]   #${clip.index}: SRT path: ${srtPath}`);
+          console.log(`[shorts]   #${clip.index}: SRT exists: ${captionExists}, size: ${fs.statSync(captionFile).size} bytes`);
+
+          const style = [
+            `FontSize=${scaledShortsFontSize}`,
+            `FontName=Arial`,
+            `Bold=1`,
+            `PrimaryColour=&H00FFFFFF`,
+            `OutlineColour=&H00000000`,
+            `BackColour=&H00000000`,
+            `Outline=${scaledShortsOutline}`,
+            `Shadow=${scaledShortsShadow}`,
+            `MarginV=${scaledShortsMarginV}`,
+            `MarginL=${scaledShortsMarginLR}`,
+            `MarginR=${scaledShortsMarginLR}`,
+            `Alignment=2`,
+            `BorderStyle=1`,
+            `Spacing=1`,
+          ].join(",");
+
+          filter += `,subtitles='${srtPath}':force_style='${style}'`;
+        }
       } else {
-        srtPath = srtFile.replace(/\\/g, "/").replace(/:/g, "\\:");
+        console.log(`[shorts]   #${clip.index}: ⚠ NO CAPTION FILE — captionStyle=${captionStyle}, checked: ${captionFile}`);
       }
-
-      console.log(`[shorts]   #${clip.index}: SRT path: ${srtPath}`);
-      console.log(`[shorts]   #${clip.index}: SRT exists: ${fs.existsSync(srtFile)}, size: ${fs.statSync(srtFile).size} bytes`);
-
-      const style = [
-        `FontSize=${scaledShortsFontSize}`,
-        `FontName=Arial`,
-        `Bold=1`,
-        `PrimaryColour=&H00FFFFFF`,
-        `OutlineColour=&H00000000`,
-        `BackColour=&H00000000`,
-        `Outline=${scaledShortsOutline}`,
-        `Shadow=${scaledShortsShadow}`,
-        `MarginV=${scaledShortsMarginV}`,
-        `MarginL=${scaledShortsMarginLR}`,
-        `MarginR=${scaledShortsMarginLR}`,
-        `Alignment=2`,
-        `BorderStyle=1`,
-        `Spacing=1`,
-      ].join(",");
-
-      filter += `,subtitles='${srtPath}':force_style='${style}'`;
-    } else {
-      console.log(`[shorts]   #${clip.index}: ⚠ NO SRT FILE — captionStyle=${captionStyle}, srtExists=${fs.existsSync(srtFile)}`);
     }
 
     try {
@@ -1736,13 +1900,22 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
 
       console.log(`[shorts]   #${clip.index}: FFmpeg filter: ${filter.slice(0, 200)}...`);
 
-      await execAsync(ffmpegCmd);
+      // Karaoke ASS needs cwd set to the clips dir so relative path resolves
+      const execOpts = clip._captionCwd
+        ? { cwd: clip._captionCwd, maxBuffer: 50 * 1024 * 1024 }
+        : { maxBuffer: 50 * 1024 * 1024 };
+
+      await new Promise((resolve, reject) => {
+        exec(ffmpegCmd, execOpts, (err, stdout, stderr) => {
+          if (err) { err.stderr = stderr; reject(err); } else resolve({ stdout, stderr });
+        });
+      });
     } catch (e) {
       const errMsg = e?.stderr || e?.message || String(e);
       console.warn(`[shorts] ⚠ clip #${clip.index} FFmpeg error:`, errMsg.slice(0, 500));
 
-      if (errMsg.includes("subtitles") || errMsg.includes("Subtitle") || errMsg.includes("srt")) {
-        console.log(`[shorts]   #${clip.index}: retrying WITHOUT subtitles...`);
+      if (errMsg.includes("subtitles") || errMsg.includes("Subtitle") || errMsg.includes("srt") || errMsg.includes("ass")) {
+        console.log(`[shorts]   #${clip.index}: retrying WITHOUT captions...`);
         try {
           const fallbackFilter = `crop=${cropW}:${cropH}:${cropX}:0,scale=${outWidth}:${outHeight}:flags=lanczos` +
             `,drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=black:t=fill`;
@@ -1754,7 +1927,7 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
             `-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k ` +
             `-movflags +faststart -y "${clipFile}"`
           );
-          console.log(`[shorts]   #${clip.index}: ✅ fallback (no subs) succeeded`);
+          console.log(`[shorts]   #${clip.index}: ✅ fallback (no captions) succeeded`);
         } catch (e2) {
           console.warn(`[shorts]   #${clip.index}: fallback also failed:`, e2?.message);
           continue;

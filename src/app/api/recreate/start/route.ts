@@ -65,6 +65,10 @@ export async function POST(req: NextRequest) {
         video_length: project.video_length,
         include_captions: project.include_captions,
         music: project.music || "none",
+        caption_style: project.caption_style || "classic",
+        caption_position: project.caption_position || "bottom",
+        target_length: project.target_length || 90,
+        orientation: project.orientation || "landscape",
       }),
     });
 

@@ -255,6 +255,8 @@ export default function ReCreatePage() {
   const [selectedStyle, setSelectedStyle] = useState("news");
   const [captionConfig, setCaptionConfig] = useState<CaptionConfig>({ style: "classic", position: "bottom" });
   const [includeCaptions, setIncludeCaptions] = useState(true);
+  const [targetLength, setTargetLength] = useState(90);
+  const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [voiceId, setVoiceId] = useState(LANGUAGES[0].voices[0]?.id || "");
   const [music, setMusic] = useState("none");
 
@@ -384,6 +386,8 @@ export default function ReCreatePage() {
           caption_style: includeCaptions ? captionConfig.style : "none",
           caption_position: captionConfig.position,
           music,
+          target_length: targetLength,
+          orientation,
         }),
       });
 
@@ -649,6 +653,56 @@ export default function ReCreatePage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Video Length */}
+          <div className="mb-6">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Video Length</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {([
+                { val: 30,  label: "30s",  desc: "Shorts" },
+                { val: 60,  label: "1 min", desc: "Quick" },
+                { val: 90,  label: "90s",  desc: "Standard" },
+                { val: 180, label: "3 min", desc: "In-depth" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.val}
+                  onClick={() => setTargetLength(opt.val)}
+                  className="flex flex-col items-center py-2.5 rounded-lg transition-all"
+                  style={{
+                    background: targetLength === opt.val ? "rgba(6,182,212,0.15)" : "rgba(15,12,28,0.7)",
+                    border: targetLength === opt.val ? "1.5px solid rgba(6,182,212,0.6)" : "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <span className="text-sm font-bold" style={{ color: targetLength === opt.val ? "#22d3ee" : "#fff" }}>{opt.label}</span>
+                  <span className="text-[10px] mt-0.5" style={{ color: targetLength === opt.val ? "#67e8f9" : "#6b7280" }}>{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Output Format */}
+          <div className="mb-6">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Output Format</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([
+                { val: "landscape", label: "16:9 Landscape", desc: "YouTube / standard" },
+                { val: "portrait",  label: "9:16 Portrait",  desc: "Shorts / TikTok" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.val}
+                  onClick={() => setOrientation(opt.val)}
+                  className="flex flex-col items-center py-2.5 rounded-lg transition-all"
+                  style={{
+                    background: orientation === opt.val ? "rgba(6,182,212,0.15)" : "rgba(15,12,28,0.7)",
+                    border: orientation === opt.val ? "1.5px solid rgba(6,182,212,0.6)" : "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <span className="text-xs font-semibold" style={{ color: orientation === opt.val ? "#22d3ee" : "#fff" }}>{opt.label}</span>
+                  <span className="text-[10px] mt-0.5" style={{ color: orientation === opt.val ? "#67e8f9" : "#6b7280" }}>{opt.desc}</span>
+                </button>
+              ))}
             </div>
           </div>
 

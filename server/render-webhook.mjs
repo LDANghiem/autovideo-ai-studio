@@ -2641,7 +2641,7 @@ async function recreateStep1_Transcribe(projectId, sourceUrl, workDir) {
 }
 
 /* ── [RECREATE STEP 2] AI writes original script + scenes ──── */
-async function recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style) {
+async function recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style, targetLength = 90) {
   await updateReCreateStatus(projectId, "scripting", 20);
 
   if (!ANTHROPIC_API_KEY && !OPENAI_API_KEY) throw new Error("Missing ANTHROPIC_API_KEY or OPENAI_API_KEY");
@@ -2667,32 +2667,42 @@ async function recreateStep2_GenerateScript(projectId, transcript, targetLanguag
 - Write in natural, fluent ${targetLanguage}.
 - Add context and perspective for ${targetLanguage}-speaking audiences.`;
 
+  // Length → scene count + word guidance
+  const lengthMap = {
+    30:  { sceneRange: "4-6",   wordsTotal: "75-100",  sentPerScene: "1-2" },
+    60:  { sceneRange: "7-10",  wordsTotal: "130-170", sentPerScene: "1-3" },
+    90:  { sceneRange: "10-15", wordsTotal: "200-250", sentPerScene: "2-3" },
+    180: { sceneRange: "16-22", wordsTotal: "400-500", sentPerScene: "2-4" },
+  };
+  const lc = lengthMap[targetLength] || lengthMap[90];
+
   const prompt = `You are a senior broadcast journalist writing a video script. Based on the transcript below, ${isRewrite ? "rewrite" : "create"} a compelling narration script.
 
 ${rewriteInstruction}
 - ${styleGuide[style] || styleGuide.news}
 
 ═══ SCRIPT STRUCTURE ═══
-Write a NATURAL, FLOWING narration that sounds like a real TV news anchor or documentary narrator.
+Target video length: ${targetLength} seconds. Write a NATURAL, FLOWING narration.
 
-Return a JSON array of 12-18 SCENES. Each scene is a PARAGRAPH of narration paired with 2-3 visual shots.
+Return a JSON array of EXACTLY ${lc.sceneRange} SCENES. Total narration: ${lc.wordsTotal} words across ALL scenes.
 
 NARRATION RULES:
-- Each scene's "text" should be 2-4 natural sentences (40-100 words)
-- VARY sentence length: mix short punchy sentences ("The stakes have never been higher.") with longer explanatory ones
-- Connect ideas with transitions: "Meanwhile...", "But the real story is...", "What makes this significant is...", "Behind the scenes..."
-- Scene 1 must HOOK the viewer with a dramatic opening
-- Final scene must deliver a strong closing statement
-- Write like a REAL journalist — authoritative, engaging, with natural rhythm
-- Do NOT write choppy fragments. Write flowing prose that sounds good read aloud.
+- Each scene's "text": ${lc.sentPerScene} sentences (keep scenes SHORT for punchy video pacing)
+- Total word count across ALL scenes MUST be ${lc.wordsTotal} words — this controls video length
+- VARY sentence length: mix punchy one-liners with longer context sentences
+- Connect ideas with transitions: "Meanwhile...", "But here's the key...", "What's significant is..."
+- Scene 1: HOOK the viewer with a dramatic opening
+- Final scene: strong memorable closing — no weak endings
+- Write like a REAL journalist — authoritative, engaging, natural rhythm
+- SHORT scenes = dynamic pacing. Long paragraphs kill video momentum.
 
 VISUAL SHOTS:
-Each scene gets a "visuals" array of 2-3 stock footage queries. The video editor will cut between these shots WHILE the narration plays, creating dynamic pacing.
+Each scene gets a "visuals" array of 2-3 stock footage queries. The editor cuts between shots WHILE narration plays.
 
 For each scene:
-- "text": Natural paragraph of narration (2-4 sentences, 40-100 words)
-- "visuals": Array of 2-3 stock footage search queries for this paragraph
-- "duration_sec": Estimated narration time (roughly 13-15 characters per second)
+- "text": Narration for this scene (${lc.sentPerScene} sentences)
+- "visuals": Array of 2-3 stock footage search queries
+- "duration_sec": Estimated read time (~13 chars/second)
 
 ═══ SCENE_QUERY RULES (for each visual in the visuals array) ═══
 Stock footage libraries contain GENERIC B-roll, NOT specific people or events.
@@ -2842,9 +2852,10 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
 
   console.log("[recreate] expanded", scenes.length, "scenes →", flatScenes.length, "visual shots");
 
-  const updatedScenes = [];
+  const updatedScenes = new Array(flatScenes.length);
+  const CONCURRENCY = 5; // fetch 5 shots in parallel — ~5x faster than sequential
 
-  for (let i = 0; i < flatScenes.length; i++) {
+  async function fetchOneShot(i) {
     const scene = flatScenes[i];
     const query = scene.scene_query || "nature landscape";
     let mediaUrl = null;
@@ -3125,12 +3136,15 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
       } catch { localFile = null; }
     }
 
-    updatedScenes.push({ ...scene, media_url: mediaUrl, media_type: mediaType, local_file: localFile, source });
-
-    const pct = 35 + Math.round(((i + 1) / scenes.length) * 15);
+    updatedScenes[i] = { ...scene, media_url: mediaUrl, media_type: mediaType, local_file: localFile, source };
+    const pct = 35 + Math.round(((i + 1) / flatScenes.length) * 15);
     await updateReCreateStatus(projectId, "finding_media", pct);
+  }
 
-    if (i < flatScenes.length - 1) await new Promise((r) => setTimeout(r, 250));
+  for (let b = 0; b < flatScenes.length; b += CONCURRENCY) {
+    const end = Math.min(b + CONCURRENCY, flatScenes.length);
+    await Promise.all(Array.from({ length: end - b }, (_, k) => fetchOneShot(b + k)));
+    console.log(`[recreate] media batch ${Math.floor(b/CONCURRENCY)+1}/${Math.ceil(flatScenes.length/CONCURRENCY)} done (${end}/${flatScenes.length} shots)`);
   }
 
   const bySource = {};
@@ -3274,10 +3288,15 @@ async function recreateStep4b_SyncCaptions(projectId, narrationFile, scenes, lan
 }
 
 /* ── [RECREATE STEP 5] Assemble video — v8 improvements ────── */
-async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle = "classic", captionPosition = "bottom") {
+async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle = "classic", captionPosition = "bottom", orientation = "landscape") {
   await updateReCreateStatus(projectId, "rendering", 70);
 
-  const W = 1920, H = 1080, FPS = 30;
+  const isPortrait = orientation === "portrait";
+  const W = isPortrait ? 1080 : 1920;
+  const H = isPortrait ? 1920 : 1080;
+  const FPS = 30;
+  const CRF_SEG   = 20;  // was 28 — sharper segments
+  const CRF_FINAL = 18;  // was 26 — sharper final output
   const validScenes = scenes.filter((s) => s.local_file && fs.existsSync(s.local_file));
   if (validScenes.length === 0) throw new Error("No media found for any scene");
 
@@ -3312,20 +3331,22 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
     const sf = path.join(segDir, `s-${String(i).padStart(3, "0")}.mp4`);
 
     if (sc.media_type === "video") {
+      // Scale to fill frame (crop > letterbox), high quality
       await execAsync(
         `ffmpeg -stream_loop -1 -i "${sc.local_file}" -t ${dur} ` +
-        `-vf "scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" ` +
-        `-an -c:v libx264 -preset fast -crf 28 -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
+        `-vf "scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1" ` +
+        `-an -c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
       );
     } else {
-      const zd = Math.random() > 0.5;
+      // Ken Burns: alternate gentle zoom-in / zoom-out, centered
       const frames = Math.ceil(dur * FPS);
-      const zf = zd
-        ? `zoompan=z='min(zoom+0.0008,1.25)':d=${frames}:s=${W}x${H}:fps=${FPS}`
-        : `zoompan=z='if(eq(on,0),1.25,max(zoom-0.0008,1))':d=${frames}:s=${W}x${H}:fps=${FPS}`;
+      const zoomIn = i % 2 === 0;
+      const zf = zoomIn
+        ? `zoompan=z='min(zoom+0.0004,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${FPS}`
+        : `zoompan=z='if(eq(on,0),1.15,max(zoom-0.0004,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${FPS}`;
       await execAsync(
         `ffmpeg -loop 1 -i "${sc.local_file}" -t ${dur} -vf "${zf},setsar=1" ` +
-        `-c:v libx264 -preset fast -crf 28 -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
+        `-c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${sf}"`
       );
     }
 
@@ -3333,15 +3354,96 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
     await updateReCreateStatus(projectId, "rendering", 70 + Math.round(((i + 1) / validScenes.length) * 8));
   }
 
-  // v8: Simple concat — fast hard cuts work best for micro-scenes (news-style pacing)
+  // ── Intro card (1.5s branded title card) ─────────────────────────────────
+  const introFile = path.join(segDir, "intro.mp4");
+  const introColor = isPortrait ? "0x0a0a1a" : "0x0a0a1a";
+  try {
+    await execAsync(
+      `ffmpeg -f lavfi -i "color=c=${introColor}:s=${W}x${H}:d=1.5:r=${FPS}" ` +
+      `-vf "drawtext=text='AUTOVIDEO AI':fontsize=${Math.round(W/25)}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2-${Math.round(H/12)}:fontfile=/Windows/Fonts/arialbd.ttf,` +
+      `drawtext=text='${style.toUpperCase()} REPORT':fontsize=${Math.round(W/45)}:fontcolor=0xaaaaaa:x=(w-text_w)/2:y=(h-text_h)/2+${Math.round(H/14)}:fontfile=/Windows/Fonts/arial.ttf" ` +
+      `-c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${introFile}"`
+    );
+  } catch {
+    // drawtext with font may fail on some systems — use plain color card
+    try {
+      await execAsync(`ffmpeg -f lavfi -i "color=c=${introColor}:s=${W}x${H}:d=1.5:r=${FPS}" -c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${introFile}"`);
+    } catch { /* skip intro */ }
+  }
+
+  // ── Outro card (2s fade-to-black outro) ───────────────────────────────────
+  const outroFile = path.join(segDir, "outro.mp4");
+  try {
+    await execAsync(
+      `ffmpeg -f lavfi -i "color=c=${introColor}:s=${W}x${H}:d=2:r=${FPS}" ` +
+      `-c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${outroFile}"`
+    );
+  } catch { /* skip outro */ }
+
+  // ── Assemble with xfade transitions (0.35s crossfade) ────────────────────
+  const XFADE = 0.35; // seconds of crossfade between segments
   let rawVideo;
-  if (segFiles.length === 1) {
-    rawVideo = segFiles[0];
+
+  // Build full segment list: [intro?, ...content segs, outro?]
+  const allSegs = [
+    ...(fs.existsSync(introFile) ? [introFile] : []),
+    ...segFiles,
+    ...(fs.existsSync(outroFile) ? [outroFile] : []),
+  ];
+
+  // Durations for ALL segments (intro=1.5, outro=2, content=finalDurations)
+  const allDurs = [
+    ...(fs.existsSync(introFile) ? [1.5] : []),
+    ...finalDurations.slice(0, segFiles.length),
+    ...(fs.existsSync(outroFile) ? [2] : []),
+  ];
+
+  if (allSegs.length === 1) {
+    rawVideo = allSegs[0];
+  } else if (allSegs.length === 2) {
+    rawVideo = path.join(workDir, "raw.mp4");
+    const offset = Math.max(0.1, allDurs[0] - XFADE);
+    await new Promise((resolve, reject) => {
+      exec(
+        `ffmpeg -i "${allSegs[0]}" -i "${allSegs[1]}" ` +
+        `-filter_complex "[0:v][1:v]xfade=transition=fade:duration=${XFADE}:offset=${offset.toFixed(3)}[vout]" ` +
+        `-map "[vout]" -c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${rawVideo}"`,
+        { maxBuffer: 100 * 1024 * 1024 },
+        (err, stdout, stderr) => err ? reject(err) : resolve()
+      );
+    });
   } else {
     rawVideo = path.join(workDir, "raw.mp4");
-    const cl = path.join(segDir, "list.txt");
-    fs.writeFileSync(cl, segFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-    await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+    try {
+      // Chain xfades: [0][1]→[x0]; [x0][2]→[x1]; ... ; [xN-2][N-1]→[vout]
+      const inputs = allSegs.map((f) => `-i "${f}"`).join(" ");
+      let filterParts = [];
+      let prevLabel = "[0:v]";
+      let offset = 0;
+
+      for (let x = 0; x < allSegs.length - 1; x++) {
+        offset += Math.max(0.1, allDurs[x] - XFADE);
+        const outLabel = x === allSegs.length - 2 ? "[vout]" : `[x${x}]`;
+        filterParts.push(`${prevLabel}[${x+1}:v]xfade=transition=fade:duration=${XFADE}:offset=${offset.toFixed(3)}${outLabel}`);
+        prevLabel = outLabel;
+        offset -= XFADE; // each xfade shortens cumulative offset
+      }
+
+      await new Promise((resolve, reject) => {
+        exec(
+          `ffmpeg ${inputs} -filter_complex "${filterParts.join(";")}" ` +
+          `-map "[vout]" -c:v libx264 -preset fast -crf ${CRF_SEG} -pix_fmt yuv420p -r ${FPS} -y "${rawVideo}"`,
+          { maxBuffer: 200 * 1024 * 1024 },
+          (err, stdout, stderr) => err ? reject(err) : resolve()
+        );
+      });
+      console.log("[recreate] ✅ xfade transitions applied:", allSegs.length, "segments");
+    } catch (xfadeErr) {
+      console.log("[recreate] ⚠ xfade failed, falling back to concat:", (xfadeErr?.message || "").slice(0, 120));
+      const cl = path.join(segDir, "list.txt");
+      fs.writeFileSync(cl, allSegs.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+      await execAsync(`ffmpeg -f concat -safe 0 -i "${cl}" -c copy -y "${rawVideo}"`);
+    }
   }
 
   // Verify raw video duration
@@ -3485,7 +3587,7 @@ ${assEvents.join("\n")}
       const ffmpegCmd = `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
         `-vf "ass=subs.ass" ` +
         `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
-        `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`;
+        `-c:v libx264 -preset fast -crf ${CRF_FINAL} -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`;
 
       console.log("[recreate] running from cwd:", workDir);
       console.log("[recreate] ffmpeg cmd:", ffmpegCmd.slice(0, 250) + "...");
@@ -3523,7 +3625,7 @@ ${assEvents.join("\n")}
           `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
           `-vf "subtitles='${srtEsc}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
           `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
-          `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
+          `-c:v libx264 -preset fast -crf ${CRF_FINAL} -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
         );
 
         captionsBurned = true;
@@ -3543,7 +3645,7 @@ ${assEvents.join("\n")}
           `ffmpeg -i "${rawVideo}" -i "${narrationFile}" ` +
           `-vf "subtitles='${srtSingle}':force_style='FontName=Arial,Bold=1,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,BorderStyle=1,MarginV=50'" ` +
           `-af "afade=t=out:st=${fadeStart.toFixed(2)}:d=2" ` +
-          `-c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
+          `-c:v libx264 -preset fast -crf ${CRF_FINAL} -pix_fmt yuv420p -c:a aac -b:a 192k -y "${finalFile}"`
         );
 
         captionsBurned = true;
@@ -3664,7 +3766,13 @@ async function recreateStep4c_MixMusic(projectId, narrationFile, durationSec, mu
 
 /* ── MAIN RECREATE PIPELINE ────────────────────────────────── */
 async function runReCreate(projectId, sourceUrl, opts = {}) {
-  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true, music = "none", captionStyle = "classic", captionPosition = "bottom" } = opts;
+  const {
+    targetLanguage = "Vietnamese", style = "news", voiceId = null,
+    includeCaptions = true, music = "none",
+    captionStyle = "classic", captionPosition = "bottom",
+    targetLength = 90,       // seconds: 30 | 60 | 90 | 180
+    orientation = "landscape", // "landscape" | "portrait"
+  } = opts;
   const langCode = getReCreateLangCode(targetLanguage);
   const workDir = path.join(os.tmpdir(), `recreate-${projectId}`);
   fs.mkdirSync(workDir, { recursive: true });
@@ -3674,7 +3782,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
     const userId = proj?.user_id;
 
     const transcript = await recreateStep1_Transcribe(projectId, sourceUrl, workDir);
-    const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style);
+    const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style, targetLength);
     const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir, style);
     const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, voiceId, workDir, langCode);
 
@@ -3690,7 +3798,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
       finalNarrationFile = await recreateStep4c_MixMusic(projectId, narrationFile, durationSec, music, workDir);
     }
 
-    const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle, captionPosition);
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle, captionPosition, orientation);
 
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);
@@ -3718,7 +3826,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
 /* ── POST /recreate ───────────────────────────────────────── */
 app.post("/recreate", async (req, res) => {
-  const { project_id, source_url, target_language, style, voice_id, include_captions, music, caption_style, caption_position } = req.body || {};
+  const { project_id, source_url, target_language, style, voice_id, include_captions, music, caption_style, caption_position, target_length, orientation } = req.body || {};
 
   if (!project_id) return jsonError(res, 400, "Missing project_id");
   if (!source_url) return jsonError(res, 400, "Missing source_url");
@@ -3736,6 +3844,8 @@ app.post("/recreate", async (req, res) => {
         music: music || "none",
         captionStyle: caption_style || "classic",
         captionPosition: caption_position || "bottom",
+        targetLength: Number(target_length) || 90,
+        orientation: orientation || "landscape",
       });
     } catch (e) {
       console.error("[recreate] ❌ FAILED:", e?.message || e);

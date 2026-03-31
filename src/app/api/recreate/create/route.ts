@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
       video_length = "auto",
       include_captions = true,
       music = "none",
+      caption_style = "classic",
+      caption_position = "bottom",
+      target_length = 90,
+      orientation = "landscape",
     } = body;
 
     if (!source_url) return NextResponse.json({ error: "Source URL is required" }, { status: 400 });
@@ -71,6 +75,10 @@ export async function POST(req: NextRequest) {
         video_length,
         include_captions,
         music,
+        caption_style,
+        caption_position,
+        target_length,
+        orientation,
         status: "draft",
         progress_pct: 0,
       })

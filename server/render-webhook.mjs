@@ -924,7 +924,7 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
 }
 
 /* ── [DUB STEP 6] Burn captions + replace audio ───────────── */
-async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, translatedSegments, captionStyle, workDir) {
+async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, translatedSegments, captionStyle, workDir, captionPosition = "bottom") {
   await updateDubStatus(projectId, "assembling", 80);
 
   const srtFile = path.join(workDir, "vietnamese.srt");
@@ -1022,22 +1022,22 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
     videoWidth, "x", videoHeight, "bar:", barHeight,
     "px, desiredPx:", desiredFontPx, "assFontSize:", fontSize, "marginV:", scaledMarginV);
 
-  const backColour = "&H80000000";
-
-  const subtitleStyle = [
-    `FontSize=${fontSize}`,
-    `FontName=Arial`,
-    `Bold=0`,
-    `PrimaryColour=&H00FFFFFF`,
-    `OutlineColour=&H00000000`,
-    `BackColour=${backColour}`,
-    `Outline=${scaledOutline}`,
-    `Shadow=${Math.max(1, Math.round(1 * assScaleFactor))}`,
-    `MarginV=${scaledMarginV}`,
-    `Alignment=2`,
-    `BorderStyle=4`,
-    `MarginL=${scaledMarginLR}`,
-    `MarginR=${scaledMarginLR}`,
+  const subtitleStyle = buildCaptionStyle({
+    captionStyle: captionStyle || "classic",
+    captionPosition: captionPosition || "bottom",
+    fontSize,
+    outline: scaledOutline,
+    shadow: Math.max(1, Math.round(1 * assScaleFactor)),
+    marginV: scaledMarginV,
+    marginL: scaledMarginLR,
+    marginR: scaledMarginLR,
+    isVertical,
+  }) || [
+    `FontSize=${fontSize}`, `FontName=Arial`, `Bold=0`,
+    `PrimaryColour=&H00FFFFFF`, `OutlineColour=&H00000000`, `BackColour=&H80000000`,
+    `Outline=${scaledOutline}`, `Shadow=${Math.max(1, Math.round(1 * assScaleFactor))}`,
+    `MarginV=${scaledMarginV}`, `Alignment=2`, `BorderStyle=4`,
+    `MarginL=${scaledMarginLR}`, `MarginR=${scaledMarginLR}`,
     `Spacing=${Math.max(0, Math.round(0.5 * assScaleFactor))}`,
   ].join(",");
 
@@ -1132,12 +1132,97 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
 }
 
 /* ── SRT timestamp formatter ───────────────────────────────── */
-/* ── Karaoke ASS builder ─────────────────────────────────────────
-   Generates a proper ASS file with word-level {\k} karaoke tags.
+/* ── Caption style + position builder ───────────────────────────────────────
+   Centralizes all 4 caption presets for every pipeline.
+   captionStyle: "classic" | "highlight" | "fade" | "karaoke" | "block" | "centered" | "none"
+   captionPosition: "bottom" | "middle" | "top"
+   Returns an ASS force_style string for subtitles= filter, or null for "none".
+─────────────────────────────────────────────────────────────────────────── */
+function buildCaptionStyle({ captionStyle, captionPosition = "bottom", fontSize, outline, shadow, marginV, marginL, marginR, isVertical = false }) {
+  if (captionStyle === "none") return null;
+
+  // ASS Alignment: 2=bottom-center, 8=top-center, 5=middle-center
+  const alignMap = { bottom: 2, middle: 5, top: 8 };
+  const alignment = alignMap[captionPosition] || 2;
+
+  // For vertical video, position is always bottom (9:16 format)
+  const finalAlignment = isVertical ? 2 : alignment;
+
+  switch (captionStyle) {
+    case "classic":
+    case "block":
+      // Bold white, black outline — the proven YouTube standard
+      return [
+        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=1`,
+        `PrimaryColour=&H00FFFFFF`, `OutlineColour=&H00000000`, `BackColour=&H00000000`,
+        `Outline=${outline}`, `Shadow=${shadow}`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=${finalAlignment}`, `BorderStyle=1`, `Spacing=1`,
+      ].join(",");
+
+    case "highlight":
+      // Yellow background bar — news style
+      return [
+        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=1`,
+        `PrimaryColour=&H00000000`,   // black text
+        `BackColour=&H00FFFF00`,       // solid yellow bg  (AABBGGRR → 00FFFF00 = opaque yellow)
+        `OutlineColour=&H00000000`, `Outline=0`, `Shadow=0`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=${finalAlignment}`, `BorderStyle=4`, `Spacing=2`,
+      ].join(",");
+
+    case "fade":
+      // Minimal, semi-transparent italic lowercase feel
+      return [
+        `FontSize=${Math.round(fontSize * 0.85)}`, `FontName=Arial`, `Bold=0`, `Italic=1`,
+        `PrimaryColour=&HB4FFFFFF`,   // 70% opacity white
+        `OutlineColour=&H00000000`, `BackColour=&H00000000`,
+        `Outline=${Math.max(1, Math.round(outline * 0.6))}`, `Shadow=0`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=${finalAlignment}`, `BorderStyle=1`, `Spacing=2`,
+      ].join(",");
+
+    case "karaoke":
+      // Yellow highlight on active word — handled separately via ASS \kf tags
+      // This style string is used as the base for non-karaoke fallback
+      return [
+        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=1`,
+        `PrimaryColour=&H0000FFFF`,   // yellow
+        `OutlineColour=&H00000000`, `BackColour=&H80000000`,
+        `Outline=${outline}`, `Shadow=${shadow}`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=${finalAlignment}`, `BorderStyle=1`, `Spacing=1`,
+      ].join(",");
+
+    case "centered":
+      // Large centered text (existing Shorts style)
+      return [
+        `FontSize=${Math.round(fontSize * 1.1)}`, `FontName=Arial`, `Bold=1`,
+        `PrimaryColour=&H00FFFFFF`, `OutlineColour=&H00000000`, `BackColour=&H00000000`,
+        `Outline=${outline}`, `Shadow=${shadow}`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=5`, `BorderStyle=1`, `Spacing=1`,
+      ].join(",");
+
+    default:
+      // Fallback to classic
+      return [
+        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=1`,
+        `PrimaryColour=&H00FFFFFF`, `OutlineColour=&H00000000`, `BackColour=&H00000000`,
+        `Outline=${outline}`, `Shadow=${shadow}`,
+        `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
+        `Alignment=${finalAlignment}`, `BorderStyle=1`, `Spacing=1`,
+      ].join(",");
+  }
+}
+
+
+/* ── Karaoke ASS builder ─────────────────────────────────────
+   Generates a proper ASS file with word-level karaoke tags.
    Each LINE stays visible for its full duration — only the active
-   word is highlighted in yellow. This eliminates SRT-style flashing.
-   Falls back gracefully to segment-level if no word timestamps exist.
-──────────────────────────────────────────────────────────────── */
+   word is highlighted in yellow. Eliminates SRT-style flashing.
+   Falls back to segment-level if no word timestamps exist.
+──────────────────────────────────────────────────────────── */
 function buildKaraokeASS({
   segments, words, ffmpegStart, ffmpegDuration,
   fontSize, marginV, marginL, marginR, outline, shadow,
@@ -1294,7 +1379,7 @@ async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
 /* ── Main dub orchestrator ─────────────────────────────────── */
 /* v2: Accepts opts for sourceType, startTime, endTime          */
 async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyle, keepOriginal, originalVolume, targetLanguageCode, opts = {}) {
-  const { sourceType = "youtube", startTime = null, endTime = null } = opts;
+  const { sourceType = "youtube", startTime = null, endTime = null, captionPosition = "bottom" } = opts;
 
   console.log("[dub] ═══════════════════════════════════════");
   console.log("[dub] Starting dub pipeline for project:", projectId);
@@ -1335,7 +1420,7 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
       await dubStep5_MixAudio(projectId, narrationFile, audioFile, keepOriginal, originalVolume, workDir, durationSec);
 
     const { finalOutputFile, srtFile } =
-      await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir);
+      await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir, captionPosition);
 
     const { videoUrl, srtUrl } =
       await dubStep7_Upload(projectId, userId, finalOutputFile, srtFile);
@@ -1422,6 +1507,7 @@ app.post("/dub", async (req, res) => {
     target_language_code,
     voice_id,
     caption_style,
+    caption_position,
     keep_original_audio,
     original_audio_volume,
     start_time,
@@ -1453,6 +1539,7 @@ app.post("/dub", async (req, res) => {
           sourceType: source_type || "youtube",
           startTime: typeof start_time === "number" ? start_time : null,
           endTime: typeof end_time === "number" ? end_time : null,
+          captionPosition: caption_position || "bottom",
         }
       );
     } catch (e) {
@@ -1856,7 +1943,7 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
           clip._captionCwd = path.dirname(captionFile);
           console.log(`[shorts]   #${clip.index}: karaoke ASS filter set (cwd=${clip._captionCwd})`);
         } else {
-          // SRT — use subtitles= with force_style
+          // SRT — use subtitles= with force_style via buildCaptionStyle
           let srtPath;
           if (process.platform === "win32") {
             srtPath = captionFile.replace(/\\/g, "/").replace(/:/g, "\\\\:");
@@ -1866,22 +1953,17 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
           console.log(`[shorts]   #${clip.index}: SRT path: ${srtPath}`);
           console.log(`[shorts]   #${clip.index}: SRT exists: ${captionExists}, size: ${fs.statSync(captionFile).size} bytes`);
 
-          const style = [
-            `FontSize=${scaledShortsFontSize}`,
-            `FontName=Arial`,
-            `Bold=1`,
-            `PrimaryColour=&H00FFFFFF`,
-            `OutlineColour=&H00000000`,
-            `BackColour=&H00000000`,
-            `Outline=${scaledShortsOutline}`,
-            `Shadow=${scaledShortsShadow}`,
-            `MarginV=${scaledShortsMarginV}`,
-            `MarginL=${scaledShortsMarginLR}`,
-            `MarginR=${scaledShortsMarginLR}`,
-            `Alignment=2`,
-            `BorderStyle=1`,
-            `Spacing=1`,
-          ].join(",");
+          const style = buildCaptionStyle({
+            captionStyle: captionStyle || "classic",
+            captionPosition: "bottom", // shorts are always 9:16, always bottom
+            fontSize: scaledShortsFontSize,
+            outline: scaledShortsOutline,
+            shadow: scaledShortsShadow,
+            marginV: scaledShortsMarginV,
+            marginL: scaledShortsMarginLR,
+            marginR: scaledShortsMarginLR,
+            isVertical: true,
+          }) || `FontSize=${scaledShortsFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=${scaledShortsOutline},Shadow=${scaledShortsShadow},MarginV=${scaledShortsMarginV},Alignment=2,BorderStyle=1`;
 
           filter += `,subtitles='${srtPath}':force_style='${style}'`;
         }
@@ -2615,19 +2697,26 @@ For each scene:
 ═══ SCENE_QUERY RULES (for each visual in the visuals array) ═══
 Stock footage libraries contain GENERIC B-roll, NOT specific people or events.
 
-NEVER use: names of real people, specific news events, specific buildings.
-ALWAYS think: "What visual would a TV news editor cut to?"
+STRICT RULES:
+1. NEVER include names of real people (Trump, Biden, Xi, Putin — any person's name)
+2. NEVER include specific event names (G20 Summit, January 6, COVID outbreak)
+3. NEVER include specific building names (White House, Eiffel Tower, Kremlin)
+4. NEVER use abstract concepts alone (freedom, democracy, economy) — always pair with a VISUAL noun
+5. ALWAYS use 3-5 words: [visual descriptor] + [concrete subject] + [optional context]
+6. ALWAYS think: "What physical thing would a camera point at?"
 
-Good queries are SPECIFIC and VISUAL:
-✓ "natural gas pipeline valve closeup" — not just "pipeline"
-✓ "oil tanker ship ocean aerial drone" — not just "cargo ship"
-✓ "electricity power grid tower sunset" — not just "energy"
-✓ "gas stove flame burning kitchen" — for consumer impact
-✓ "factory smokestacks industrial timelapse" — for industry
-✓ "digital world map glowing connections" — for geopolitics
-✓ "stock market red graph falling" — for economic impact
-✓ "military convoy trucks highway" — for military movements
-✓ "protest signs crowd angry street" — for public reaction
+BAD queries (too abstract/specific — zero results): "Trump trade war", "Biden speech", "China tensions"
+GOOD replacements: "container ship port aerial", "politician podium speech crowd", "military parade soldiers march"
+
+PROVEN query patterns by topic:
+- Politics/Geopolitics: "government building exterior", "diplomat handshake meeting", "protest crowd street signs", "military aircraft carrier sea"
+- Economy/Finance: "stock market graph red screen", "businessman walking city suit", "factory workers assembly line", "shipping containers port crane"
+- Technology: "server room blue lights data", "programmer coding laptop screen", "circuit board closeup macro", "robot arm manufacturing"
+- Energy: "oil refinery flames night", "solar panels field aerial", "wind turbines rotating sunset", "power lines electricity tower"
+- Health: "doctor hospital corridor white", "laboratory scientist microscope", "medicine pills bottles closeup", "ambulance emergency lights"
+- War/Military: "military helicopter flying low", "soldiers training desert", "warship ocean horizon", "fighter jet runway takeoff"
+- Environment: "ocean pollution plastic waves", "forest fire smoke aerial", "melting glacier ice water", "flood water city street"
+- Food/Trade: "cargo ship ocean aerial", "supermarket shelves food products", "farmer harvesting field tractor", "shipping warehouse workers"
 
 ${style === "motivational" ? `For MOTIVATIONAL content — cinematic emotional B-roll:
 ✓ "athlete training gym weights" ✓ "runner sunrise mountain trail"
@@ -2764,6 +2853,30 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
 
     console.log(`[recreate]   shot ${i + 1}/${flatScenes.length}: "${query}"`);
 
+    // ── Sanitize query: remove proper nouns / names that stock libraries can't match ──
+    // Stock libraries have B-roll, not photos of specific people or events.
+    // Strip capitalized words that look like names (2+ capital-first words in a row),
+    // keep visual/concrete descriptors.
+    const sanitizeQuery = (q) => {
+      // Remove words that are likely proper nouns (Title Case isolated words in otherwise lowercase query)
+      // but preserve ALL-CAPS acronyms like "GDP", "NATO", "UN" which often DO match stock tags
+      const tokens = q.split(/\s+/);
+      const cleaned = tokens.filter((tok) => {
+        if (tok.length <= 2) return true; // keep short words
+        if (tok === tok.toUpperCase()) return true; // keep acronyms (GDP, NATO)
+        if (/^[A-Z][a-z]{2,}$/.test(tok)) return false; // drop Title-cased words (names: Trump, Biden, Xi)
+        return true;
+      });
+      // If cleaning removed too much (< 2 words), fall back to original
+      return cleaned.length >= 2 ? cleaned.join(" ") : q;
+    };
+
+    const cleanQuery = sanitizeQuery(query);
+    if (cleanQuery !== query) {
+      console.log(`[recreate]     sanitized: "${query}" → "${cleanQuery}"`);
+    }
+    const effectiveQuery = cleanQuery;
+
     // For news APIs, extract keywords from scene TEXT
     const sceneText = (scene.full_text || scene.text || "").trim();
     const newsQuery = sceneText
@@ -2789,7 +2902,7 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     if (!mediaUrl && PEXELS_API_KEY) {
       try {
         const res = await fetch(
-          `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`,
+          `https://api.pexels.com/videos/search?query=${encodeURIComponent(effectiveQuery)}&per_page=8&orientation=landscape`,
           { headers: { Authorization: PEXELS_API_KEY } }
         );
         if (res.ok) {
@@ -2816,7 +2929,7 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     if (!mediaUrl && PIXABAY_API_KEY) {
       try {
         const res = await fetch(
-          `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=8&safesearch=true`
+          `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(effectiveQuery)}&per_page=8&safesearch=true`
         );
         if (res.ok) {
           const data = await res.json();
@@ -2837,7 +2950,7 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     if (!mediaUrl && PEXELS_API_KEY) {
       try {
         const res = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`,
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(effectiveQuery)}&per_page=8&orientation=landscape`,
           { headers: { Authorization: PEXELS_API_KEY } }
         );
         if (res.ok) {
@@ -2860,7 +2973,7 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
     if (!mediaUrl && PIXABAY_API_KEY) {
       try {
         const res = await fetch(
-          `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(query)}&per_page=8&orientation=horizontal&safesearch=true&image_type=photo`
+          `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(effectiveQuery)}&per_page=8&orientation=horizontal&safesearch=true&image_type=photo`
         );
         if (res.ok) {
           const data = await res.json();
@@ -2878,41 +2991,112 @@ async function recreateStep3_FindMedia(projectId, scenes, workDir, style) {
       } catch (e) { console.log(`[recreate]     pixabay photo err:`, e.message); }
     }
 
-    /* ── Fallback: simpler query (first 2 words) ── */
+    /* ── Smart multi-tier fallback ─────────────────────────────────
+       Instead of blindly slicing to 2 words (which loses all meaning),
+       we try progressively broader but still MEANINGFUL queries:
+         Tier 1: Remove adjectives/modifiers, keep nouns (3-4 words)
+         Tier 2: Extract the core noun phrase (2 meaningful words)
+         Tier 3: Topic-mapped generic B-roll (always has results)
+    ─────────────────────────────────────────────────────────────── */
     if (!mediaUrl) {
-      const simpleQ = query.split(" ").slice(0, 2).join(" ");
-      console.log(`[recreate]     retrying: "${simpleQ}"`);
+      // Build fallback tiers from the original query
+      const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 
-      if (PEXELS_API_KEY) {
-        try {
-          const res = await fetch(
-            `https://api.pexels.com/v1/search?query=${encodeURIComponent(simpleQ)}&per_page=5&orientation=landscape`,
-            { headers: { Authorization: PEXELS_API_KEY } }
-          );
-          if (res.ok) {
-            const photo = (await res.json()).photos?.find((p) => !usedMediaUrls.has(p.src?.landscape));
-            if (photo) {
-              mediaUrl = photo.src?.landscape || photo.src?.large;
-              mediaType = "image"; source = "pexels-fallback";
-              if (mediaUrl) usedMediaUrls.add(mediaUrl);
-            }
-          }
-        } catch {}
+      // Tier 1: drop last descriptor word, keep 3-4 content words
+      const tier1 = words
+        .filter((w) => !["the","a","an","of","in","at","on","by","for","and","or","with","from","to","into"].includes(w))
+        .slice(0, 4).join(" ");
+
+      // Tier 2: keep only the 2 strongest nouns (longest words, most meaningful)
+      const tier2 = words
+        .filter((w) => w.length >= 5 && !["aerial","closeup","timelapse","drone","sunset","golden","glowing","dramatic","slow","motion","cinematic","beautiful","modern","classic"].includes(w))
+        .slice(0, 2).join(" ") || words.slice(0, 2).join(" ");
+
+      // Tier 3: topic-mapped safe generic B-roll that ALWAYS returns results
+      const topicMap = [
+        [/war|military|troops|army|weapon|missile|tank|bomb|combat|conflict/, "military soldiers training"],
+        [/econom|market|stock|trade|tariff|gdp|financ|invest|bank|currency/, "business finance stock market"],
+        [/tech|ai|robot|digital|computer|software|cyber|data|internet|chip/, "technology computer digital"],
+        [/oil|gas|energy|pipeline|fuel|coal|nuclear|solar|wind|power/, "energy power plant industrial"],
+        [/food|farm|agricult|crop|harvest|grain|wheat|rice|livestock/, "agriculture farm harvest"],
+        [/health|hospital|doctor|medic|vaccine|drug|virus|disease|covid/, "hospital medical healthcare"],
+        [/climate|environment|pollution|carbon|ocean|forest|wildfire|flood/, "nature environment climate"],
+        [/protest|crowd|people|street|city|urban|traffic|building/, "city street crowd urban"],
+        [/politic|government|election|vote|congress|parliament|president/, "government building politics"],
+        [/china|asia|pacific|beijing|shanghai/, "asia city skyline aerial"],
+        [/vietnam|hanoi|saigon|ho chi minh/, "vietnam city street"],
+        [/america|us|united states|washington|white house/, "washington dc government"],
+        [/europe|european|brussels|germany|france/, "europe city aerial"],
+        [/space|rocket|nasa|satellite|orbit|moon|planet/, "rocket launch space"],
+        [/sport|athlete|game|champion|team|football|soccer|basketball/, "athlete training sports"],
+      ];
+
+      let tier3 = "city aerial skyline cinematic"; // ultimate safe default
+      for (const [pattern, replacement] of topicMap) {
+        if (pattern.test(query.toLowerCase()) || pattern.test((scene.full_text || "").toLowerCase())) {
+          tier3 = replacement;
+          break;
+        }
       }
-      if (!mediaUrl && PIXABAY_API_KEY) {
-        try {
-          const res = await fetch(
-            `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(simpleQ)}&per_page=5&orientation=horizontal&safesearch=true`
-          );
-          if (res.ok) {
-            const photo = (await res.json()).hits?.find((p) => !usedMediaUrls.has(p.largeImageURL));
-            if (photo) {
-              mediaUrl = photo.largeImageURL || photo.webformatURL;
-              mediaType = "image"; source = "pixabay-fallback";
-              if (mediaUrl) usedMediaUrls.add(mediaUrl);
+
+      const fallbackTiers = [tier1, tier2, tier3].filter((t, i, arr) => t && arr.indexOf(t) === i);
+
+      for (const fallbackQ of fallbackTiers) {
+        if (mediaUrl) break;
+        console.log(`[recreate]     fallback tier: "${fallbackQ}"`);
+
+        if (PEXELS_API_KEY) {
+          try {
+            const res = await fetch(
+              `https://api.pexels.com/videos/search?query=${encodeURIComponent(fallbackQ)}&per_page=6&orientation=landscape`,
+              { headers: { Authorization: PEXELS_API_KEY } }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              const pick = (data.videos || []).find((v) => {
+                const f = v?.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || v?.video_files?.[0];
+                return f?.link && !usedMediaUrls.has(f.link);
+              });
+              if (pick) {
+                const f = pick.video_files?.find((f) => f.quality === "hd" || f.quality === "sd") || pick.video_files?.[0];
+                if (f?.link) { mediaUrl = f.link; mediaType = "video"; source = "pexels-fallback-v"; usedMediaUrls.add(f.link); }
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
+
+        if (!mediaUrl && PEXELS_API_KEY) {
+          try {
+            const res = await fetch(
+              `https://api.pexels.com/v1/search?query=${encodeURIComponent(fallbackQ)}&per_page=6&orientation=landscape`,
+              { headers: { Authorization: PEXELS_API_KEY } }
+            );
+            if (res.ok) {
+              const photo = (await res.json()).photos?.find((p) => !usedMediaUrls.has(p.src?.landscape));
+              if (photo) {
+                mediaUrl = photo.src?.landscape || photo.src?.large;
+                mediaType = "image"; source = "pexels-fallback";
+                if (mediaUrl) usedMediaUrls.add(mediaUrl);
+              }
+            }
+          } catch {}
+        }
+
+        if (!mediaUrl && PIXABAY_API_KEY) {
+          try {
+            const res = await fetch(
+              `https://pixabay.com/api/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(fallbackQ)}&per_page=6&orientation=horizontal&safesearch=true`
+            );
+            if (res.ok) {
+              const photo = (await res.json()).hits?.find((p) => !usedMediaUrls.has(p.largeImageURL));
+              if (photo) {
+                mediaUrl = photo.largeImageURL || photo.webformatURL;
+                mediaType = "image"; source = "pixabay-fallback";
+                if (mediaUrl) usedMediaUrls.add(mediaUrl);
+              }
+            }
+          } catch {}
+        }
       }
     }
 
@@ -3090,7 +3274,7 @@ async function recreateStep4b_SyncCaptions(projectId, narrationFile, scenes, lan
 }
 
 /* ── [RECREATE STEP 5] Assemble video — v8 improvements ────── */
-async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style) {
+async function recreateStep5_Render(projectId, scenes, narrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle = "classic", captionPosition = "bottom") {
   await updateReCreateStatus(projectId, "rendering", 70);
 
   const W = 1920, H = 1080, FPS = 30;
@@ -3251,6 +3435,30 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
         ? (scenes[0]?.text || "Breaking News").split(/[.!?]/)[0].toUpperCase().slice(0, 80)
         : "";
 
+      // Build style string using shared helper (1920x1080 base)
+      const rcFontSize = 48;
+      const rcMarginV = captionPosition === "top" ? 60 : captionPosition === "middle" ? 480 : 60;
+      const rcAlignment = captionPosition === "top" ? 8 : captionPosition === "middle" ? 5 : 2;
+      const styledParams = buildCaptionStyle({
+        captionStyle: captionStyle || "classic",
+        captionPosition: captionPosition || "bottom",
+        fontSize: rcFontSize, outline: 3, shadow: 1,
+        marginV: rcMarginV, marginL: 80, marginR: 80,
+        isVertical: false,
+      });
+
+      // Parse the style string into ASS V4+ Style row format
+      // force_style params map 1:1 to ASS style fields we need
+      const primaryCol = (captionStyle === "highlight") ? "&H00000000" : "&H00FFFFFF";
+      const backCol    = (captionStyle === "highlight") ? "&H0000FFFF" : "&H00000000";  // yellow bg for highlight
+      const outlineCol = "&H00000000";
+      const bold       = (captionStyle === "fade") ? "0" : "-1";
+      const italic     = (captionStyle === "fade") ? "1" : "0";
+      const outline    = (captionStyle === "highlight" || captionStyle === "fade") ? "0" : "3";
+      const shadow     = (captionStyle === "fade") ? "0" : "1";
+      const borderStyle = (captionStyle === "highlight") ? "4" : "1";
+      const fontSize   = (captionStyle === "fade") ? Math.round(rcFontSize * 0.85) : rcFontSize;
+
       const assContent = `[Script Info]
 Title: ReCreate Captions
 ScriptType: v4.00+
@@ -3260,7 +3468,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,3,1,2,80,80,60,1
+Style: Default,Arial,${fontSize},${primaryCol},&H000000FF,${outlineCol},${backCol},${bold},${italic},0,0,100,100,1,0,${borderStyle},${outline},${shadow},${rcAlignment},80,80,${rcMarginV},1
 ${isNews ? `Style: Headline,Arial,32,&H00FFFFFF,&H000000FF,&H000000CC,&HB40000CC,-1,0,0,0,100,100,1,0,3,0,0,1,30,30,12,1` : ""}
 
 [Events]
@@ -3456,7 +3664,7 @@ async function recreateStep4c_MixMusic(projectId, narrationFile, durationSec, mu
 
 /* ── MAIN RECREATE PIPELINE ────────────────────────────────── */
 async function runReCreate(projectId, sourceUrl, opts = {}) {
-  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true, music = "none" } = opts;
+  const { targetLanguage = "Vietnamese", style = "news", voiceId = null, includeCaptions = true, music = "none", captionStyle = "classic", captionPosition = "bottom" } = opts;
   const langCode = getReCreateLangCode(targetLanguage);
   const workDir = path.join(os.tmpdir(), `recreate-${projectId}`);
   fs.mkdirSync(workDir, { recursive: true });
@@ -3482,7 +3690,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
       finalNarrationFile = await recreateStep4c_MixMusic(projectId, narrationFile, durationSec, music, workDir);
     }
 
-    const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style);
+    const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle, captionPosition);
 
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);
@@ -3510,7 +3718,7 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
 /* ── POST /recreate ───────────────────────────────────────── */
 app.post("/recreate", async (req, res) => {
-  const { project_id, source_url, target_language, style, voice_id, include_captions, music } = req.body || {};
+  const { project_id, source_url, target_language, style, voice_id, include_captions, music, caption_style, caption_position } = req.body || {};
 
   if (!project_id) return jsonError(res, 400, "Missing project_id");
   if (!source_url) return jsonError(res, 400, "Missing source_url");
@@ -3526,6 +3734,8 @@ app.post("/recreate", async (req, res) => {
         voiceId: voice_id || null,
         includeCaptions: include_captions !== false,
         music: music || "none",
+        captionStyle: caption_style || "classic",
+        captionPosition: caption_position || "bottom",
       });
     } catch (e) {
       console.error("[recreate] ❌ FAILED:", e?.message || e);

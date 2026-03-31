@@ -16,6 +16,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
+import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
 
 /* ============================================================
    LANGUAGE + VOICE DATABASE
@@ -264,7 +265,7 @@ export default function DubVideoNewPage() {
   // Shared settings
   const [langCode, setLangCode] = useState("vi");
   const [voiceId, setVoiceId] = useState("");
-  const [captionStyle, setCaptionStyle] = useState("block");
+  const [captionConfig, setCaptionConfig] = useState<CaptionConfig>({ style: "classic", position: "bottom" });
   const [keepOriginal, setKeepOriginal] = useState(true);
   const [originalVolume, setOriginalVolume] = useState(0.15);
   const [submitting, setSubmitting] = useState(false);
@@ -447,7 +448,8 @@ export default function DubVideoNewPage() {
           target_language_code: selectedLang.code,
           voice_id: voiceId,
           voice_name: selectedVoice?.name || "",
-          caption_style: captionStyle,
+          caption_style: captionConfig.style,
+          caption_position: captionConfig.position,
           keep_original_audio: keepOriginal,
           original_audio_volume: originalVolume,
           // Partial dub fields
@@ -759,36 +761,11 @@ export default function DubVideoNewPage() {
 
         {/* Caption Style */}
         <section className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-2">Caption Style</label>
-          <div className="flex gap-3">
-            {(["block", "karaoke"] as const).map((style) => {
-              const isSelected = captionStyle === style;
-              return (
-                <button
-                  key={style}
-                  onClick={() => setCaptionStyle(style)}
-                  className="flex-1 p-3 rounded-lg text-center transition-all duration-300"
-                  style={isSelected ? {
-                    border: "2px solid #60a5fa",
-                    background: "linear-gradient(135deg, rgba(59,130,246,0.2) 0%, rgba(99,102,241,0.1) 100%)",
-                    boxShadow: "0 0 14px rgba(59,130,246,0.25)",
-                    color: "#ffffff",
-                  } : {
-                    border: "1px solid #374151",
-                    background: "rgba(31,41,55,0.5)",
-                    color: "#d1d5db",
-                  }}
-                >
-                  <div className="font-medium text-sm" style={{ color: isSelected ? "#ffffff" : "#d1d5db" }}>
-                    {style === "block" ? "Block" : "Karaoke"}
-                  </div>
-                  <div className="text-xs" style={{ color: isSelected ? "#bfdbfe" : "#9ca3af" }}>
-                    {style === "block" ? "Bottom subtitles" : "Word-by-word highlight"}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <CaptionStylePicker
+            value={captionConfig}
+            onChange={setCaptionConfig}
+            accent="#60a5fa"
+          />
         </section>
 
         {/* Original Audio Toggle + Volume */}

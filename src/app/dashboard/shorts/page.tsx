@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
 
 /* ── Types ──────────────────────────────────────────────────── */
 interface Clip {
@@ -55,13 +56,6 @@ interface VideoPreview {
 }
 
 /* ── Constants ──────────────────────────────────────────────── */
-const CAPTION_STYLES = [
-  { id: "karaoke", label: "Karaoke", desc: "Word-by-word highlight", icon: "✨" },
-  { id: "block", label: "Block", desc: "Bottom subtitles", icon: "📝" },
-  { id: "centered", label: "Centered", desc: "Big centered text", icon: "🎯" },
-  { id: "none", label: "None", desc: "No captions", icon: "🚫" },
-];
-
 const STAGE_LABELS: Record<string, string> = {
   downloading: "⬇️ Downloading video...",
   transcribing: "🎧 Transcribing audio with Whisper...",
@@ -104,7 +98,7 @@ export default function AIShortsPage() {
   const [maxClips, setMaxClips] = useState(5);
   const [clipMin, setClipMin] = useState(30);
   const [clipMax, setClipMax] = useState(60);
-  const [captionStyle, setCaptionStyle] = useState("karaoke");
+  const [captionConfig, setCaptionConfig] = useState<CaptionConfig>({ style: "karaoke", position: "bottom" });
   const [genThumbs, setGenThumbs] = useState(true);
 
   // Project
@@ -207,7 +201,7 @@ export default function AIShortsPage() {
         body: JSON.stringify({
           source_url: url, max_clips: maxClips,
           clip_min_seconds: clipMin, clip_max_seconds: clipMax,
-          caption_style: captionStyle, generate_thumbnails: genThumbs,
+          caption_style: captionConfig.style, caption_position: captionConfig.position, generate_thumbnails: genThumbs,
         }),
       });
       const cd = await cr.json();
@@ -409,27 +403,13 @@ export default function AIShortsPage() {
 
               {/* Captions */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Caption Style</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {CAPTION_STYLES.map(cs => {
-                    const active = captionStyle === cs.id;
-                    return (
-                      <button key={cs.id} onClick={() => setCaptionStyle(cs.id)} disabled={generating}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-all"
-                        style={{
-                          background: active ? "rgba(139,92,246,0.3)" : "rgba(20,17,35,0.6)",
-                          border: active ? "1px solid rgba(139,92,246,0.5)" : "1px solid rgba(74,66,96,0.4)",
-                          color: active ? "#ffffff" : "#9ca3af",
-                        }}>
-                        <span>{cs.icon}</span>
-                        <div className="text-left">
-                          <div>{cs.label}</div>
-                          <div className="text-[9px]" style={{ color: active ? "#c4b5fd" : "#6b7280" }}>{cs.desc}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <CaptionStylePicker
+                  value={captionConfig}
+                  onChange={setCaptionConfig}
+                  disabled={generating}
+                  hidePosition={true}
+                  accent="#a78bfa"
+                />
               </div>
 
               {/* Thumbnails toggle */}

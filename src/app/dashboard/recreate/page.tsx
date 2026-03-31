@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
 
 /* ── Types ──────────────────────────────────────────────────── */
 interface ReCreateProject {
@@ -252,6 +253,7 @@ export default function ReCreatePage() {
   const [preview, setPreview] = useState<VideoPreview | null>(null);
   const [selectedLang, setSelectedLang] = useState(LANGUAGES[0]);
   const [selectedStyle, setSelectedStyle] = useState("news");
+  const [captionConfig, setCaptionConfig] = useState<CaptionConfig>({ style: "classic", position: "bottom" });
   const [includeCaptions, setIncludeCaptions] = useState(true);
   const [voiceId, setVoiceId] = useState(LANGUAGES[0].voices[0]?.id || "");
   const [music, setMusic] = useState("none");
@@ -379,6 +381,8 @@ export default function ReCreatePage() {
           style: selectedStyle,
           voice_id: voiceId,
           include_captions: includeCaptions,
+          caption_style: includeCaptions ? captionConfig.style : "none",
+          caption_position: captionConfig.position,
           music,
         }),
       });
@@ -648,25 +652,34 @@ export default function ReCreatePage() {
             </div>
           </div>
 
-          {/* Captions toggle */}
-          <div className="flex items-center gap-3 mb-6">
-            <button
-              onClick={() => setIncludeCaptions(!includeCaptions)}
-              className="w-10 h-5 rounded-full transition-all relative"
-              style={{
-                background: includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)",
-                border: `1px solid ${includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)"}`,
-              }}
-            >
-              <div
-                className="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all"
+          {/* Captions toggle + style picker */}
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIncludeCaptions(!includeCaptions)}
+                className="w-10 h-5 rounded-full transition-all relative"
                 style={{
-                  background: includeCaptions ? "#22d3ee" : "#6b7280",
-                  left: includeCaptions ? "22px" : "2px",
+                  background: includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)",
+                  border: `1px solid ${includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)"}`,
                 }}
+              >
+                <div
+                  className="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all"
+                  style={{
+                    background: includeCaptions ? "#22d3ee" : "#6b7280",
+                    left: includeCaptions ? "22px" : "2px",
+                  }}
+                />
+              </button>
+              <span className="text-xs text-gray-400">Include captions in video</span>
+            </div>
+            {includeCaptions && (
+              <CaptionStylePicker
+                value={captionConfig}
+                onChange={setCaptionConfig}
+                accent="#22d3ee"
               />
-            </button>
-            <span className="text-xs text-gray-400">Include captions in video</span>
+            )}
           </div>
 
           {/* Background Music */}

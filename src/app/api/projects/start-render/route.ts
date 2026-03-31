@@ -667,71 +667,71 @@ async function searchPexelsForScene(
   orientation: "landscape" | "portrait"
 ): Promise<{ url: string; photographer: string; photographerUrl: string } | null> {
   const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
-  if (!PEXELS_API_KEY) {
-    console.warn("[pexels] PEXELS_API_KEY not configured, skipping");
-    return null;
-  }
+  const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
 
-  const params = new URLSearchParams({
-    query: searchQuery,
-    orientation,
-    per_page: "3",
-    size: "large",
-  });
+  // Build smart fallback tiers — same logic as ReCreate pipeline
+  const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  const tier1 = words.filter((w: string) => !["the","a","an","of","in","at","on","by","for","and","or","with","from"].includes(w)).slice(0, 4).join(" ");
+  const tier2 = words.filter((w: string) => w.length >= 5).slice(0, 2).join(" ") || words.slice(0, 2).join(" ");
+  const queries = [searchQuery, tier1, tier2].filter((q, i, arr) => q && arr.indexOf(q) === i);
 
-  try {
-    const resp = await fetch(`https://api.pexels.com/v1/search?${params}`, {
-      headers: { Authorization: PEXELS_API_KEY },
-    });
-
-    if (!resp.ok) {
-      console.warn("[pexels] API error: " + resp.status);
-      return null;
+  for (const query of queries) {
+    // Try Pexels first
+    if (PEXELS_API_KEY) {
+      try {
+        const params = new URLSearchParams({ query, orientation, per_page: "5", size: "large" });
+        const resp = await fetch(`https://api.pexels.com/v1/search?${params}`, {
+          headers: { Authorization: PEXELS_API_KEY },
+        });
+        if (resp.ok) {
+          const data: any = await resp.json();
+          const photos = data?.photos || [];
+          if (photos.length > 0) {
+            const photo = photos[Math.floor(Math.random() * Math.min(photos.length, 4))];
+            console.log("[pexels]   ✅ Pexels hit for '" + query + "' by " + photo.photographer);
+            return {
+              url: orientation === "portrait" ? photo.src.portrait : photo.src.landscape,
+              photographer: photo.photographer,
+              photographerUrl: photo.photographer_url,
+            };
+          }
+        }
+      } catch (err: any) {
+        console.warn("[pexels] search error: " + err?.message);
+      }
     }
 
-    const data: any = await resp.json();
-    const photos = data?.photos;
-
-    if (!photos || photos.length === 0) {
-      // 🆕 PEXELS QUERY: Keep 3 words to preserve place name + country
-      const simplified = searchQuery.split(" ").slice(0, 3).join(" ");
-      console.log("[pexels]   no results for '" + searchQuery + "', retrying with '" + simplified + "'");
-
-      const retryParams = new URLSearchParams({
-        query: simplified,
-        orientation,
-        per_page: "3",
-        size: "large",
-      });
-
-      const retryResp = await fetch(`https://api.pexels.com/v1/search?${retryParams}`, {
-        headers: { Authorization: PEXELS_API_KEY },
-      });
-
-      if (!retryResp.ok) return null;
-
-      const retryData: any = await retryResp.json();
-      if (!retryData?.photos?.length) return null;
-
-      const photo = retryData.photos[Math.floor(Math.random() * retryData.photos.length)];
-      return {
-        url: orientation === "portrait" ? photo.src.portrait : photo.src.landscape,
-        photographer: photo.photographer,
-        photographerUrl: photo.photographer_url,
-      };
+    // Try Pixabay as second source
+    if (PIXABAY_API_KEY) {
+      try {
+        const pixOrientation = orientation === "portrait" ? "vertical" : "horizontal";
+        const params = new URLSearchParams({
+          key: PIXABAY_API_KEY, q: query,
+          orientation: pixOrientation, per_page: "5",
+          safesearch: "true", image_type: "photo",
+        });
+        const resp = await fetch(`https://pixabay.com/api/?${params}`);
+        if (resp.ok) {
+          const data: any = await resp.json();
+          const hits = data?.hits || [];
+          if (hits.length > 0) {
+            const photo = hits[Math.floor(Math.random() * Math.min(hits.length, 4))];
+            const url = photo.largeImageURL || photo.webformatURL;
+            if (url) {
+              console.log("[pixabay]  ✅ Pixabay hit for '" + query + "'");
+              return { url, photographer: photo.user || "Pixabay", photographerUrl: `https://pixabay.com/users/${photo.user}-${photo.user_id}/` };
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("[pixabay] search error: " + err?.message);
+      }
     }
 
-    // Pick a random photo from top results for variety
-    const photo = photos[Math.floor(Math.random() * photos.length)];
-    return {
-      url: orientation === "portrait" ? photo.src.portrait : photo.src.landscape,
-      photographer: photo.photographer,
-      photographerUrl: photo.photographer_url,
-    };
-  } catch (err: any) {
-    console.warn("[pexels] search error: " + err?.message);
-    return null;
+    if (query !== searchQuery) console.log("[image]    no results for '" + searchQuery + "', tried '" + query + "'");
   }
+
+  return null;
 }
 
 /* ============================================================
@@ -759,28 +759,33 @@ async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sce
         messages: [
           {
             role: "system",
-            content: `You convert video scene descriptions into Pexels stock photo search queries.
+            content: `You convert video scene descriptions into stock photo search queries for Pexels/Pixabay.
 
-CRITICAL RULES:
-1. If the scene mentions a SPECIFIC PLACE (city, landmark, beach, building), the search query MUST include that exact place name + country.
-   Example: "Da Nang beach" → "Da Nang beach Vietnam"
-   Example: "Eiffel Tower at sunset" → "Eiffel Tower Paris"
-   Example: "Santorini white buildings" → "Santorini Greece"
+STRICT RULES:
+1. NEVER include names of real people (politicians, celebrities, etc.) — stock libraries have no photos of them.
+   BAD: "Trump tariffs trade war" → GOOD: "shipping containers port crane"
+   BAD: "Biden speech podium" → GOOD: "politician podium speech crowd"
 
-2. If the scene mentions a SPECIFIC FOOD, ANIMAL, or OBJECT, name it exactly.
-   Example: "a bowl of pho" → "pho Vietnamese soup"
-   Example: "cherry blossoms" → "cherry blossom Japan"
+2. If scene mentions a SPECIFIC PLACE, include it (these DO match stock searches):
+   "Da Nang beach" → "Da Nang beach Vietnam"
+   "Santorini" → "Santorini Greece white buildings"
 
-3. Use 2-6 words. Be SPECIFIC, not generic.
-   BAD: "beautiful beach" (too generic, could be anywhere)
-   GOOD: "Phuket beach Thailand" (specific location)
-   BAD: "city skyline" (too generic)
-   GOOD: "Ho Chi Minh City skyline" (specific)
+3. If scene mentions SPECIFIC FOOD, ANIMAL, or OBJECT, name it exactly:
+   "bowl of pho" → "pho Vietnamese soup bowl"
+   "cherry blossoms" → "cherry blossom Japan spring"
 
-4. NEVER use abstract or artistic words like "cinematic", "dramatic", "stunning", "golden hour".
-   Pexels searches by SUBJECT, not by style.
+4. Use 3-5 words. Think: "what physical object would a camera point at?"
+   BAD: "economic growth" → GOOD: "stock market graph rising"
+   BAD: "political tension" → GOOD: "government building crowd protest"
+   BAD: "technology future" → GOOD: "robot arm factory manufacturing"
 
-5. Include the country or region name when the scene is about a place.
+5. NEVER use: cinematic, dramatic, stunning, beautiful, golden hour, concept, abstract.
+
+6. For news/geopolitics topics use proven B-roll patterns:
+   Trade/Economy → "cargo ship port aerial" or "stock market red graph"
+   War/Military → "military helicopter flying" or "soldiers training desert"
+   Technology → "server room blue lights" or "circuit board macro"
+   Politics → "government building exterior" or "protest crowd street"
 
 Reply with ONLY the search query, nothing else.`,
           },
@@ -788,9 +793,9 @@ Reply with ONLY the search query, nothing else.`,
             role: "user",
             content: `Video topic: "${topic}"
 Scene title: "${sceneTitle || "(none)"}"
-Scene image description: "${imagePrompt}"
+Scene description: "${imagePrompt}"
 
-Best Pexels search query:`,
+Best stock photo search query (3-5 words, no person names):`,
           },
         ],
       }),
@@ -802,14 +807,21 @@ Best Pexels search query:`,
     if (query && query.length > 0 && query.length < 80) {
       const cleaned = query.replace(/^["']|["']$/g, "").trim();
       if (cleaned.length > 0) {
-        return cleaned;
+        // Sanitize: strip Title-cased words that look like person names
+        const tokens = cleaned.split(/\s+/);
+        const sanitized = tokens.filter((tok: string) => {
+          if (tok.length <= 2) return true;
+          if (tok === tok.toUpperCase()) return true; // keep acronyms like GDP, NATO
+          if (/^[A-Z][a-z]{2,}$/.test(tok)) return false; // drop likely person names
+          return true;
+        });
+        return sanitized.length >= 2 ? sanitized.join(" ") : cleaned;
       }
     }
   } catch (err: any) {
     console.warn("[pexels] query conversion failed: " + err?.message);
   }
 
-  // Improved fallback: scene title + topic keywords
   const topicWords = topic.split(" ").filter(w => w.length > 3).slice(0, 2).join(" ");
   const fallback = sceneTitle
     ? (sceneTitle + " " + topicWords).trim().slice(0, 50)

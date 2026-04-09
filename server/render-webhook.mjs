@@ -84,8 +84,55 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 });
 
 /* ============================================================
-   Shared Utilities
+   Watermark Helper
+   Applies semi-transparent "AutoVideo AI" text to bottom center
+   Only applied for free-tier users
 ============================================================ */
+async function getUserPlan(userId) {
+  try {
+    const { data } = await admin
+      .from("user_profiles")
+      .select("plan")
+      .eq("id", userId)
+      .single();
+    return data?.plan || "free";
+  } catch {
+    return "free";
+  }
+}
+
+async function applyWatermarkIfNeeded(userId, inputFile, workDir) {
+  const plan = await getUserPlan(userId);
+  if (plan !== "free") return inputFile; // paid users — no watermark
+
+  const watermarkedFile = path.join(workDir, `watermarked-${Date.now()}.mp4`);
+
+  // Semi-transparent white text, bottom center, small but visible
+  const filterStr = [
+    `drawtext=text='AutoVideo AI'`,
+    `fontsize=24`,
+    `fontcolor=white@0.55`,
+    `x=(w-text_w)/2`,
+    `y=h-th-20`,
+    `shadowcolor=black@0.4`,
+    `shadowx=1`,
+    `shadowy=1`,
+  ].join(":");
+
+  const cmd = `ffmpeg -i "${inputFile}" -vf "${filterStr}" -c:a copy -preset fast -y "${watermarkedFile}"`;
+
+  console.log(`[watermark] applying to free-tier user ${userId}`);
+  await execAsync(cmd);
+
+  if (!fs.existsSync(watermarkedFile)) {
+    console.warn("[watermark] ffmpeg failed — returning original file");
+    return inputFile;
+  }
+
+  return watermarkedFile;
+}
+
+
 function jsonError(res, status, message, extra = {}) {
   return res.status(status).json({ error: message, ...extra });
 }
@@ -355,8 +402,14 @@ async function runRender(projectId, attemptFromRequest) {
 
   if (!fs.existsSync(outFile)) throw new Error(`Render output missing: ${outFile}`);
 
+  /* ── watermark for free-tier users ───────────────────────── */
+  const createPlan = await getUserPlan(project.user_id);
+  const finalVideoFile = createPlan === "free"
+    ? await applyWatermarkIfNeeded(project.user_id, outFile, outDir)
+    : outFile;
+
   /* ── upload ──────────────────────────────────────────────── */
-  const fileBuffer = fs.readFileSync(outFile);
+  const fileBuffer = fs.readFileSync(finalVideoFile);
   const objectPath = `${project.user_id}/${projectId}/attempt-${attempt}.mp4`;
 
   const { error: upErr } = await admin.storage
@@ -1427,8 +1480,11 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
     const { finalOutputFile, srtFile } =
       await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir, captionPosition);
 
+    // Apply watermark for free-tier users
+    const watermarkedDubFile = await applyWatermarkIfNeeded(userId, finalOutputFile, workDir);
+
     const { videoUrl, srtUrl } =
-      await dubStep7_Upload(projectId, userId, finalOutputFile, srtFile);
+      await dubStep7_Upload(projectId, userId, watermarkedDubFile, srtFile);
 
     console.log("[dub] ✅ PIPELINE COMPLETE");
     return { videoUrl, srtUrl };
@@ -2125,6 +2181,17 @@ async function runShorts(projectId, sourceUrl, options) {
       captionStyle: options.captionStyle || "karaoke", cropMode: options.cropMode || "center", captionFontScale: options.captionFontScale || 0.5,
     }, workDir);
     const thumbed = await shortsStep6_Thumbnails(projectId, processed, options.generateThumbnails !== false);
+
+    // Apply watermark for free-tier users — process each clip
+    const plan = await getUserPlan(userId);
+    if (plan === "free") {
+      for (const clip of thumbed) {
+        if (clip.clipFile && fs.existsSync(clip.clipFile)) {
+          clip.clipFile = await applyWatermarkIfNeeded(userId, clip.clipFile, workDir);
+        }
+      }
+    }
+
     const uploaded = await shortsStep7_Upload(projectId, userId, thumbed);
 
     console.log("[shorts] ✅ COMPLETE —", uploaded.length, "clips");
@@ -2493,6 +2560,16 @@ async function runRepurpose(projectId, sourceUrl, options) {
 
     const thumbed = await shortsStep6_Thumbnails(projectId, processed,
       options.generateThumbnails !== false);
+
+    // Apply watermark for free-tier users — process each clip
+    const repurposePlan = await getUserPlan(userId);
+    if (repurposePlan === "free") {
+      for (const clip of thumbed) {
+        if (clip.clipFile && fs.existsSync(clip.clipFile)) {
+          clip.clipFile = await applyWatermarkIfNeeded(userId, clip.clipFile, workDir);
+        }
+      }
+    }
 
     const uploaded = await repurposeStep7_Upload(projectId, userId, thumbed);
 
@@ -3805,9 +3882,12 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
     const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle, captionPosition, orientation);
 
+    // Apply watermark for free-tier users
+    const watermarkedFile = await applyWatermarkIfNeeded(userId, finalFile, workDir);
+
     // Upload
     await updateReCreateStatus(projectId, "uploading", 92);
-    const fileBuffer = fs.readFileSync(finalFile);
+    const fileBuffer = fs.readFileSync(watermarkedFile);
     const objPath = `${userId}/${projectId}/recreated.mp4`;
 
     try {

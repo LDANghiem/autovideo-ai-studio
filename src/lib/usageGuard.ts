@@ -6,10 +6,17 @@
 import { createClient } from "@supabase/supabase-js";
 import { PLANS, type PlanId } from "@/lib/stripe";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Lazy init — avoids build-time env var errors
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
+function getAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return _supabaseAdmin;
+}
 
 export type Pipeline = "shorts" | "dub" | "recreate" | "create";
 
@@ -43,7 +50,7 @@ export async function checkAndIncrementUsage(
   try {
     const col = USAGE_COLUMN[pipeline];
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await (getAdmin() as any)
       .from("user_profiles")
       .select(`plan, ${col}`)
       .eq("id", userId)
@@ -70,7 +77,7 @@ export async function checkAndIncrementUsage(
     }
 
     // Increment usage
-    await supabaseAdmin
+    await (getAdmin() as any)
       .from("user_profiles")
       .upsert(
         { id: userId, [col]: used + 1, updated_at: new Date().toISOString() },
@@ -86,7 +93,7 @@ export async function checkAndIncrementUsage(
 
 export async function getUserPlan(userId: string): Promise<PlanId> {
   try {
-    const { data } = await supabaseAdmin
+    const { data } = await (getAdmin() as any)
       .from("user_profiles")
       .select("plan")
       .eq("id", userId)

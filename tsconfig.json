@@ -29,5 +29,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "render-worker"]
+  "exclude": ["node_modules", "render-worker", "supabase/functions"]
 }

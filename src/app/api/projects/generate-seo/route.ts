@@ -16,7 +16,12 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+let _admin: ReturnType<typeof createClient> | null = null;
+function getAdmin() {
+  if (!_admin) _admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return _admin;
+}
 
 export async function POST(req: Request) {
   try {
@@ -32,7 +37,7 @@ export async function POST(req: Request) {
     let finalScript = script || "";
 
     if (project_id && (!finalTopic || !finalScript)) {
-      const { data: proj } = await admin
+      const { data: proj } = await (getAdmin() as any)
         .from("projects")
         .select("topic, script")
         .eq("id", project_id)
@@ -121,7 +126,7 @@ Generate exactly:
     // Save to project if project_id provided
     if (project_id) {
       const bestTitle = seoData.titles?.[0]?.text || "";
-      await admin
+      await (getAdmin() as any)
         .from("projects")
         .update({
           seo_title: bestTitle,

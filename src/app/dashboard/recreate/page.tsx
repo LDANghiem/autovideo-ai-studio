@@ -13,6 +13,8 @@
 
 "use client";
 
+import UsageBanner from "@/components/UsageBanner";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
@@ -494,7 +496,10 @@ export default function ReCreatePage() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* ── Header ────────────────────────────────────────── */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-semibold mb-4"
+
+        <UsageBanner pipeline="recreate" className="mb-6" />
+
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-semibold mb-4"
             style={{
               background: "linear-gradient(135deg, rgba(6,182,212,0.15), rgba(59,130,246,0.15))",
               border: "1px solid rgba(6,182,212,0.3)",

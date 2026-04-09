@@ -13,6 +13,8 @@
 
 "use client";
 
+import UsageBanner from "@/components/UsageBanner";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
@@ -283,6 +285,9 @@ export default function AIShortsPage() {
   return (
     <div className="min-h-screen" style={{ background: "#0f0b1a" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+
+        <UsageBanner pipeline="shorts" className="mb-6" />
 
         {/* Header */}
         <div className="flex items-center justify-between mb-8">

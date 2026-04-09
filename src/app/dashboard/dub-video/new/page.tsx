@@ -12,6 +12,8 @@
 
 "use client";
 
+import UsageBanner from "@/components/UsageBanner";
+
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -489,6 +491,9 @@ export default function DubVideoNewPage() {
       <div className="max-w-3xl mx-auto px-4 py-8">
 
         {/* Header */}
+
+        <UsageBanner pipeline="dub" className="mb-6" />
+
         <div className="flex items-center gap-4 mb-8">
           <Link href="/dashboard" className="text-gray-400 hover:text-white transition">← Back</Link>
           <div>

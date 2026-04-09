@@ -309,7 +309,7 @@ export default function Sidebar() {
                   : pathname?.startsWith(item.href);
 
               const isPro = item.proOnly;
-              const isLocked = isPro && userTier !== "pro" && userTier !== "loading";
+              const isLocked = isPro && (userTier === "free" || userTier === "loading");
               const theme = THEMES[item.href];
               const isFeatured = item.featured && theme;
 
@@ -399,7 +399,23 @@ export default function Sidebar() {
       <div className="px-3 pb-5">
         {userTier === "loading" ? (
           <div className="px-3 py-2 text-[11px] text-gray-700">Loading...</div>
-        ) : userTier === "pro" ? (
+        ) : userTier === "studio" ? (
+          <div
+            className="rounded-xl px-4 py-3.5 text-center"
+            style={{
+              background: "linear-gradient(135deg, rgba(55,138,221,0.15) 0%, rgba(127,119,221,0.08) 100%)",
+              border: "1px solid rgba(55,138,221,0.25)",
+            }}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-sm">🚀</span>
+              <span className="text-[11px] font-bold text-blue-300 tracking-wide uppercase">
+                Studio Plan
+              </span>
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1">All features unlocked</div>
+          </div>
+        ) : userTier === "creator" ? (
           <div
             className="rounded-xl px-4 py-3.5 text-center"
             style={{
@@ -411,16 +427,14 @@ export default function Sidebar() {
             <div className="flex items-center justify-center gap-1.5">
               <span className="text-sm">⭐</span>
               <span className="text-[11px] font-bold text-purple-300 tracking-wide uppercase">
-                Pro Plan
+                Creator Plan
               </span>
             </div>
-            <div className="text-[10px] text-gray-500 mt-1">
-              All features unlocked
-            </div>
+            <div className="text-[10px] text-gray-500 mt-1">All features unlocked</div>
           </div>
         ) : (
           <Link
-            href="/dashboard/settings"
+            href="/dashboard/billing"
             className="group block rounded-xl px-4 py-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             style={{
               background: "linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.06) 100%)",
@@ -432,11 +446,11 @@ export default function Sidebar() {
                 <IconUpgrade />
               </span>
               <span className="text-[11px] font-bold text-blue-400 group-hover:text-blue-300 tracking-wide uppercase transition-colors">
-                Upgrade to Pro
+                Upgrade Plan
               </span>
             </div>
             <div className="text-[10px] text-gray-600 mt-1 text-center">
-              Unlock thumbnails, SEO & more
+              Starter → Creator from $19/mo
             </div>
           </Link>
         )}

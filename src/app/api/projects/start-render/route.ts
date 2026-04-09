@@ -1036,6 +1036,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    /* ── Usage guard ─────────────────────────────────────── */
+    const { checkAndIncrementUsage } = await import("@/lib/usageGuard");
+    const usageCheck = await checkAndIncrementUsage(user.id, "create");
+    if (!usageCheck.allowed) {
+      return NextResponse.json(
+        { error: usageCheck.error, upgrade_required: true, used: usageCheck.used, limit: usageCheck.limit },
+        { status: 429 }
+      );
+    }
+
+
     const body = await req.json().catch(() => ({} as any));
     const projectId = body?.project_id as string | undefined;
     const force = Boolean(body?.force);

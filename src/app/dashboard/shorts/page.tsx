@@ -578,8 +578,13 @@ export default function AIShortsPage() {
 
                         {/* Video */}
                         {clip.video_url && (
-                          <div className="mt-3 rounded-lg overflow-hidden border border-gray-800">
-                            <video src={clip.video_url} controls preload="metadata" className="w-full max-h-[400px]" style={{ background: "#000" }} />
+                          <div className="mt-3 rounded-lg overflow-hidden border border-gray-800 flex justify-center" style={{ background: "#000" }}>
+                            <video
+                              src={clip.video_url}
+                              controls
+                              preload="metadata"
+                              style={{ maxHeight: "420px", width: "auto", maxWidth: "100%" }}
+                            />
                           </div>
                         )}
 

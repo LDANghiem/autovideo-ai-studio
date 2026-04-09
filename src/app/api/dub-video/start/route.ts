@@ -6,6 +6,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkAndIncrementUsage } from "@/lib/usageGuard";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseAdmin = createClient(
@@ -33,6 +34,16 @@ export async function POST(req: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    /* ── Usage guard ─────────────────────────────────────── */
+    const usageCheck = await checkAndIncrementUsage(user.id, "dub");
+    if (!usageCheck.allowed) {
+      return NextResponse.json(
+        { error: usageCheck.error, upgrade_required: true, used: usageCheck.used, limit: usageCheck.limit },
+        { status: 429 }
+      );
+    }
+
+
 
     const { project_id } = await req.json();
 

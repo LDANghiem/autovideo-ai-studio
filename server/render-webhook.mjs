@@ -1230,14 +1230,19 @@ function buildKaraokeASS({
   // Group words into display lines of ≤6 words (feels natural on screen)
   const MAX_WORDS_PER_LINE = 6;
 
-  // Build word list relative to clip start
+  // Build word list relative to clip start — preserve punctuation
   const clipWords = (words || [])
     .filter((w) => w.start >= (ffmpegStart - 0.1) && w.start < (ffmpegStart + ffmpegDuration))
-    .map((w) => ({
-      word: (w.word || "").trim().toUpperCase(),
-      start: Math.max(0, w.start - ffmpegStart),
-      end:   Math.min(ffmpegDuration, (w.end || w.start + 0.3) - ffmpegStart),
-    }))
+    .map((w) => {
+      const raw = (w.word || "").trim();
+      // Keep punctuation attached to word — uppercase the alpha part only
+      const upper = raw.replace(/[a-zA-ZÀ-ÖØ-öø-ÿ]+/g, (m) => m.toUpperCase());
+      return {
+        word: upper,
+        start: Math.max(0, w.start - ffmpegStart),
+        end:   Math.min(ffmpegDuration, (w.end || w.start + 0.3) - ffmpegStart),
+      };
+    })
     .filter((w) => w.word);
 
   // If no word-level data, fall back to segment blocks (no highlight)
@@ -1253,8 +1258,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${fontSize},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0.5,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
-Style: Highlight,Arial,${fontSize},&H0000FFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0.5,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
+Style: Default,Arial,${fontSize},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
+Style: Highlight,Arial,${fontSize},&H0000FFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,${outline},${shadow},2,${marginL},${marginR},${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -1915,7 +1920,7 @@ async function shortsStep4_ExtractAndProcess(projectId, videoFile, clips, segmen
           const relEnd = Math.min(ffmpegDuration, seg.end - ffmpegStart);
           const rawText = (seg.text || "").trim();
           if (rawText && relEnd > relStart) {
-            srtContent += `${idx}\n${formatSrtTime(relStart)} --> ${formatSrtTime(relEnd)}\n${rawText.toUpperCase()}\n\n`;
+            srtContent += `${idx}\n${formatSrtTime(relStart)} --> ${formatSrtTime(relEnd)}\n${rawText.replace(/[a-zA-Z\u00C0-\u024F]+/g, m => m.toUpperCase())}\n\n`;
             idx++;
           }
         }
@@ -3469,7 +3474,7 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
       for (let i = 0; i < syncedCaptions.length; i++) {
         const cap = syncedCaptions[i];
         // UPPERCASE for Motiversity-style look
-        srt += `${i + 1}\n${fmtSRT(cap.start)} --> ${fmtSRT(cap.end)}\n${(cap.text || "").toUpperCase()}\n\n`;
+        srt += `${i + 1}\n${fmtSRT(cap.start)} --> ${fmtSRT(cap.end)}\n${(cap.text || "").replace(/[a-zA-Z\u00C0-\u024F]+/g, m => m.toUpperCase())}\n\n`;
       }
     } else {
       // Fallback: text-weighted timing (better than equal distribution)
@@ -3477,7 +3482,7 @@ async function recreateStep5_Render(projectId, scenes, narrationFile, durationSe
       let timeOffset = 0;
       for (let i = 0; i < scenes.length; i++) {
         const dur = finalDurations[i] || (durationSec / scenes.length);
-        srt += `${i + 1}\n${fmtSRT(timeOffset)} --> ${fmtSRT(timeOffset + dur)}\n${(scenes[i].text || "").toUpperCase()}\n\n`;
+        srt += `${i + 1}\n${fmtSRT(timeOffset)} --> ${fmtSRT(timeOffset + dur)}\n${(scenes[i].text || "").replace(/[a-zA-Z\u00C0-\u024F]+/g, m => m.toUpperCase())}\n\n`;
         timeOffset += dur;
       }
     }

@@ -5,6 +5,7 @@
 // Updated: passes music param to worker
 // ============================================================
 
+import { checkAndIncrementUsage } from "@/lib/usageGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -27,6 +28,16 @@ export async function POST(req: NextRequest) {
 
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    /* ── Usage guard ─────────────────────────────────────── */
+    const usageCheck = await checkAndIncrementUsage(user.id, "recreate");
+    if (!usageCheck.allowed) {
+      return NextResponse.json(
+        { error: usageCheck.error, upgrade_required: true, used: usageCheck.used, limit: usageCheck.limit },
+        { status: 429 }
+      );
+    }
+
 
     const { project_id } = await req.json();
     if (!project_id) return NextResponse.json({ error: "project_id is required" }, { status: 400 });

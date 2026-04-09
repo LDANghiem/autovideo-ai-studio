@@ -17,10 +17,21 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import sharp from "sharp";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+export const dynamic = "force-dynamic";
+
+// Lazy init OpenAI
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  return _openai;
+}
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+let _admin: ReturnType<typeof createClient> | null = null;
+function getAdmin() {
+  if (!_admin) _admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  return _admin;
+}
 
 const REMOVE_BG_KEY = process.env.REMOVE_BG_API_KEY || "";
 const bucketName = "thumbnails";
@@ -84,7 +95,7 @@ Professional YouTube thumbnail aesthetic, 16:9 landscape.`;
   for (let i = 0; i < attempts.length; i++) {
     try {
       console.log("[face-thumb] DALL-E attempt", i + 1);
-      const imgRes = await openai.images.generate({
+      const imgRes = await getOpenAI().images.generate({
         model: "dall-e-3",
         prompt: attempts[i],
         n: 1,
@@ -251,7 +262,7 @@ export async function POST(req: Request) {
     // Get topic from project if needed
     let finalTopic = topic || "";
     if (project_id && !finalTopic) {
-      const { data: proj } = await admin.from("projects").select("topic").eq("id", project_id).single();
+      const { data: proj } = await (getAdmin() as any).from("projects").select("topic").eq("id", project_id).single();
       if (proj?.topic) finalTopic = proj.topic;
     }
 
@@ -271,7 +282,7 @@ export async function POST(req: Request) {
 
     // Step 2: Generate AI title text
     console.log("[face-thumb] Step 2: Generating title text...");
-    const titleCompletion = await openai.chat.completions.create({
+    const titleCompletion = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.9,
       messages: [
@@ -300,7 +311,7 @@ export async function POST(req: Request) {
     console.log("[face-thumb] Step 5: Uploading...");
     const ts = Date.now();
     const objectPath = `face-thumbs/${ts}-face.jpg`;
-    const { error: upErr } = await admin.storage.from(bucketName).upload(objectPath, finalThumb, {
+    const { error: upErr } = await (getAdmin() as any).storage.from(bucketName).upload(objectPath, finalThumb, {
       contentType: "image/jpeg",
       upsert: true,
       cacheControl: "3600",
@@ -311,7 +322,7 @@ export async function POST(req: Request) {
 
     // Save to project if project_id
     if (project_id) {
-      await admin.from("projects").update({
+      await (getAdmin() as any).from("projects").update({
         thumbnail_url: thumbnailUrl,
         thumbnail_generated: true,
         updated_at: new Date().toISOString(),

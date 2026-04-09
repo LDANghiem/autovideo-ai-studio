@@ -3945,10 +3945,125 @@ app.post("/recreate", async (req, res) => {
 });
 
 
+/* ── POST /article ────────────────────────────────────────── */
+/* Article → Video: skips yt-dlp + Whisper, uses pre-extracted  */
+/* article text as the "transcript" going into Step 2           */
+app.post("/article", async (req, res) => {
+  const {
+    project_id,
+    article_text,
+    source_url,
+    target_language = "Vietnamese",
+    style = "news",
+    voice_id = null,
+    include_captions = true,
+    music = "none",
+    caption_style = "classic",
+    caption_position = "bottom",
+    target_length = 90,
+    orientation = "landscape",
+  } = req.body || {};
+
+  if (!project_id) return jsonError(res, 400, "Missing project_id");
+  if (!article_text) return jsonError(res, 400, "Missing article_text");
+
+  console.log("[article] POST — project:", project_id, "text:", article_text.length, "chars");
+  res.status(202).json({ ok: true, accepted: true, project_id });
+
+  setImmediate(async () => {
+    const workDir = path.join(os.tmpdir(), `article-${project_id}`);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    try {
+      const { data: proj } = await admin
+        .from("recreate_projects")
+        .select("user_id")
+        .eq("id", project_id)
+        .single();
+      const userId = proj?.user_id;
+      const langCode = getReCreateLangCode(target_language);
+
+      // Step 1 SKIPPED — use article text directly as transcript
+      await updateReCreateStatus(project_id, "scripting", 15, {
+        transcript_original: article_text,
+      });
+      console.log("[article] ✅ step 1 skipped — using article text as transcript");
+
+      // Step 2: AI generates scenes from article text
+      const scenes = await recreateStep2_GenerateScript(
+        project_id, article_text, target_language, style, target_length
+      );
+
+      // Steps 3-5: same as ReCreate pipeline
+      const scenesMedia = await recreateStep3_FindMedia(project_id, scenes, workDir, style);
+      const { narrationFile, durationSec } = await recreateStep4_TTS(
+        project_id, scenesMedia, voice_id, workDir, langCode
+      );
+
+      let syncedCaptions = null;
+      if (include_captions) {
+        syncedCaptions = await recreateStep4b_SyncCaptions(
+          project_id, narrationFile, scenesMedia, langCode
+        );
+      }
+
+      let finalNarrationFile = narrationFile;
+      if (music && music !== "none") {
+        finalNarrationFile = await recreateStep4c_MixMusic(
+          project_id, narrationFile, durationSec, music, workDir
+        );
+      }
+
+      const finalFile = await recreateStep5_Render(
+        project_id, scenesMedia, finalNarrationFile, durationSec,
+        workDir, include_captions, syncedCaptions, style,
+        caption_style, caption_position, orientation
+      );
+
+      // Watermark for free-tier users
+      const watermarkedFile = await applyWatermarkIfNeeded(userId, finalFile, workDir);
+
+      // Upload
+      await updateReCreateStatus(project_id, "uploading", 92);
+      const fileBuffer = fs.readFileSync(watermarkedFile);
+      const objPath = `${userId}/${project_id}/recreated.mp4`;
+
+      try {
+        const { data: buckets } = await admin.storage.listBuckets();
+        if (!buckets?.find((b) => b.name === RECREATE_BUCKET)) {
+          await admin.storage.createBucket(RECREATE_BUCKET, { public: true });
+        }
+      } catch {}
+
+      const { error: upErr } = await admin.storage
+        .from(RECREATE_BUCKET)
+        .upload(objPath, fileBuffer, { contentType: "video/mp4", upsert: true });
+      if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
+
+      const { data: urlData } = admin.storage.from(RECREATE_BUCKET).getPublicUrl(objPath);
+      await updateReCreateStatus(project_id, "done", 100, { final_video_url: urlData?.publicUrl });
+      console.log("[article] 🎉 COMPLETE:", urlData?.publicUrl);
+
+    } catch (e) {
+      console.error("[article] ❌ FAILED:", e?.message || e);
+      try {
+        await admin.from("recreate_projects").update({
+          status: "error",
+          error_message: String(e?.message || e),
+          updated_at: new Date().toISOString(),
+        }).eq("id", project_id);
+      } catch {}
+    } finally {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+});
+
+
 /* ── Start server ──────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`[render-webhook] listening on :${PORT}`);
-  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate`);
+  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate | POST /article`);
   console.log(`[render-webhook] API keys loaded:`);
   console.log(`  OPENAI:    ${OPENAI_API_KEY ? "✅ " + OPENAI_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
   console.log(`  ANTHROPIC: ${ANTHROPIC_API_KEY ? "✅ " + ANTHROPIC_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);

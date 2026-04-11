@@ -101,6 +101,26 @@ async function getUserPlan(userId) {
   }
 }
 
+/* -- Phase 3: Cloned Voice Lookup -------------------------------- */
+// Returns the user's ElevenLabs cloned voice ID if they are a
+// Studio subscriber and have cloned a voice. Falls back to null.
+async function getClonedVoiceId(userId) {
+  if (!userId || userId === 'unknown') return null;
+  try {
+    const { data } = await admin
+      .from('user_profiles')
+      .select('cloned_voice_id, plan')
+      .eq('id', userId)
+      .single();
+    if (data?.plan === 'studio' && data?.cloned_voice_id) {
+      return data.cloned_voice_id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function applyWatermarkIfNeeded(userId, inputFile, workDir) {
   const plan = await getUserPlan(userId);
   if (plan !== "free") return inputFile; // paid users — no watermark
@@ -1457,6 +1477,11 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
 
   const userId = project?.user_id || "unknown";
 
+  // Phase 3: Auto-inject Studio cloned voice when no explicit voice_id
+  const clonedVoice = await getClonedVoiceId(userId);
+  const effectiveDubVoiceId = voiceId || clonedVoice || null;
+  if (clonedVoice && !voiceId) console.log("[dub] Phase 3: cloned voice →", clonedVoice);
+
   try {
     // [1] Download/trim/upload — now mode-aware
     const { videoFile, audioFile, durationSec } =
@@ -1469,7 +1494,7 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
       await dubStep3_Translate(projectId, segments, detectedLanguage, targetLanguage);
 
     const narrationFile =
-      await dubStep4_GenerateTTS(projectId, translatedSegments, voiceId, workDir, durationSec, targetLanguageCode);
+      await dubStep4_GenerateTTS(projectId, translatedSegments, effectiveDubVoiceId, workDir, durationSec, targetLanguageCode);
 
     const syncedSegments =
       await dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegments, targetLanguageCode);
@@ -3863,10 +3888,15 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
     const { data: proj } = await admin.from("recreate_projects").select("user_id").eq("id", projectId).single();
     const userId = proj?.user_id;
 
+    // Phase 3: Auto-inject Studio cloned voice
+    const clonedRecreateVoice = await getClonedVoiceId(userId);
+    const effectiveRecreateVoiceId = voiceId || clonedRecreateVoice || null;
+    if (clonedRecreateVoice && !voiceId) console.log("[recreate] Phase 3: cloned voice →", clonedRecreateVoice);
+
     const transcript = await recreateStep1_Transcribe(projectId, sourceUrl, workDir);
     const scenes = await recreateStep2_GenerateScript(projectId, transcript, targetLanguage, style, targetLength);
     const scenesMedia = await recreateStep3_FindMedia(projectId, scenes, workDir, style);
-    const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, voiceId, workDir, langCode);
+    const { narrationFile, durationSec } = await recreateStep4_TTS(projectId, scenesMedia, effectiveRecreateVoiceId, workDir, langCode);
 
     // ✅ NEW: Get Whisper-synced captions for perfect timing
     let syncedCaptions = null;
@@ -3983,6 +4013,11 @@ app.post("/article", async (req, res) => {
       const userId = proj?.user_id;
       const langCode = getReCreateLangCode(target_language);
 
+      // Phase 3: Auto-inject Studio cloned voice
+      const clonedArticleVoice = await getClonedVoiceId(userId);
+      const effectiveArticleVoiceId = voice_id || clonedArticleVoice || null;
+      if (clonedArticleVoice && !voice_id) console.log("[article] Phase 3: cloned voice →", clonedArticleVoice);
+
       // Step 1 SKIPPED — use article text directly as transcript
       await updateReCreateStatus(project_id, "scripting", 15, {
         transcript_original: article_text,
@@ -3997,7 +4032,7 @@ app.post("/article", async (req, res) => {
       // Steps 3-5: same as ReCreate pipeline
       const scenesMedia = await recreateStep3_FindMedia(project_id, scenes, workDir, style);
       const { narrationFile, durationSec } = await recreateStep4_TTS(
-        project_id, scenesMedia, voice_id, workDir, langCode
+        project_id, scenesMedia, effectiveArticleVoiceId, workDir, langCode
       );
 
       let syncedCaptions = null;

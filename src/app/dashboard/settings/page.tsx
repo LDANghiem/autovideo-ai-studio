@@ -5,11 +5,18 @@ import { useSearchParams } from "next/navigation";
 import { useUserPreferences } from "@/context/UserPreferencesContext";
 import { updateUserPreferences } from "@/lib/preferences/updateUserPreferences";
 import { supabase } from "@/lib/supabaseClient";
+import { useUserTier } from "@/lib/useUserTier";
 
 import SettingsSection from "@/components/settings/SettingsSection";
 import SettingsSelect from "@/components/settings/SettingsSelect";
 import { useToast } from "@/components/ui/use-toast";
 import { motion } from "framer-motion";
+import dynamic from "next/dynamic";
+
+const VoiceCloneStudio = dynamic(
+  () => import("@/components/voice-clone/VoiceCloneStudio"),
+  { ssr: false, loading: () => <div className="h-24 flex items-center justify-center"><div className="w-5 h-5 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" /></div> }
+);
 
 /* ── YouTube Connection Status Type ────────────────────────── */
 interface YouTubeStatus {
@@ -23,6 +30,7 @@ interface YouTubeStatus {
 export default function SettingsPage() {
   const { prefs, loading, setPrefsLocal } = useUserPreferences();
   const searchParams = useSearchParams();
+  const userTier = useUserTier();
 
   const [form, setForm] = useState({
     default_voice: "AI Voice",
@@ -314,6 +322,52 @@ export default function SettingsPage() {
               Soon
             </span>
           </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════
+            VOICE CLONING (Studio Tier)
+        ═══════════════════════════════════════════════════════ */}
+        <div
+          className="rounded-2xl p-6 mb-8 relative overflow-hidden"
+          style={{
+            background: "rgba(20,17,35,0.6)",
+            border: "1px solid rgba(74,66,96,0.3)",
+          }}
+        >
+          {/* Studio-only lock overlay */}
+          {userTier !== "studio" && userTier !== "loading" && (
+            <div
+              className="absolute inset-0 rounded-2xl z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-[1px]"
+              style={{ background: "rgba(15,12,26,0.82)" }}
+            >
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.2), rgba(234,179,8,0.12))",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                }}
+              >
+                <span className="text-2xl">🔒</span>
+              </div>
+              <div className="text-center">
+                <p className="text-white font-semibold text-sm">Studio Tier Required</p>
+                <p className="text-xs text-gray-500 mt-1">Upgrade to Studio to clone your voice</p>
+              </div>
+              <a
+                href="/dashboard/billing"
+                className="px-5 py-2 rounded-xl text-xs font-semibold text-white transition hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.6), rgba(234,179,8,0.4))",
+                  border: "1px solid rgba(245,158,11,0.4)",
+                  boxShadow: "0 2px 16px rgba(245,158,11,0.15)",
+                }}
+              >
+                Upgrade to Studio →
+              </a>
+            </div>
+          )}
+
+          <VoiceCloneStudio />
         </div>
 
         {/* ═══════════════════════════════════════════════════════

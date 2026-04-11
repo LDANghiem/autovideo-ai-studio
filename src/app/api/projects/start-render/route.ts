@@ -1148,18 +1148,40 @@ export async function POST(req: Request) {
     };
     const voiceInstructions = toneInstructions[toneLabel] || toneInstructions["friendly"];
 
-    // 🆕 VOICE PICKER: Use ElevenLabs for non-English, OpenAI for English
+    // 🆕 VOICE PICKER + Phase 3 CLONED VOICE: Fetch user's cloned voice from profile
     const projectLang = (project.language || "English").toLowerCase().trim();
     const langCode = LANG_NAME_TO_CODE[projectLang] || null;
     const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY;
     const isNonEnglish = projectLang !== "english" && langCode;
 
+    // Phase 3: Auto-inject user's cloned voice (Studio tier exclusive)
+    let userClonedVoiceId: string | null = project.elevenlabs_voice_id || null;
+    if (!userClonedVoiceId) {
+      try {
+        const { data: profileRow } = await admin
+          .from("user_profiles")
+          .select("cloned_voice_id, plan")
+          .eq("id", user.id)
+          .single();
+        if (profileRow?.cloned_voice_id && profileRow?.plan === "studio") {
+          userClonedVoiceId = profileRow.cloned_voice_id;
+          console.log("[tts] Phase 3: Auto-injecting cloned voice:", userClonedVoiceId);
+        }
+      } catch (profileErr) {
+        console.warn("[tts] Could not fetch cloned voice from profile:", profileErr);
+      }
+    }
+
     let mp3: Buffer;
-    if (isNonEnglish && hasElevenLabs && langCode) {
-      const customVoiceId = project.elevenlabs_voice_id || null;
-      console.log("[tts] Using ElevenLabs for " + project.language + " (code: " + langCode + ")" +
-        (customVoiceId ? " customVoice: " + customVoiceId : " defaultVoice"));
-      mp3 = await generateTtsElevenLabsRender(script!, langCode, customVoiceId);
+    if (userClonedVoiceId && hasElevenLabs) {
+      // Phase 3: User has a cloned voice — use it for ALL languages
+      const clonedLangCode = langCode || "en";
+      console.log("[tts] Using cloned voice " + userClonedVoiceId + " for lang=" + project.language);
+      mp3 = await generateTtsElevenLabsRender(script!, clonedLangCode, userClonedVoiceId);
+    } else if (isNonEnglish && hasElevenLabs && langCode) {
+      // Non-English with default ElevenLabs voice
+      console.log("[tts] Using ElevenLabs default for " + project.language + " (code: " + langCode + ")");
+      mp3 = await generateTtsElevenLabsRender(script!, langCode, null);
     } else {
       console.log("[tts] Using OpenAI TTS for " + project.language);
       mp3 = await generateTtsMp3(script!, voiceId, voiceInstructions);

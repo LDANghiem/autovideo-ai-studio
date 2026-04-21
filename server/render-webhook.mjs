@@ -231,6 +231,8 @@ function clearRemotionCache() {
 async function runRender(projectId, attemptFromRequest) {
   const startedIso = new Date().toISOString();
 
+  await new Promise(r => setTimeout(r, 2000));
+
   const { data: project, error: projErr } = await admin
     .from("projects")
     .select("*")
@@ -313,6 +315,8 @@ async function runRender(projectId, attemptFromRequest) {
   })) : null;
 
   const rawWords = project.caption_words ?? [];
+  console.log("[render]   ⚡ caption_words in DB:", 
+  Array.isArray(rawWords) ? rawWords.length : typeof rawWords);
   const liteWords = Array.isArray(rawWords) ? rawWords.map((w) => ({
     word: w.word,
     start: w.start,
@@ -334,6 +338,15 @@ async function runRender(projectId, attemptFromRequest) {
   } else {
     console.log("[render]   music: none");
   }
+  const captionStyle = (!project.caption_style || project.caption_style === "none" ? "karaoke" : project.caption_style).toLowerCase();
+
+  const wordCount = Array.isArray(project.caption_words) ? project.caption_words.length : 0;
+  console.log("[render]   captionStyle:", captionStyle);
+  console.log("[render]   caption_style (raw):", project.caption_style);
+  console.log("[render]   caption_words count:", wordCount);
+  if (wordCount > 0) {
+  console.log("[render]   first word sample:", JSON.stringify(project.caption_words[0]));
+}
 
   const inputProps = {
     topic: project.topic ?? "Untitled Project",
@@ -347,6 +360,7 @@ async function runRender(projectId, attemptFromRequest) {
     music: project.music ?? null,
     musicUrl,
 
+    captionStyle, 
     captionWords: liteWords,
     script: null,
 
@@ -360,6 +374,9 @@ async function runRender(projectId, attemptFromRequest) {
 
   const propsJson = JSON.stringify(inputProps);
   console.log("[render] inputProps size:", propsJson.length, "bytes");
+  console.log("[render] ⚡ CAPTION CHECK — style:", 
+  inputProps.captionStyle, "| words:", 
+  Array.isArray(inputProps.captionWords) ? inputProps.captionWords.length : "NULL");
 
   /* ── bundle + compose ────────────────────────────────────── */
   clearRemotionCache();
@@ -407,18 +424,23 @@ async function runRender(projectId, attemptFromRequest) {
   const outFile = path.join(outDir, `${projectId}-attempt-${attempt}.mp4`);
 
   await renderMedia({
-    composition: comp,
-    serveUrl,
-    codec: "h264",
-    audioCodec: "aac",
-    crf: 30,
-    pixelFormat: "yuv420p",
-    muted: false,
-    outputLocation: outFile,
-    inputProps,
-    timeoutInMilliseconds: 1800000,
-    chromiumOptions: { disableGpu: true },
-  });
+  composition: comp,
+  serveUrl,
+  codec: "h264",
+  audioCodec: "aac",
+  crf: 30,
+  pixelFormat: "yuv420p",
+  muted: false,
+  outputLocation: outFile,
+  inputProps,
+  timeoutInMilliseconds: 1800000,
+  concurrency: 1,
+  chromiumOptions: {
+    disableGpu: true,
+    ignoreCertificateErrors: true,
+  },
+  onBrowserLog: () => {},
+});
 
   if (!fs.existsSync(outFile)) throw new Error(`Render output missing: ${outFile}`);
 

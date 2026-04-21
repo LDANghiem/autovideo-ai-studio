@@ -45,6 +45,7 @@ const defaultProps: VideoProps & { durationInFrames?: number | null } = {
   script: "",
   audioUrl: null,
   captionWords: null,
+  captionStyle: "karaoke",
   audioDurationSec: null,
   durationInFrames: null,
 

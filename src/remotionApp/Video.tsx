@@ -55,6 +55,7 @@ export type VideoProps = {
   durationInFrames?: number | null;
 
   scenes?: Scene[] | null;
+  captionStyle?: string | null;
 };
 
 /** ============================================================
@@ -355,6 +356,55 @@ function groupLines(words: CaptionWord[], perLine: number): Line[] {
 }
 
 /** ============================================================
+ * Block Captions — Netflix-style full bottom bar
+ * One clean line at a time, no word highlighting
+ * ============================================================ */
+function BlockCaptions({ words, vertical }: { words: CaptionWord[]; vertical?: boolean }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const prevLineRef = useRef(-1);
+  const filled = useMemo(() => fillGaps(words), [words]);
+  const wordsPerLine = vertical ? 5 : 8;
+  const lines = useMemo(() => groupLines(filled, wordsPerLine), [filled, wordsPerLine]);
+  const t = frame / fps;
+  if (lines.length === 0) return null;
+
+  let lineIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (t >= lines[i].start - 0.05) lineIdx = i;
+    else break;
+  }
+  if (lineIdx < 0) lineIdx = prevLineRef.current;
+  else prevLineRef.current = lineIdx;
+  if (lineIdx < 0 || lineIdx >= lines.length) return null;
+
+  const lineText = lines[lineIdx].words.map(w => w.word).join(" ");
+
+  return (
+    <div style={{
+      position: "absolute", left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.72)",
+      padding: vertical ? "18px 30px" : "14px 60px",
+      display: "flex", justifyContent: "center",
+    }}>
+      <div style={{
+        textAlign: "center",
+        fontSize: vertical ? 48 : 38,
+        lineHeight: 1.3,
+        fontWeight: 400,
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        color: "#ffffff",
+        letterSpacing: "0.01em",
+        maxWidth: vertical ? 900 : 1400,
+        textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+      }}>
+        {lineText}
+      </div>
+    </div>
+  );
+}
+
+/** ============================================================
  * Karaoke Captions — smooth, no jitter
  *
  * Key improvements over previous version:
@@ -437,7 +487,7 @@ function KaraokeCaptions({ words, vertical }: { words: CaptionWord[]; vertical?:
           textAlign: "center",
           fontSize: vertical ? 52 : 44,
           lineHeight: vertical ? 1.4 : 1.35,
-          fontWeight: 700,
+          fontWeight: 400,
           color: "white",
           textShadow: "0 3px 16px rgba(0,0,0,0.95), 0 1px 4px rgba(0,0,0,0.9)",
           background: "rgba(0,0,0,0.45)",
@@ -466,7 +516,7 @@ function KaraokeCaptions({ words, vertical }: { words: CaptionWord[]; vertical?:
                 textShadow: isCurrent
                   ? "0 0 12px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.9)"
                   : "0 2px 8px rgba(0,0,0,0.8)",
-                transform: isCurrent ? "scale(1.05)" : "scale(1)",
+                transition: "opacity 0.08s ease",
               }}
             >
               {w.word}
@@ -482,7 +532,7 @@ function KaraokeCaptions({ words, vertical }: { words: CaptionWord[]; vertical?:
  * Main Video Component
  * ============================================================ */
 export const Video: React.FC<VideoProps> = (props) => {
-  const { topic, videoType, audioUrl, captionWords, scenes, musicUrl } = props;
+  const { topic, videoType, audioUrl, captionWords, scenes, musicUrl, captionStyle } = props;
   const { durationInFrames, fps, width, height } = useVideoConfig();
 
   // Detect vertical mode from either videoType prop or actual dimensions
@@ -536,8 +586,16 @@ export const Video: React.FC<VideoProps> = (props) => {
         />
       ) : null}
 
-      {/* ── karaoke captions ────────────────────────────────── */}
-      {words.length > 0 ? <KaraokeCaptions words={words} vertical={isVertical} /> : null}
+      {/* ── captions — style-aware ───────────────────────────── */}
+      {words.length > 0 && captionStyle !== "none" ? (
+        captionStyle === "block" ? (
+          <BlockCaptions words={words} vertical={isVertical} />
+        ) : (
+          <KaraokeCaptions words={words} vertical={isVertical} />
+        )
+      ) : words.length > 0 && !captionStyle ? (
+        <KaraokeCaptions words={words} vertical={isVertical} />
+      ) : null}
     </AbsoluteFill>
   );
 };

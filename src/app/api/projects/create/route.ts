@@ -111,6 +111,7 @@ export async function POST(req: Request) {
       language: body?.language ?? null,
       tone: body?.tone ?? null,
       music: body?.music ?? null,
+      caption_style: body?.caption_style ?? "karaoke",  // caption style preference
 
       // render-related fields
       script: null,

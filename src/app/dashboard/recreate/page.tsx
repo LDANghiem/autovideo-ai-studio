@@ -664,17 +664,24 @@ export default function ReCreatePage() {
           {/* Video Length */}
           <div className="mb-6">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Video Length</p>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {([
-                { val: 30,  label: "30s",  desc: "Shorts" },
-                { val: 60,  label: "1 min", desc: "Quick" },
-                { val: 90,  label: "90s",  desc: "Standard" },
-                { val: 180, label: "3 min", desc: "In-depth" },
+                { val: 30,   label: "30s",    desc: "Shorts" },
+                { val: 60,   label: "1 min",  desc: "Quick" },
+                { val: 90,   label: "90s",    desc: "Standard" },
+                { val: 180,  label: "3 min",  desc: "In-depth" },
+                { val: 300,  label: "5 min",  desc: "Deep dive" },
+                { val: 480,  label: "8 min",  desc: "Extended" },
+                { val: 720,  label: "12 min", desc: "Long-form" },
+                { val: 960,  label: "16 min", desc: "Detailed" },
+                { val: 1200, label: "20 min", desc: "Podcast" },
+                { val: 1440, label: "24 min", desc: "Series ep." },
+                { val: 1800, label: "30 min", desc: "Full ep." },
               ] as const).map((opt) => (
                 <button
                   key={opt.val}
                   onClick={() => setTargetLength(opt.val)}
-                  className="flex flex-col items-center py-2.5 rounded-lg transition-all"
+                  className="flex flex-col items-center py-2.5 px-3 rounded-lg transition-all w-[calc(25%-6px)]"
                   style={{
                     background: targetLength === opt.val ? "rgba(6,182,212,0.15)" : "rgba(15,12,28,0.7)",
                     border: targetLength === opt.val ? "1.5px solid rgba(6,182,212,0.6)" : "1px solid rgba(255,255,255,0.08)",

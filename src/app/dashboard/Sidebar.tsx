@@ -50,6 +50,16 @@ function IconReCreate() {
   );
 }
 
+function IconBulk() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="4" rx="1" />
+      <rect x="2" y="10" width="20" height="4" rx="1" />
+      <rect x="2" y="17" width="20" height="4" rx="1" />
+    </svg>
+  );
+}
+
 function IconDub() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -197,6 +207,7 @@ type NavItem = {
   Icon: () => React.ReactElement;
   featured?: boolean;
   proOnly?: boolean;
+  studioOnly?: boolean;
 };
 
 type NavSection = {
@@ -216,6 +227,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/dashboard/create", label: "Create Video", Icon: IconCreate },
       { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
+      { href: "/dashboard/bulk", label: "Bulk Factory", Icon: IconBulk, featured: true, studioOnly: true },
       { href: "/dashboard/dub-video/new", label: "Dub Video", Icon: IconDub, featured: true },
       { href: "/dashboard/article", label: "Article → Video", Icon: IconArticle, featured: true },
     ],
@@ -322,7 +334,8 @@ export default function Sidebar() {
                   : pathname?.startsWith(item.href);
 
               const isPro = item.proOnly;
-              const isLocked = isPro && (userTier === "free" || userTier === "loading");
+              const isStudioOnly = (item as any).studioOnly;
+              const isLocked = (isPro && (userTier === "free" || userTier === "loading")) || (isStudioOnly && userTier !== "studio" && userTier !== "loading");
               const theme = THEMES[item.href];
               const isFeatured = item.featured && theme;
 

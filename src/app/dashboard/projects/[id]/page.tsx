@@ -396,16 +396,32 @@ export default function ProjectDetailPage() {
     setToast(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke("retry-render", {
-        body: { project_id: projectId },
+      // Step 1: Reset status to draft so start-render guard doesn't block
+      await supabase
+        .from("projects")
+        .update({ status: "draft", error_message: null })
+        .eq("id", projectId);
+
+      // Step 2: Get auth token
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error("Not logged in");
+
+      // Step 3: Call start-render directly with force:true
+      const res = await fetch("/api/projects/start-render", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ project_id: projectId, force: true }),
       });
 
-      if (error) {
-        setUiError(error.message);
-      } else if ((data as any)?.error) {
-        setUiError((data as any).error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUiError((json as any)?.error || `Retry failed (${res.status})`);
       } else {
-        setToast("Retry queued ✅");
+        setToast("Retry started ✅");
         await fetchProject();
       }
     } catch (e: any) {

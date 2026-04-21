@@ -177,7 +177,7 @@ export default function CreateProjectPage() {
   const [language, setLanguage] = useState("English");
   const [tone, setTone] = useState("friendly");
   const [music, setMusic] = useState("ambient");
-  const [captionStyle, setCaptionStyle] = useState("none"); // 🆕 Caption style: none, block, karaoke, centered
+  const [captionStyle, setCaptionStyle] = useState("karaoke"); // default to karaoke
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -526,7 +526,7 @@ export default function CreateProjectPage() {
             setStyle("modern"); setVoice("Coral (warm female)"); setLength("5 minutes");
             setResolution("1080p"); setLanguage("English"); setTone("friendly");
             setMusic("ambient"); setImageSource("ai-art"); setError(null);
-            setCaptionStyle("none");
+            setCaptionStyle("karaoke");
             setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
           }} className="border rounded px-4 py-2" disabled={busy}>
             Reset

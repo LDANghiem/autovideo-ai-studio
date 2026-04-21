@@ -338,6 +338,7 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
   fd.append("model", "whisper-1");
   fd.append("response_format", "verbose_json");
   fd.append("timestamp_granularities[]", "word");
+  fd.append("timestamp_granularities[]", "segment");
 
   const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -350,10 +351,33 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
     throw new Error(json?.error?.message || "Transcription failed (" + resp.status + ")");
   }
 
-  const words = Array.isArray(json?.words) ? (json.words as any[]) : [];
-  return words
-    .map((w: any) => ({
-      word: String(w.word ?? "").trim(),
+  // Whisper word tokens strip punctuation — reattach from segment text
+  const rawWords: any[] = Array.isArray(json?.words) ? json.words : [];
+  const segments: any[] = Array.isArray(json?.segments) ? json.segments : [];
+
+  // Build punctuation map by matching word tokens to segment text
+  const punctMap = new Map<number, string>();
+  if (segments.length > 0) {
+    let wordIdx = 0;
+    for (const seg of segments) {
+      const tokens = (seg.text || "").trim().split(/\s+/);
+      for (const token of tokens) {
+        if (wordIdx >= rawWords.length) break;
+        const tokenWord = token.replace(/[^a-zA-Z0-9À-ɏ]/g, "");
+        const rawWord = String(rawWords[wordIdx]?.word ?? "").trim().replace(/[^a-zA-Z0-9À-ɏ]/g, "");
+        if (tokenWord.toLowerCase() === rawWord.toLowerCase() || tokenWord.length === 0) {
+          const trailing = token.replace(/^[a-zA-Z0-9À-ɏ'']+/, "");
+          if (trailing) punctMap.set(wordIdx, trailing);
+          wordIdx++;
+        }
+      }
+    }
+  }
+
+  return rawWords
+    .map((w: any, i: number) => ({
+      word: String(w.word ?? "").trim().replace(/^[,.\!?;:]+$/, "")
+            + (punctMap.get(i) || ""),
       start: Number(w.start ?? 0),
       end: Number(w.end ?? 0),
     }))
@@ -1199,6 +1223,7 @@ export async function POST(req: Request) {
       });
 
     const captionWords = await transcribeWordsFromMp3(mp3);
+    console.log("[start-render] captionWords count:", captionWords.length, "first:", JSON.stringify(captionWords[0]));
 
     /* ── scene generation + images ─────────────────────────── */
     console.log("[start-render] starting scene generation (image_source: " + (project.image_source || "ai-art") + ")...");

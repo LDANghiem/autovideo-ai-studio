@@ -32,6 +32,13 @@ const LENGTHS = [
   { value: 60, label: "1 minute" },
   { value: 90, label: "90 seconds" },
   { value: 180, label: "3 minutes" },
+  { value: 300, label: "5 minutes" },
+  { value: 480, label: "8 minutes" },
+  { value: 720, label: "12 minutes" },
+  { value: 960, label: "16 minutes" },
+  { value: 1200, label: "20 minutes" },
+  { value: 1440, label: "24 minutes" },
+  { value: 1800, label: "30 minutes" },
 ];
 
 export default function ArticlePage() {

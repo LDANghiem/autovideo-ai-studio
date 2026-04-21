@@ -66,6 +66,70 @@ export default function LibraryPage() {
   const [search, setSearch] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
 
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const handleDelete = async (video: VideoItem) => {
+    if (!confirm(`Delete "${video.title}"? This will permanently remove the video and free up storage.`)) return;
+    const key = `${video.pipeline}-${video.id}`;
+    setDeleting(key);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+      const uid = session.user.id;
+
+      // 1. Delete storage files first
+      const bucketMap: Record<Pipeline, string> = {
+        create: "videos",
+        recreate: "recreated-videos",
+        dub: "dubbed-videos",
+        shorts: "shorts",
+      };
+      const bucket = bucketMap[video.pipeline];
+
+      // Build storage paths for this pipeline
+      const storagePaths: string[] = [];
+      if (video.pipeline === "create") {
+        // Try common attempt numbers
+        for (let a = 1; a <= 3; a++) {
+          storagePaths.push(`${uid}/${video.id}/attempt-${a}.mp4`);
+        }
+      } else if (video.pipeline === "recreate") {
+        storagePaths.push(`${uid}/${video.id}/recreated.mp4`);
+      } else if (video.pipeline === "dub") {
+        storagePaths.push(`${uid}/${video.id}/dubbed.mp4`);
+        storagePaths.push(`${uid}/${video.id}/vietnamese.srt`);
+      } else if (video.pipeline === "shorts") {
+        // Shorts can have multiple clips — try up to 10
+        for (let c = 1; c <= 10; c++) {
+          storagePaths.push(`${uid}/${video.id}/clip-${c}.mp4`);
+          storagePaths.push(`${uid}/${video.id}/clip-${c}-thumb.jpg`);
+        }
+      }
+
+      // Delete storage files (best effort — don't fail if files missing)
+      if (storagePaths.length > 0) {
+        await supabase.storage.from(bucket).remove(storagePaths).catch(() => {});
+      }
+
+      // 2. Delete DB row
+      const tableMap: Record<Pipeline, string> = {
+        create: "projects",
+        recreate: "recreate_projects",
+        dub: "dub_projects",
+        shorts: "repurpose_projects",
+      };
+      const table = tableMap[video.pipeline];
+      await supabase.from(table).delete().eq("id", video.id).eq("user_id", uid);
+
+      // 3. Remove from local state immediately
+      setVideos(prev => prev.filter(v => !(v.id === video.id && v.pipeline === video.pipeline)));
+    } catch (e) {
+      console.error("Delete failed:", e);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const fetchAll = useCallback(async (uid: string) => {
     const results: VideoItem[] = [];
 
@@ -359,6 +423,22 @@ export default function LibraryPage() {
                       >
                         View →
                       </Link>
+                      {/* Delete button */}
+                      <button
+                        onClick={() => handleDelete(video)}
+                        disabled={deleting === `${video.pipeline}-${video.id}`}
+                        className="w-8 h-7 flex items-center justify-center rounded-lg transition-all hover:bg-red-500/20 hover:text-red-400 disabled:opacity-40"
+                        style={{ color: "rgba(107,114,128,0.7)", border: "1px solid rgba(255,255,255,0.08)" }}
+                        title="Delete"
+                      >
+                        {deleting === `${video.pipeline}-${video.id}` ? (
+                          <div className="w-3 h-3 rounded-full border border-current border-t-transparent animate-spin" />
+                        ) : (
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                          </svg>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>

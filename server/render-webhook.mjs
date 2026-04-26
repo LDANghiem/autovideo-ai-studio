@@ -65,6 +65,8 @@ const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY || "").trim();
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || "").trim();
 
+const WORKER_SHARED_SECRET = (process.env.WORKER_SHARED_SECRET || "").trim();
+
 /* ── Startup diagnostics ───────────────────────────────────── */
 console.log("[startup] API keys loaded:");
 console.log("[startup]   OPENAI_API_KEY:", OPENAI_API_KEY ? `✅ (${OPENAI_API_KEY.slice(0,8)}...)` : "❌ MISSING");
@@ -4116,11 +4118,103 @@ app.post("/article", async (req, res) => {
   });
 });
 
+// ============================================================
+// Channel Cloner: scrape YouTube channel via yt-dlp
+// ============================================================
+app.post("/scrape-channel", async (req, res) => {
+  const { channelInput } = req.body || {};
+
+  if (!channelInput || typeof channelInput !== "string") {
+    return res.status(400).json({ error: "channelInput required" });
+  }
+
+  // Normalize input to a canonical YouTube channel URL
+  let channelUrl = channelInput.trim();
+  let channelHandle = "";
+
+  if (channelUrl.startsWith("@")) {
+    channelHandle = channelUrl.slice(1);
+    channelUrl = `https://youtube.com/@${channelHandle}/videos`;
+  } else if (channelUrl.includes("youtube.com/@")) {
+    const match = channelUrl.match(/youtube\.com\/@([^\/\?]+)/);
+    channelHandle = match ? match[1] : "";
+    channelUrl = `https://youtube.com/@${channelHandle}/videos`;
+  } else if (channelUrl.includes("youtube.com/channel/")) {
+    const match = channelUrl.match(/youtube\.com\/channel\/([^\/\?]+)/);
+    channelHandle = match ? match[1] : "";
+    if (!channelUrl.endsWith("/videos")) {
+      channelUrl = channelUrl.replace(/\/$/, "") + "/videos";
+    }
+  } else if (channelUrl.includes("youtube.com/c/")) {
+    const match = channelUrl.match(/youtube\.com\/c\/([^\/\?]+)/);
+    channelHandle = match ? match[1] : "";
+    if (!channelUrl.endsWith("/videos")) {
+      channelUrl = channelUrl.replace(/\/$/, "") + "/videos";
+    }
+  } else {
+    return res.status(400).json({ 
+      error: "invalid_channel_input",
+      message: "Please provide a YouTube channel URL or @handle" 
+    });
+  }
+
+  console.log(`[scrape-channel] Scraping: ${channelUrl}`);
+
+  try {
+    // Use youtube-dl-exec (already installed, same as your other features)
+    const ytdlp = (await import("youtube-dl-exec")).default;
+
+    // --flat-playlist with --dump-single-json gives us a list of entries
+    const info = await ytdlp(channelUrl, {
+      flatPlaylist: true,
+      dumpSingleJson: true,
+      playlistEnd: 50,
+      noWarnings: true,
+    });
+
+    const entries = Array.isArray(info?.entries) ? info.entries : [];
+    const channelTitle = info?.channel || info?.uploader || info?.title || channelHandle;
+
+    const videos = entries.map((v) => ({
+      video_id: v.id,
+      title: v.title || "Untitled",
+      url: v.url || `https://youtube.com/watch?v=${v.id}`,
+      views: typeof v.view_count === "number" ? v.view_count : 0,
+      duration_seconds: typeof v.duration === "number" ? Math.round(v.duration) : 0,
+      upload_date: v.upload_date || null,
+      thumbnail: v.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+    })).filter(v => v.video_id);
+
+    if (videos.length === 0) {
+      return res.status(404).json({ 
+        error: "no_videos_found",
+        message: "No videos found on this channel" 
+      });
+    }
+
+    console.log(`[scrape-channel] Scraped ${videos.length} videos from ${channelTitle}`);
+
+    return res.json({
+      channel_handle: channelHandle,
+      channel_url: channelUrl,
+      channel_title: channelTitle,
+      videos,
+      scraped_at: new Date().toISOString(),
+    });
+
+  } catch (err) {
+    console.error("[scrape-channel] Error:", err?.message || err);
+    return res.status(500).json({ 
+      error: "scrape_failed",
+      message: err?.message || "Failed to scrape channel" 
+    });
+  }
+});
 
 /* ── Start server ──────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`[render-webhook] listening on :${PORT}`);
-  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate | POST /article`);
+  console.log(`[render-webhook] endpoints: GET / | POST /render | POST /dub | POST /shorts | POST /repurpose | POST /recreate | POST /article | POST /scrape-channel`);
   console.log(`[render-webhook] API keys loaded:`);
   console.log(`  OPENAI:    ${OPENAI_API_KEY ? "✅ " + OPENAI_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);
   console.log(`  ANTHROPIC: ${ANTHROPIC_API_KEY ? "✅ " + ANTHROPIC_API_KEY.slice(0, 8) + "..." : "❌ missing"}`);

@@ -60,6 +60,15 @@ function IconBulk() {
   );
 }
 
+function IconChannelCloner() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12a10 10 0 1 0 20 0 10 10 0 1 0-20 0z" />
+      <path d="M10 8l6 4-6 4V8z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function IconDub() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -171,6 +180,15 @@ const THEMES: Record<string, {
     badgeBg: "rgba(6,182,212,0.15)",
     badgeBorder: "rgba(6,182,212,0.35)",
   },
+  "/dashboard/channel-cloner": {
+    gradient: "linear-gradient(135deg, rgba(244,63,94,0.12) 0%, rgba(236,72,153,0.08) 100%)",
+    glow: "0 0 16px rgba(244,63,94,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(244,63,94,0.22) 0%, rgba(236,72,153,0.15) 100%)",
+    iconColor: "#fb7185",
+    badgeText: "NEW",
+    badgeBg: "rgba(244,63,94,0.15)",
+    badgeBorder: "rgba(244,63,94,0.35)",
+  },
   "/dashboard/shorts": {
     gradient: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.08) 100%)",
     glow: "0 0 16px rgba(245,158,11,0.15)",
@@ -227,6 +245,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/dashboard/create", label: "Create Video", Icon: IconCreate },
       { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
+      { href: "/dashboard/channel-cloner", label: "Channel Cloner", Icon: IconChannelCloner, featured: true, studioOnly: true },
       { href: "/dashboard/bulk", label: "Bulk Factory", Icon: IconBulk, featured: true, studioOnly: true },
       { href: "/dashboard/dub-video/new", label: "Dub Video", Icon: IconDub, featured: true },
       { href: "/dashboard/article", label: "Article → Video", Icon: IconArticle, featured: true },

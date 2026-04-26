@@ -160,7 +160,7 @@ export default function LibraryPage() {
     // 2. ReCreate (recreate_projects table)
     const { data: recreates } = await supabase
       .from("recreate_projects")
-      .select("id, title, status, created_at, final_video_url, source_url")
+      .select("id, source_title, source_video_title, source_channel_handle, source_channel_title, status, created_at, final_video_url, source_url")
       .eq("user_id", uid)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -169,7 +169,12 @@ export default function LibraryPage() {
       results.push({
         id: p.id,
         pipeline: "recreate",
-        title: p.title || p.source_url || "ReCreated Video",
+        title:
+          p.source_video_title ||
+          p.source_title ||
+          (p.source_channel_handle ? `Clone from @${p.source_channel_handle}` : null) ||
+          p.source_url ||
+          "ReCreated Video",
         status: p.status || "draft",
         created_at: p.created_at,
         video_url: p.final_video_url || null,

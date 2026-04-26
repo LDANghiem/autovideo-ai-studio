@@ -559,14 +559,22 @@ function VideoCardGrid(props: {
         )}
 
         {video.video_url && !isProcessing && (
-          <div className="lib-thumb-overlay" style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(10,10,20,0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}>
+          <a
+            href={video.video_url}
+            target="_blank"
+            rel="noreferrer"
+            className="lib-thumb-overlay"
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(10,10,20,0.55)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textDecoration: "none",
+              cursor: "pointer",
+            }}
+          >
             <div style={{
               width: 56,
               height: 56,
@@ -579,7 +587,7 @@ function VideoCardGrid(props: {
             }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="#0a0a14"><path d="M8 5v14l11-7z"/></svg>
             </div>
-          </div>
+          </a>
         )}
       </div>
 

@@ -1,456 +1,821 @@
-// ============================================================
-// FILE: src/app/dashboard/library/page.tsx
-// Unified Video Library — shows all videos across all pipelines
-// Pipelines: Create Video, ReCreate, Dub Video, AI Shorts
-// ============================================================
-
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import Link from "next/link";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 
-// ── Types ────────────────────────────────────────────────────
-type Pipeline = "create" | "recreate" | "dub" | "shorts";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-interface VideoItem {
+const PIPELINE_COLORS = {
+  create: { hex: "#7F77DD", name: "Create", glow: "rgba(127,119,221,0.35)" },
+  recreate: { hex: "#22d3ee", name: "ReCreate", glow: "rgba(34,211,238,0.35)" },
+  channel_cloner: { hex: "#fb7185", name: "Channel Cloner", glow: "rgba(251,113,133,0.35)" },
+  article: { hex: "#a78bfa", name: "Article", glow: "rgba(167,139,250,0.35)" },
+  shorts: { hex: "#fbbf24", name: "Shorts", glow: "rgba(251,191,36,0.35)" },
+  repurpose: { hex: "#fb923c", name: "Repurpose", glow: "rgba(251,146,60,0.35)" },
+  dub: { hex: "#60a5fa", name: "Dub", glow: "rgba(96,165,250,0.35)" },
+};
+
+type LibraryVideo = {
   id: string;
-  pipeline: Pipeline;
+  pipeline: keyof typeof PIPELINE_COLORS;
   title: string;
   status: string;
-  created_at: string;
+  progress_pct: number | null;
+  progress_stage: string | null;
   video_url: string | null;
   thumbnail_url: string | null;
-  duration?: number | null;
-  source_url?: string | null;
-}
-
-// ── Config ───────────────────────────────────────────────────
-const PIPELINE_META: Record<Pipeline, { label: string; color: string; icon: string }> = {
-  create:   { label: "Create Video", color: "#7F77DD", icon: "🎬" },
-  recreate: { label: "ReCreate",     color: "#10b981", icon: "♻️" },
-  dub:      { label: "Dub Video",    color: "#f59e0b", icon: "🎙️" },
-  shorts:   { label: "AI Shorts",    color: "#ef4444", icon: "✂️" },
+  created_at: string;
+  language?: string | null;
+  orientation?: string | null;
+  target_length?: number | null;
+  source_channel_handle?: string | null;
+  source_channel_title?: string | null;
+  duration_sec?: number | null;
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  done:       "#4ade80",
-  completed:  "#4ade80",
-  processing: "#fbbf24",
-  uploading:  "#fbbf24",
-  rendering:  "#fbbf24",
-  error:      "#f87171",
-  failed:     "#f87171",
-  draft:      "#9ca3af",
-};
-
-function getStatusColor(s: string) {
-  return STATUS_COLOR[s?.toLowerCase()] || "#9ca3af";
-}
-
-function timeAgo(d: string) {
-  const diff = Date.now() - new Date(d).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
+function timeAgo(iso: string): string {
+  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const m = Math.floor(seconds / 60);
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `${w}w ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(d / 365)}y ago`;
 }
 
-// ── Main Component ───────────────────────────────────────────
+function formatDuration(sec: number | null | undefined): string | null {
+  if (!sec || sec <= 0) return null;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export default function LibraryPage() {
-  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialView = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
+  const [view, setView] = useState<"grid" | "list">(initialView);
+  const [videos, setVideos] = useState<LibraryVideo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Pipeline | "all">("all");
-  const [search, setSearch] = useState("");
-  const [userId, setUserId] = useState<string | null>(null);
+  const [filterPipeline, setFilterPipeline] = useState<string>("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [deleting, setDeleting] = useState<string | null>(null);
-
-  const handleDelete = async (video: VideoItem) => {
-    if (!confirm(`Delete "${video.title}"? This will permanently remove the video and free up storage.`)) return;
-    const key = `${video.pipeline}-${video.id}`;
-    setDeleting(key);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) return;
-      const uid = session.user.id;
-
-      // 1. Delete storage files first
-      const bucketMap: Record<Pipeline, string> = {
-        create: "videos",
-        recreate: "recreated-videos",
-        dub: "dubbed-videos",
-        shorts: "shorts",
-      };
-      const bucket = bucketMap[video.pipeline];
-
-      // Build storage paths for this pipeline
-      const storagePaths: string[] = [];
-      if (video.pipeline === "create") {
-        // Try common attempt numbers
-        for (let a = 1; a <= 3; a++) {
-          storagePaths.push(`${uid}/${video.id}/attempt-${a}.mp4`);
-        }
-      } else if (video.pipeline === "recreate") {
-        storagePaths.push(`${uid}/${video.id}/recreated.mp4`);
-      } else if (video.pipeline === "dub") {
-        storagePaths.push(`${uid}/${video.id}/dubbed.mp4`);
-        storagePaths.push(`${uid}/${video.id}/vietnamese.srt`);
-      } else if (video.pipeline === "shorts") {
-        // Shorts can have multiple clips — try up to 10
-        for (let c = 1; c <= 10; c++) {
-          storagePaths.push(`${uid}/${video.id}/clip-${c}.mp4`);
-          storagePaths.push(`${uid}/${video.id}/clip-${c}-thumb.jpg`);
-        }
-      }
-
-      // Delete storage files (best effort — don't fail if files missing)
-      if (storagePaths.length > 0) {
-        await supabase.storage.from(bucket).remove(storagePaths).catch(() => {});
-      }
-
-      // 2. Delete DB row
-      const tableMap: Record<Pipeline, string> = {
-        create: "projects",
-        recreate: "recreate_projects",
-        dub: "dub_projects",
-        shorts: "repurpose_projects",
-      };
-      const table = tableMap[video.pipeline];
-      await supabase.from(table).delete().eq("id", video.id).eq("user_id", uid);
-
-      // 3. Remove from local state immediately
-      setVideos(prev => prev.filter(v => !(v.id === video.id && v.pipeline === video.pipeline)));
-    } catch (e) {
-      console.error("Delete failed:", e);
-    } finally {
-      setDeleting(null);
-    }
+  const setViewMode = (mode: "grid" | "list") => {
+    setView(mode);
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.set("view", mode);
+    router.replace(`/dashboard/library?${sp.toString()}`, { scroll: false });
   };
-
-  const fetchAll = useCallback(async (uid: string) => {
-    const results: VideoItem[] = [];
-
-    // 1. Create Video (projects table)
-    const { data: creates } = await supabase
-      .from("projects")
-      .select("id, topic, status, created_at, render_attempt")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    (creates || []).forEach((p: any) => {
-      const attempt = p.render_attempt || 1;
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      results.push({
-        id: p.id,
-        pipeline: "create",
-        title: p.topic || "Untitled Video",
-        status: p.status || "draft",
-        created_at: p.created_at,
-        video_url: p.status === "done"
-          ? `${supabaseUrl}/storage/v1/object/public/videos/${uid}/${p.id}/attempt-${attempt}.mp4`
-          : null,
-        thumbnail_url: null,
-      });
-    });
-
-    // 2. ReCreate (recreate_projects table)
-    const { data: recreates } = await supabase
-      .from("recreate_projects")
-      .select("id, source_title, source_video_title, source_channel_handle, source_channel_title, status, created_at, final_video_url, source_url")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    (recreates || []).forEach((p: any) => {
-      results.push({
-        id: p.id,
-        pipeline: "recreate",
-        title:
-          p.source_video_title ||
-          p.source_title ||
-          (p.source_channel_handle ? `Clone from @${p.source_channel_handle}` : null) ||
-          p.source_url ||
-          "ReCreated Video",
-        status: p.status || "draft",
-        created_at: p.created_at,
-        video_url: p.final_video_url || null,
-        thumbnail_url: null,
-        source_url: p.source_url,
-      });
-    });
-
-    // 3. Dub Video (dub_projects table)
-    const { data: dubs } = await supabase
-      .from("dub_projects")
-      .select("id, source_title, status, created_at, final_video_url, source_thumbnail")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    (dubs || []).forEach((p: any) => {
-      results.push({
-        id: p.id,
-        pipeline: "dub",
-        title: p.source_title || "Dubbed Video",
-        status: p.status || "draft",
-        created_at: p.created_at,
-        video_url: p.final_video_url || null,
-        thumbnail_url: p.source_thumbnail || null,
-      });
-    });
-
-    // 4. AI Shorts (repurpose_projects table)
-    const { data: shorts } = await supabase
-      .from("repurpose_projects")
-      .select("id, source_title, status, created_at, clips, source_url")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    (shorts || []).forEach((p: any) => {
-      const clips = p.clips || [];
-      const firstClip = clips[0];
-      results.push({
-        id: p.id,
-        pipeline: "shorts",
-        title: p.source_title || "AI Shorts Project",
-        status: p.status || "draft",
-        created_at: p.created_at,
-        video_url: firstClip?.video_url || null,
-        thumbnail_url: firstClip?.thumbnail_url || null,
-        duration: clips.length > 0 ? clips.length : null,
-      });
-    });
-
-    // Sort all by created_at descending
-    results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    setVideos(results);
-    setLoading(false);
-  }, []);
 
   useEffect(() => {
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) { setLoading(false); return; }
-      setUserId(session.user.id);
-      await fetchAll(session.user.id);
-    })();
-  }, [fetchAll]);
+    async function fetchAll() {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-  const filtered = videos.filter(v => {
-    if (filter !== "all" && v.pipeline !== filter) return false;
-    if (search && !v.title.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+      const [createRes, recreateRes, shortsRes, dubRes] = await Promise.all([
+        supabase
+          .from("projects")
+          .select("id, topic, status, video_url, thumbnail_url, created_at, language, video_type, length")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("recreate_projects")
+          .select("id, source_title, source_video_title, source_channel_handle, source_channel_title, status, progress_pct, progress_stage, final_video_url, thumbnail_url, created_at, target_language, orientation, target_length, article_text")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("shorts_projects")
+          .select("id, source_title, status, progress_pct, progress_stage, clips, source_thumbnail, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("dub_projects")
+          .select("id, source_title, status, progress_pct, video_url, created_at, target_language, source_duration_sec")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
 
-  const counts = {
-    all: videos.length,
-    create: videos.filter(v => v.pipeline === "create").length,
-    recreate: videos.filter(v => v.pipeline === "recreate").length,
-    dub: videos.filter(v => v.pipeline === "dub").length,
-    shorts: videos.filter(v => v.pipeline === "shorts").length,
-  };
+      const allVideos: LibraryVideo[] = [];
+
+      (createRes.data || []).forEach((p: any) => {
+        allVideos.push({
+          id: p.id,
+          pipeline: "create",
+          title: p.topic || "Untitled",
+          status: p.status || "unknown",
+          progress_pct: null,
+          progress_stage: null,
+          video_url: p.video_url || null,
+          thumbnail_url: p.thumbnail_url || null,
+          created_at: p.created_at,
+          language: p.language || null,
+          orientation: p.video_type === "youtube_shorts" || p.video_type === "tiktok" ? "portrait" : "landscape",
+          target_length: null,
+        });
+      });
+
+      (recreateRes.data || []).forEach((p: any) => {
+        const isChannelClone = !!p.source_channel_handle;
+        const isArticle = !!p.article_text;
+        const pipeline: keyof typeof PIPELINE_COLORS = isChannelClone
+          ? "channel_cloner"
+          : isArticle
+          ? "article"
+          : "recreate";
+        const title = p.source_video_title || p.source_title || "Untitled";
+
+        allVideos.push({
+          id: p.id,
+          pipeline,
+          title,
+          status: p.status || "unknown",
+          progress_pct: p.progress_pct || null,
+          progress_stage: p.progress_stage || null,
+          video_url: p.final_video_url || null,
+          thumbnail_url: p.thumbnail_url || null,
+          created_at: p.created_at,
+          language: p.target_language || null,
+          orientation: p.orientation || "landscape",
+          target_length: p.target_length || null,
+          source_channel_handle: p.source_channel_handle || null,
+          source_channel_title: p.source_channel_title || null,
+        });
+      });
+
+      (shortsRes.data || []).forEach((p: any) => {
+        const clips = Array.isArray(p.clips) ? p.clips : [];
+        if (clips.length === 0) {
+          allVideos.push({
+            id: p.id,
+            pipeline: "shorts",
+            title: p.source_title || "Shorts (processing)",
+            status: p.status || "unknown",
+            progress_pct: p.progress_pct || null,
+            progress_stage: p.progress_stage || null,
+            video_url: null,
+            thumbnail_url: p.source_thumbnail || null,
+            created_at: p.created_at,
+            orientation: "portrait",
+          });
+        } else {
+          clips.forEach((clip: any) => {
+            allVideos.push({
+              id: `${p.id}-${clip.index}`,
+              pipeline: "shorts",
+              title: clip.title || `Clip ${clip.index}`,
+              status: "done",
+              progress_pct: 100,
+              progress_stage: null,
+              video_url: clip.video_url || null,
+              thumbnail_url: clip.thumbnail_url || null,
+              created_at: p.created_at,
+              orientation: "portrait",
+              duration_sec: clip.duration || null,
+            });
+          });
+        }
+      });
+
+      (dubRes.data || []).forEach((p: any) => {
+        allVideos.push({
+          id: p.id,
+          pipeline: "dub",
+          title: p.source_title || "Dubbed Video",
+          status: p.status || "unknown",
+          progress_pct: p.progress_pct || null,
+          progress_stage: null,
+          video_url: p.video_url || null,
+          thumbnail_url: null,
+          created_at: p.created_at,
+          language: p.target_language || null,
+          duration_sec: p.source_duration_sec || null,
+        });
+      });
+
+      allVideos.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setVideos(allVideos);
+      setLoading(false);
+    }
+    fetchAll();
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (filterPipeline === "all") return videos;
+    return videos.filter((v) => v.pipeline === filterPipeline);
+  }, [videos, filterPipeline]);
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: videos.length };
+    videos.forEach((v) => { c[v.pipeline] = (c[v.pipeline] || 0) + 1; });
+    return c;
+  }, [videos]);
+
+  async function handleDelete(video: LibraryVideo) {
+    if (!confirm(`Delete "${video.title}"? This cannot be undone.`)) return;
+    setDeletingId(video.id);
+    try {
+      const tableMap: Record<string, string> = {
+        create: "projects",
+        recreate: "recreate_projects",
+        channel_cloner: "recreate_projects",
+        article: "recreate_projects",
+        shorts: "shorts_projects",
+        dub: "dub_projects",
+      };
+      const table = tableMap[video.pipeline];
+      const realId = video.pipeline === "shorts" && video.id.includes("-")
+        ? video.id.split("-").slice(0, -1).join("-")
+        : video.id;
+
+      const { error } = await supabase.from(table).delete().eq("id", realId);
+      if (error) throw error;
+      setVideos((prev) => prev.filter((v) => v.id !== video.id));
+    } catch (e: any) {
+      alert("Delete failed: " + (e?.message || "unknown"));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
-    <div className="min-h-screen" style={{ background: "#0a0812" }}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #0a0a14 0%, #0f0f1f 100%)", color: "#e7e5f5", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <style jsx>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .lib-card {
+          animation: fadeIn 0.35s ease-out backwards;
+        }
+        .lib-card:hover .lib-thumb-overlay {
+          opacity: 1;
+        }
+        .lib-card:hover .lib-thumb-image {
+          transform: scale(1.04);
+        }
+        .lib-thumb-image {
+          transition: transform 0.5s ease-out;
+        }
+        .lib-thumb-overlay {
+          opacity: 0;
+          transition: opacity 0.2s ease-out;
+        }
+      `}</style>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <span>📚</span> My Video Library
-            </h1>
-            <p className="text-gray-400 text-sm mt-1">
-              All your videos across every pipeline in one place
-            </p>
-          </div>
-
-          {/* Search */}
-          <input
-            type="text"
-            placeholder="Search videos..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 rounded-xl text-sm text-white placeholder-gray-500 w-64"
-            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-          />
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "32px 24px 64px" }}>
+        <div style={{ marginBottom: 32 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.02em", margin: 0, marginBottom: 6, background: "linear-gradient(135deg, #fff 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            Library
+          </h1>
+          <p style={{ fontSize: 14, color: "#8b8aa0", margin: 0 }}>
+            All your videos across every pipeline
+          </p>
         </div>
 
-        {/* Filter tabs */}
-        <div className="flex gap-2 mb-6 flex-wrap">
-          {(["all", "create", "recreate", "dub", "shorts"] as const).map(f => {
-            const meta = f === "all" ? null : PIPELINE_META[f];
-            const count = counts[f];
-            const isActive = filter === f;
-            return (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                style={{
-                  background: isActive
-                    ? (meta?.color || "#7F77DD") + "22"
-                    : "rgba(255,255,255,0.04)",
-                  border: isActive
-                    ? `1px solid ${meta?.color || "#7F77DD"}55`
-                    : "1px solid rgba(255,255,255,0.08)",
-                  color: isActive ? (meta?.color || "#c4b5fd") : "#9ca3af",
-                }}
-              >
-                {meta ? `${meta.icon} ${meta.label}` : "🎥 All"} ({count})
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Content */}
-        {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <div className="text-center">
-              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-gray-400 text-sm">Loading your videos...</p>
-            </div>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <span style={{ fontSize: 48 }}>🎬</span>
-            <p className="text-white text-lg font-medium mt-4">
-              {search ? "No videos match your search" : "No videos yet"}
-            </p>
-            <p className="text-gray-400 text-sm mt-2">
-              {search ? "Try a different search term" : "Create your first video using any pipeline"}
-            </p>
-            {!search && (
-              <div className="flex gap-3 mt-6 flex-wrap justify-center">
-                {(["create", "recreate", "dub", "shorts"] as const).map(p => (
-                  <Link
-                    key={p}
-                    href={p === "create" ? "/dashboard/create" : p === "dub" ? "/dashboard/dub-video/new" : `/dashboard/${p}`}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80"
-                    style={{ background: PIPELINE_META[p].color + "22", border: `1px solid ${PIPELINE_META[p].color}44`, color: PIPELINE_META[p].color }}
-                  >
-                    {PIPELINE_META[p].icon} {PIPELINE_META[p].label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filtered.map(video => {
-              const meta = PIPELINE_META[video.pipeline];
-              const isDone = ["done", "completed"].includes(video.status?.toLowerCase());
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[
+              { id: "all", label: "All", color: "#a78bfa" },
+              { id: "create", label: "Create", color: PIPELINE_COLORS.create.hex },
+              { id: "recreate", label: "ReCreate", color: PIPELINE_COLORS.recreate.hex },
+              { id: "channel_cloner", label: "Channel Cloner", color: PIPELINE_COLORS.channel_cloner.hex },
+              { id: "article", label: "Article", color: PIPELINE_COLORS.article.hex },
+              { id: "shorts", label: "Shorts", color: PIPELINE_COLORS.shorts.hex },
+              { id: "dub", label: "Dub", color: PIPELINE_COLORS.dub.hex },
+            ].filter((c) => c.id === "all" || (counts[c.id] || 0) > 0).map((chip) => {
+              const active = filterPipeline === chip.id;
               return (
-                <div
-                  key={`${video.pipeline}-${video.id}`}
-                  className="rounded-2xl overflow-hidden transition-all hover:scale-[1.02]"
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+                <button
+                  key={chip.id}
+                  onClick={() => setFilterPipeline(chip.id)}
+                  style={{
+                    padding: "7px 14px",
+                    borderRadius: 999,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    border: active ? `1px solid ${chip.color}` : "1px solid rgba(255,255,255,0.08)",
+                    background: active ? `${chip.color}20` : "rgba(255,255,255,0.03)",
+                    color: active ? chip.color : "#b4b3c8",
+                    transition: "all 0.15s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
                 >
-                  {/* Thumbnail */}
-                  <div className="relative aspect-video bg-gray-900 flex items-center justify-center">
-                    {video.thumbnail_url ? (
-                      <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <span style={{ fontSize: 36 }}>{meta.icon}</span>
-                    )}
-
-                    {/* Pipeline badge */}
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                      style={{ background: meta.color + "33", color: meta.color, border: `1px solid ${meta.color}55` }}>
-                      {meta.label}
-                    </div>
-
-                    {/* Status badge */}
-                    <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
-                      style={{ background: "rgba(0,0,0,0.6)", color: getStatusColor(video.status) }}>
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: getStatusColor(video.status) }} />
-                      {video.status}
-                    </div>
-
-                    {/* Shorts clip count */}
-                    {video.pipeline === "shorts" && video.duration && (
-                      <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-medium"
-                        style={{ background: "rgba(0,0,0,0.7)", color: "#fff" }}>
-                        {video.duration} clips
-                      </div>
-                    )}
-
-                    {/* Play overlay */}
-                    {isDone && video.video_url && (
-                      <a
-                        href={video.video_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                        style={{ background: "rgba(0,0,0,0.5)" }}
-                      >
-                        <div className="w-12 h-12 rounded-full flex items-center justify-center"
-                          style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(4px)" }}>
-                          <span style={{ fontSize: 20 }}>▶</span>
-                        </div>
-                      </a>
-                    )}
-                  </div>
-
-                  {/* Card body */}
-                  <div className="p-3">
-                    <p className="text-white text-sm font-medium truncate" title={video.title}>
-                      {video.title}
-                    </p>
-                    <p className="text-gray-500 text-xs mt-1">{timeAgo(video.created_at)}</p>
-
-                    {/* Actions */}
-                    <div className="flex gap-2 mt-3">
-                      {isDone && video.video_url && (
-                        <a
-                          href={video.video_url}
-                          download
-                          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-center transition-all hover:opacity-80"
-                          style={{ background: meta.color + "22", color: meta.color, border: `1px solid ${meta.color}44` }}
-                        >
-                          ↓ Download
-                        </a>
-                      )}
-                      <Link
-                        href={
-                          video.pipeline === "create" ? `/dashboard/projects/${video.id}` :
-                          video.pipeline === "recreate" ? `/dashboard/recreate` :
-                          video.pipeline === "dub" ? `/dashboard/dub-video/${video.id}` :
-                          `/dashboard/shorts`
-                        }
-                        className="flex-1 py-1.5 rounded-lg text-xs font-medium text-center transition-all hover:opacity-80"
-                        style={{ background: "rgba(255,255,255,0.06)", color: "#9ca3af", border: "1px solid rgba(255,255,255,0.1)" }}
-                      >
-                        View →
-                      </Link>
-                      {/* Delete button */}
-                      <button
-                        onClick={() => handleDelete(video)}
-                        disabled={deleting === `${video.pipeline}-${video.id}`}
-                        className="w-8 h-7 flex items-center justify-center rounded-lg transition-all hover:bg-red-500/20 hover:text-red-400 disabled:opacity-40"
-                        style={{ color: "rgba(107,114,128,0.7)", border: "1px solid rgba(255,255,255,0.08)" }}
-                        title="Delete"
-                      >
-                        {deleting === `${video.pipeline}-${video.id}` ? (
-                          <div className="w-3 h-3 rounded-full border border-current border-t-transparent animate-spin" />
-                        ) : (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: chip.color, opacity: active ? 1 : 0.7 }} />
+                  {chip.label}
+                  <span style={{ fontSize: 11, color: active ? chip.color : "#666", opacity: 0.8 }}>
+                    {counts[chip.id] || 0}
+                  </span>
+                </button>
               );
             })}
           </div>
+
+          <div style={{ display: "flex", gap: 4, padding: 4, background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
+            <button
+              onClick={() => setViewMode("grid")}
+              title="Grid view"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 7,
+                border: "none",
+                background: view === "grid" ? "rgba(127,119,221,0.2)" : "transparent",
+                color: view === "grid" ? "#c4b5fd" : "#8b8aa0",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                transition: "all 0.15s",
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+              Grid
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              title="List view"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 7,
+                border: "none",
+                background: view === "list" ? "rgba(127,119,221,0.2)" : "transparent",
+                color: view === "list" ? "#c4b5fd" : "#8b8aa0",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                transition: "all 0.15s",
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              List
+            </button>
+          </div>
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: "center", padding: 80, color: "#8b8aa0", fontSize: 14 }}>
+            Loading your videos...
+          </div>
         )}
+
+        {!loading && filtered.length === 0 && (
+          <div style={{
+            textAlign: "center",
+            padding: "80px 24px",
+            background: "rgba(255,255,255,0.02)",
+            border: "1px dashed rgba(255,255,255,0.08)",
+            borderRadius: 16,
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>📹</div>
+            <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0, marginBottom: 8 }}>
+              {filterPipeline === "all" ? "No videos yet" : `No ${filterPipeline.replace("_", " ")} videos`}
+            </h3>
+            <p style={{ fontSize: 14, color: "#8b8aa0", margin: 0 }}>
+              {filterPipeline === "all"
+                ? "Create your first video to see it here"
+                : "Try a different pipeline filter"}
+            </p>
+          </div>
+        )}
+
+        {!loading && filtered.length > 0 && view === "grid" && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: 20,
+          }}>
+            {filtered.map((v, idx) => (
+              <VideoCardGrid key={v.id} video={v} index={idx} onDelete={handleDelete} deleting={deletingId === v.id} />
+            ))}
+          </div>
+        )}
+
+        {!loading && filtered.length > 0 && view === "list" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.map((v, idx) => (
+              <VideoCardList key={v.id} video={v} index={idx} onDelete={handleDelete} deleting={deletingId === v.id} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VideoCardGrid(props: {
+  video: LibraryVideo;
+  index: number;
+  onDelete: (v: LibraryVideo) => void;
+  deleting: boolean;
+}) {
+  const { video, index, onDelete, deleting } = props;
+  const color = PIPELINE_COLORS[video.pipeline];
+  const isProcessing = video.status !== "done" && video.status !== "error";
+  const isError = video.status === "error";
+  const orientation = video.orientation || "landscape";
+  const aspectRatio = orientation === "portrait" ? "9 / 16" : "16 / 9";
+
+  return (
+    <div
+      className="lib-card"
+      style={{
+        animationDelay: `${Math.min(index * 30, 600)}ms`,
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderLeft: `3px solid ${color.hex}`,
+        borderRadius: 14,
+        overflow: "hidden",
+        transition: "all 0.2s ease",
+        position: "relative",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+        e.currentTarget.style.borderLeft = `3px solid ${color.hex}`;
+        e.currentTarget.style.boxShadow = `0 8px 24px -8px ${color.glow}`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.025)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+        e.currentTarget.style.borderLeft = `3px solid ${color.hex}`;
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    >
+      <div style={{
+        position: "relative",
+        aspectRatio,
+        background: video.thumbnail_url ? "#000" : `linear-gradient(135deg, ${color.hex}22 0%, #1a0f2e 70%)`,
+        overflow: "hidden",
+      }}>
+        {video.thumbnail_url ? (
+          <img
+            className="lib-thumb-image"
+            src={video.thumbnail_url}
+            alt={video.title}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            loading="lazy"
+          />
+        ) : (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 40,
+            color: `${color.hex}66`,
+          }}>
+            {isProcessing ? "⏳" : isError ? "⚠️" : "🎬"}
+          </div>
+        )}
+
+        {isProcessing && (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(10,10,20,0.8)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+          }}>
+            <div style={{ fontSize: 11, color: color.hex, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              {video.progress_stage || video.status}
+            </div>
+            <div style={{ width: "70%", height: 3, background: "rgba(255,255,255,0.1)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{
+                width: `${video.progress_pct || 0}%`,
+                height: "100%",
+                background: color.hex,
+                transition: "width 0.4s ease",
+                boxShadow: `0 0 8px ${color.glow}`,
+              }} />
+            </div>
+            <div style={{ fontSize: 12, color: "#b4b3c8", fontWeight: 500 }}>
+              {video.progress_pct || 0}%
+            </div>
+          </div>
+        )}
+
+        <div style={{
+          position: "absolute",
+          top: 10,
+          left: 10,
+          padding: "3px 8px",
+          background: `${color.hex}cc`,
+          color: "#0a0a14",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          textTransform: "uppercase",
+          borderRadius: 4,
+          backdropFilter: "blur(4px)",
+        }}>
+          {color.name}
+        </div>
+
+        {video.duration_sec && (
+          <div style={{
+            position: "absolute",
+            bottom: 10,
+            right: 10,
+            padding: "2px 7px",
+            background: "rgba(0,0,0,0.75)",
+            color: "#fff",
+            fontSize: 11,
+            fontWeight: 600,
+            borderRadius: 3,
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            {formatDuration(video.duration_sec)}
+          </div>
+        )}
+
+        {video.video_url && !isProcessing && (
+          <div className="lib-thumb-overlay" style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(10,10,20,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: color.hex,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: `0 4px 24px ${color.glow}`,
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="#0a0a14"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: "14px 14px 12px" }}>
+        <h3 style={{
+          fontSize: 14,
+          fontWeight: 600,
+          margin: 0,
+          marginBottom: 8,
+          color: "#e7e5f5",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          lineHeight: 1.35,
+          minHeight: 38,
+        } as React.CSSProperties}>
+          {video.title}
+        </h3>
+
+        {video.source_channel_handle && (
+          <div style={{ fontSize: 11, color: color.hex, marginBottom: 6, fontWeight: 500 }}>
+            @{video.source_channel_handle}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, fontSize: 11, color: "#7a7990" }}>
+          {video.language && (
+            <span style={{ padding: "1px 6px", background: "rgba(255,255,255,0.04)", borderRadius: 3 }}>
+              {video.language}
+            </span>
+          )}
+          {video.target_length && (
+            <span style={{ padding: "1px 6px", background: "rgba(255,255,255,0.04)", borderRadius: 3 }}>
+              {video.target_length}s
+            </span>
+          )}
+          {video.orientation && video.pipeline !== "shorts" && (
+            <span style={{ padding: "1px 6px", background: "rgba(255,255,255,0.04)", borderRadius: 3 }}>
+              {video.orientation === "portrait" ? "9:16" : "16:9"}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "#5d5c75" }}>
+            {timeAgo(video.created_at)}
+          </span>
+          <div style={{ display: "flex", gap: 6 }}>
+            {video.video_url && (
+              <a
+                href={video.video_url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: color.hex,
+                  background: `${color.hex}15`,
+                  border: `1px solid ${color.hex}30`,
+                  borderRadius: 5,
+                  textDecoration: "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                Open
+              </a>
+            )}
+            <button
+              onClick={() => onDelete(video)}
+              disabled={deleting}
+              style={{
+                padding: "4px 8px",
+                fontSize: 11,
+                color: "#7a7990",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 5,
+                cursor: deleting ? "not-allowed" : "pointer",
+                opacity: deleting ? 0.4 : 1,
+                transition: "all 0.15s",
+              }}
+            >
+              {deleting ? "..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VideoCardList(props: {
+  video: LibraryVideo;
+  index: number;
+  onDelete: (v: LibraryVideo) => void;
+  deleting: boolean;
+}) {
+  const { video, index, onDelete, deleting } = props;
+  const color = PIPELINE_COLORS[video.pipeline];
+  const isProcessing = video.status !== "done" && video.status !== "error";
+
+  return (
+    <div
+      className="lib-card"
+      style={{
+        animationDelay: `${Math.min(index * 20, 400)}ms`,
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        padding: "10px 14px 10px 11px",
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderLeft: `3px solid ${color.hex}`,
+        borderRadius: 10,
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+        e.currentTarget.style.borderLeft = `3px solid ${color.hex}`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.025)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+        e.currentTarget.style.borderLeft = `3px solid ${color.hex}`;
+      }}
+    >
+      <div style={{
+        flex: "0 0 auto",
+        width: 96,
+        height: 54,
+        borderRadius: 6,
+        overflow: "hidden",
+        background: video.thumbnail_url ? "#000" : `linear-gradient(135deg, ${color.hex}33, #1a0f2e)`,
+        position: "relative",
+      }}>
+        {video.thumbnail_url ? (
+          <img src={video.thumbnail_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+        ) : (
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, opacity: 0.5 }}>
+            🎬
+          </div>
+        )}
+        {isProcessing && (
+          <div style={{
+            position: "absolute",
+            bottom: 0, left: 0, right: 0,
+            height: 3,
+            background: "rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ width: `${video.progress_pct || 0}%`, height: "100%", background: color.hex }} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+          <span style={{
+            padding: "1px 6px",
+            background: `${color.hex}20`,
+            color: color.hex,
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            borderRadius: 3,
+          }}>
+            {color.name}
+          </span>
+          {video.source_channel_handle && (
+            <span style={{ fontSize: 11, color: color.hex, fontWeight: 500 }}>
+              @{video.source_channel_handle}
+            </span>
+          )}
+        </div>
+        <h3 style={{
+          fontSize: 13,
+          fontWeight: 600,
+          margin: 0,
+          color: "#e7e5f5",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}>
+          {video.title}
+        </h3>
+        <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11, color: "#7a7990" }}>
+          <span>{timeAgo(video.created_at)}</span>
+          {video.language && <span>{video.language}</span>}
+          {video.target_length && <span>{video.target_length}s</span>}
+          {isProcessing && (
+            <span style={{ color: color.hex, fontWeight: 500 }}>
+              {video.progress_stage || video.status} • {video.progress_pct || 0}%
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ flex: "0 0 auto", display: "flex", gap: 6 }}>
+        {video.video_url && (
+          <a
+            href={video.video_url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              padding: "5px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              color: color.hex,
+              background: `${color.hex}15`,
+              border: `1px solid ${color.hex}30`,
+              borderRadius: 5,
+              textDecoration: "none",
+            }}
+          >
+            Open
+          </a>
+        )}
+        <button
+          onClick={() => onDelete(video)}
+          disabled={deleting}
+          style={{
+            padding: "5px 10px",
+            fontSize: 12,
+            color: "#7a7990",
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 5,
+            cursor: deleting ? "not-allowed" : "pointer",
+            opacity: deleting ? 0.4 : 1,
+          }}
+        >
+          {deleting ? "..." : "Delete"}
+        </button>
       </div>
     </div>
   );

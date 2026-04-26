@@ -446,11 +446,38 @@ async function runRender(projectId, attemptFromRequest) {
 
   if (!fs.existsSync(outFile)) throw new Error(`Render output missing: ${outFile}`);
 
-  /* ── watermark for free-tier users ───────────────────────── */
+ /* ── watermark for free-tier users ───────────────────────── */
   const createPlan = await getUserPlan(project.user_id);
   const finalVideoFile = createPlan === "free"
     ? await applyWatermarkIfNeeded(project.user_id, outFile, outDir)
     : outFile;
+
+  /* ── Extract thumbnail at 1.5s mark ──────────────────────── */
+  const thumbnailFile = path.join(outDir, `${projectId}-thumb.jpg`);
+  let thumbnailUrl = null;
+  try {
+    await execAsync(
+      `ffmpeg -ss 1.5 -i "${finalVideoFile}" -vframes 1 -vf "scale=640:-2" -q:v 4 -y "${thumbnailFile}"`
+    );
+    if (fs.existsSync(thumbnailFile)) {
+      const thumbBuffer = fs.readFileSync(thumbnailFile);
+      const thumbPath = `${project.user_id}/${projectId}/thumbnail.jpg`;
+      const { error: thumbErr } = await admin.storage
+        .from(VIDEO_BUCKET)
+        .upload(thumbPath, thumbBuffer, {
+          contentType: "image/jpeg",
+          upsert: true,
+          cacheControl: "3600",
+        });
+      if (!thumbErr) {
+        thumbnailUrl = `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${thumbPath}`;
+        console.log("[render] ✅ thumbnail extracted and uploaded");
+      }
+      try { fs.unlinkSync(thumbnailFile); } catch {}
+    }
+  } catch (e) {
+    console.warn("[render] thumbnail extraction failed (non-fatal):", e?.message);
+  }
 
   /* ── upload ──────────────────────────────────────────────── */
   const fileBuffer = fs.readFileSync(finalVideoFile);
@@ -474,6 +501,7 @@ async function runRender(projectId, attemptFromRequest) {
     .update({
       status: "done",
       video_url: publicUrl,
+      thumbnail_url: thumbnailUrl,
       pending_video_url: null,
       error_message: null,
       updated_at: completedIso,
@@ -3936,13 +3964,39 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
     const finalFile = await recreateStep5_Render(projectId, scenesMedia, finalNarrationFile, durationSec, workDir, includeCaptions, syncedCaptions, style, captionStyle, captionPosition, orientation);
 
-    // Apply watermark for free-tier users
+   // Apply watermark for free-tier users
     const watermarkedFile = await applyWatermarkIfNeeded(userId, finalFile, workDir);
 
-    // Upload
-    await updateReCreateStatus(projectId, "uploading", 92);
-    const fileBuffer = fs.readFileSync(watermarkedFile);
-    const objPath = `${userId}/${projectId}/recreated.mp4`;
+ // ─── Extract thumbnail at 1.5s mark ──────────────
+      const thumbnailFile = path.join(workDir, "thumbnail.jpg");
+      let thumbnailUrl = null;
+      try {
+        await execAsync(
+          `ffmpeg -ss 1.5 -i "${watermarkedFile}" -vframes 1 -vf "scale=640:-2" -q:v 4 -y "${thumbnailFile}"`
+        );
+        if (fs.existsSync(thumbnailFile)) {
+          const thumbBuffer = fs.readFileSync(thumbnailFile);
+          const thumbPath = `${userId}/${project_id}/thumbnail.jpg`;
+          const { error: thumbErr } = await admin.storage
+            .from(RECREATE_BUCKET)
+            .upload(thumbPath, thumbBuffer, {
+              contentType: "image/jpeg",
+              upsert: true,
+              cacheControl: "3600",
+            });
+          if (!thumbErr) {
+            thumbnailUrl = `${SUPABASE_URL}/storage/v1/object/public/${RECREATE_BUCKET}/${thumbPath}`;
+            console.log("[article] ✅ thumbnail extracted and uploaded");
+          }
+        }
+      } catch (e) {
+        console.warn("[article] thumbnail extraction failed (non-fatal):", e?.message);
+      }
+
+      // Upload main video
+      await updateReCreateStatus(project_id, "uploading", 92);
+      const fileBuffer = fs.readFileSync(watermarkedFile);
+      const objPath = `${userId}/${project_id}/recreated.mp4`;
 
     try {
       const { data: buckets } = await admin.storage.listBuckets();
@@ -3956,7 +4010,10 @@ async function runReCreate(projectId, sourceUrl, opts = {}) {
 
     const { data: urlData } = admin.storage.from(RECREATE_BUCKET).getPublicUrl(objPath);
 
-    await updateReCreateStatus(projectId, "done", 100, { final_video_url: urlData?.publicUrl });
+   await updateReCreateStatus(projectId, "done", 100, { 
+      final_video_url: urlData?.publicUrl,
+      thumbnail_url: thumbnailUrl,
+    });
     console.log("[recreate] 🎉 COMPLETE:", urlData?.publicUrl);
   } finally {
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
@@ -4079,13 +4136,40 @@ app.post("/article", async (req, res) => {
         caption_style, caption_position, orientation
       );
 
-      // Watermark for free-tier users
-      const watermarkedFile = await applyWatermarkIfNeeded(userId, finalFile, workDir);
+      // Apply watermark for free-tier users
+    const watermarkedFile = await applyWatermarkIfNeeded(userId, finalFile, workDir);
 
-      // Upload
-      await updateReCreateStatus(project_id, "uploading", 92);
-      const fileBuffer = fs.readFileSync(watermarkedFile);
-      const objPath = `${userId}/${project_id}/recreated.mp4`;
+    // ─── NEW: Extract thumbnail at 1.5s mark ──────────────
+    const thumbnailFile = path.join(workDir, "thumbnail.jpg");
+    let thumbnailUrl = null;
+    try {
+      // Grab a frame at 1.5s, scale to 640px wide, JPEG quality 4 (high)
+      await execAsync(
+        `ffmpeg -ss 1.5 -i "${watermarkedFile}" -vframes 1 -vf "scale=640:-2" -q:v 4 -y "${thumbnailFile}"`
+      );
+      if (fs.existsSync(thumbnailFile)) {
+        const thumbBuffer = fs.readFileSync(thumbnailFile);
+        const thumbPath = `${userId}/${projectId}/thumbnail.jpg`;
+        const { error: thumbErr } = await admin.storage
+          .from(RECREATE_BUCKET)
+          .upload(thumbPath, thumbBuffer, {
+            contentType: "image/jpeg",
+            upsert: true,
+            cacheControl: "3600",
+          });
+        if (!thumbErr) {
+          thumbnailUrl = `${SUPABASE_URL}/storage/v1/object/public/${RECREATE_BUCKET}/${thumbPath}`;
+          console.log("[recreate] ✅ thumbnail extracted and uploaded");
+        }
+      }
+    } catch (e) {
+      console.warn("[recreate] thumbnail extraction failed (non-fatal):", e?.message);
+    }
+
+    // Upload main video
+    await updateReCreateStatus(projectId, "uploading", 92);
+    const fileBuffer = fs.readFileSync(watermarkedFile);
+    const objPath = `${userId}/${projectId}/recreated.mp4`;
 
       try {
         const { data: buckets } = await admin.storage.listBuckets();
@@ -4100,7 +4184,10 @@ app.post("/article", async (req, res) => {
       if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
 
       const { data: urlData } = admin.storage.from(RECREATE_BUCKET).getPublicUrl(objPath);
-      await updateReCreateStatus(project_id, "done", 100, { final_video_url: urlData?.publicUrl });
+      await updateReCreateStatus(project_id, "done", 100, { 
+        final_video_url: urlData?.publicUrl,
+        thumbnail_url: thumbnailUrl,
+      });
       console.log("[article] 🎉 COMPLETE:", urlData?.publicUrl);
 
     } catch (e) {

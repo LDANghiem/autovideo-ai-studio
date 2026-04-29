@@ -1,10 +1,11 @@
-// src/app/dashboard/projects/page.tsx
-// ------------------------------------------------------------
-// AutoVideo AI Studio — Projects List Page
-// ✅ Redesigned to match dark purple theme
-// ✅ Glass-morphism floating cards
-// ✅ Consistent with Repurpose History styling
-// ------------------------------------------------------------
+// ============================================================
+// FILE: src/app/dashboard/projects/page.tsx
+// ============================================================
+// Ripple — Projects List Page
+// Brand pass: coral CTAs, Ripple ink background, Space Grotesk
+// heading, refined cards. Status colors (Done/Rendering/Error)
+// kept semantic so they stay readable.
+// ============================================================
 
 "use client";
 
@@ -27,13 +28,13 @@ type Project = {
 
 /* ── Status Config ──────────────────────────────────────────── */
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  done:       { label: "Done",      color: "#4ade80", bg: "rgba(74,222,128,0.08)",  border: "rgba(74,222,128,0.25)" },
-  rendering:  { label: "Rendering", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.25)" },
-  processing: { label: "Rendering", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.25)" },
-  queued:     { label: "Queued",    color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.25)" },
-  draft:      { label: "Draft",     color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.2)" },
-  error:      { label: "Error",     color: "#f87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.25)" },
-  failed:     { label: "Failed",    color: "#f87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.25)" },
+  done:       { label: "Done",      color: "#5DD39E", bg: "rgba(93,211,158,0.10)",  border: "rgba(93,211,158,0.3)" },
+  rendering:  { label: "Rendering", color: "#FFA94D", bg: "rgba(255,169,77,0.10)",  border: "rgba(255,169,77,0.3)" },
+  processing: { label: "Rendering", color: "#FFA94D", bg: "rgba(255,169,77,0.10)",  border: "rgba(255,169,77,0.3)" },
+  queued:     { label: "Queued",    color: "#5DD3E0", bg: "rgba(93,211,224,0.10)",  border: "rgba(93,211,224,0.3)" },
+  draft:      { label: "Draft",     color: "#8B8794", bg: "rgba(139,135,148,0.10)", border: "rgba(139,135,148,0.25)" },
+  error:      { label: "Error",     color: "#FF6B6B", bg: "rgba(255,107,107,0.10)", border: "rgba(255,107,107,0.3)" },
+  failed:     { label: "Failed",    color: "#FF6B6B", bg: "rgba(255,107,107,0.10)", border: "rgba(255,107,107,0.3)" },
 };
 
 function getStatus(s: string | null) {
@@ -153,27 +154,48 @@ export default function ProjectsPage() {
 
   /* ── Render ──────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen" style={{ background: "#0f0b1a" }}>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <span className="text-2xl">🎬</span>
-              Projects
-            </h1>
-            <p className="text-gray-400 mt-1 text-sm">
-              All your AI-generated videos
-            </p>
+          <div className="flex items-center gap-4">
+            {/* Folder icon in coral tint */}
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background: "rgba(255,107,90,0.12)",
+                border: "1px solid rgba(255,107,90,0.2)",
+              }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF8B7A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h1
+                className="text-3xl font-bold"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                Projects
+              </h1>
+              <p className="text-sm mt-1" style={{ color: "#8B8794" }}>
+                All your AI-generated videos
+              </p>
+            </div>
           </div>
           <Link
             href="/dashboard/create"
-            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02] active:scale-[0.98]"
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
             style={{
-              background: "linear-gradient(135deg, rgba(99,102,241,0.5), rgba(139,92,246,0.4))",
-              border: "1px solid rgba(139,92,246,0.4)",
-              boxShadow: "0 4px 20px rgba(139,92,246,0.15), 0 0 40px rgba(139,92,246,0.05)",
+              background: "linear-gradient(135deg, #FF6B5A 0%, #FF8B7A 100%)",
+              color: "#0F0E1A",
+              boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
             }}
           >
             + Create
@@ -183,23 +205,51 @@ export default function ProjectsPage() {
         {/* Stats Row */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            { label: "Total", value: totalProjects, icon: "📁", color: "#a78bfa" },
-            { label: "Completed", value: doneCount, icon: "✅", color: "#4ade80" },
-            { label: "Rendering", value: renderingCount, icon: "⚡", color: "#fbbf24" },
+            { label: "Total", value: totalProjects, color: "#FF8B7A", bg: "rgba(255,107,90,0.10)", iconColor: "#FF8B7A" },
+            { label: "Completed", value: doneCount, color: "#5DD39E", bg: "rgba(93,211,158,0.10)", iconColor: "#5DD39E" },
+            { label: "Rendering", value: renderingCount, color: "#FFA94D", bg: "rgba(255,169,77,0.10)", iconColor: "#FFA94D" },
           ].map((stat) => (
             <div
               key={stat.label}
               className="rounded-xl p-4"
               style={{
-                background: "rgba(20,17,35,0.6)",
-                border: "1px solid rgba(74,66,96,0.3)",
+                background: "#16151F",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <span>{stat.icon}</span>
-                <span className="text-xs text-gray-400">{stat.label}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center"
+                  style={{ background: stat.bg }}
+                >
+                  {stat.label === "Total" && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={stat.iconColor} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                  )}
+                  {stat.label === "Completed" && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={stat.iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {stat.label === "Rendering" && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill={stat.iconColor} stroke="none">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-xs font-medium" style={{ color: "#8B8794", letterSpacing: "0.03em" }}>
+                  {stat.label}
+                </span>
               </div>
-              <div className="text-2xl font-bold" style={{ color: stat.color }}>
+              <div
+                className="text-2xl font-bold"
+                style={{
+                  color: stat.color,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
                 {stat.value}
               </div>
             </div>
@@ -209,8 +259,14 @@ export default function ProjectsPage() {
         {/* Loading */}
         {loading && (
           <div className="text-center py-20">
-            <div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-gray-400">Loading projects...</p>
+            <div
+              className="animate-spin w-8 h-8 border-2 rounded-full mx-auto mb-4"
+              style={{
+                borderColor: "rgba(255,107,90,0.2)",
+                borderTopColor: "#FF6B5A",
+              }}
+            />
+            <p className="text-sm" style={{ color: "#8B8794" }}>Loading projects...</p>
           </div>
         )}
 
@@ -218,9 +274,12 @@ export default function ProjectsPage() {
         {!loading && error && (
           <div
             className="rounded-xl p-4"
-            style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}
+            style={{
+              background: "rgba(255,107,107,0.08)",
+              border: "1px solid rgba(255,107,107,0.25)",
+            }}
           >
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-sm" style={{ color: "#FF6B6B" }}>{error}</p>
           </div>
         )}
 
@@ -229,17 +288,32 @@ export default function ProjectsPage() {
           <div
             className="text-center py-20 rounded-xl"
             style={{
-              background: "rgba(20,17,35,0.6)",
-              border: "1px solid rgba(74,66,96,0.3)",
+              background: "#16151F",
+              border: "1px dashed rgba(255,255,255,0.08)",
             }}
           >
-            <div className="text-5xl mb-4">🎬</div>
-            <h3 className="text-lg font-medium text-white mb-2">No projects yet</h3>
-            <p className="text-gray-400 text-sm mb-6">Create your first AI-generated video</p>
+            <div className="text-5xl mb-4 opacity-40">📹</div>
+            <h3
+              className="text-lg font-semibold mb-2"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
+              No projects yet
+            </h3>
+            <p className="text-sm mb-6" style={{ color: "#8B8794" }}>
+              Create your first AI-generated video
+            </p>
             <Link
               href="/dashboard/create"
-              className="px-6 py-2 rounded-lg text-white text-sm font-medium"
-              style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+              className="px-6 py-2 rounded-lg text-sm font-semibold inline-block transition-all hover:scale-[1.02]"
+              style={{
+                background: "linear-gradient(135deg, #FF6B5A 0%, #FF8B7A 100%)",
+                color: "#0F0E1A",
+                boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
             >
               Create Project
             </Link>
@@ -258,11 +332,25 @@ export default function ProjectsPage() {
               return (
                 <div
                   key={p.id}
-                  className={`rounded-xl transition-all hover:translate-y-[-1px] ${isDeleting ? "opacity-40 pointer-events-none" : ""}`}
+                  className={`rounded-xl transition-all ${isDeleting ? "opacity-40 pointer-events-none" : ""}`}
                   style={{
-                    background: "rgba(20,17,35,0.5)",
-                    border: "1px solid rgba(74,66,96,0.3)",
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+                    background: "#16151F",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    boxShadow: "0 2px 8px -2px rgba(0,0,0,0.4)",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isDeleting) {
+                      e.currentTarget.style.borderColor = "rgba(255,107,90,0.25)";
+                      e.currentTarget.style.transform = "translateY(-1px)";
+                      e.currentTarget.style.boxShadow = "0 8px 24px -8px rgba(255,107,90,0.25)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isDeleting) {
+                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "0 2px 8px -2px rgba(0,0,0,0.4)";
+                    }
                   }}
                 >
                   <div className="flex items-center gap-4 p-4">
@@ -271,25 +359,33 @@ export default function ProjectsPage() {
                       href={"/dashboard/projects/" + p.id}
                       className="flex-1 min-w-0 group"
                     >
-                      <div className="font-medium text-white truncate group-hover:text-purple-300 transition-colors">
+                      <div
+                        className="font-semibold truncate transition-colors"
+                        style={{
+                          color: "#F5F2ED",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#FF8B7A"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "#F5F2ED"; }}
+                      >
                         {p.topic || "(No topic)"}
                       </div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                      <div className="flex items-center gap-2 mt-1 text-xs" style={{ color: "#8B8794" }}>
                         <span>{p.style || "—"}</span>
-                        <span className="text-gray-700">•</span>
+                        <span style={{ color: "#3A3845" }}>•</span>
                         <span>{p.length || "—"}</span>
-                        <span className="text-gray-700">•</span>
+                        <span style={{ color: "#3A3845" }}>•</span>
                         <span>{p.resolution || "—"}</span>
                         {typeof p.render_attempt === "number" && (
                           <>
-                            <span className="text-gray-700">•</span>
+                            <span style={{ color: "#3A3845" }}>•</span>
                             <span>Attempt {p.render_attempt}</span>
                           </>
                         )}
                         {p.created_at && (
                           <>
-                            <span className="text-gray-700">•</span>
-                            <span className="text-gray-600">{timeAgo(p.created_at)}</span>
+                            <span style={{ color: "#3A3845" }}>•</span>
+                            <span style={{ color: "#5A5762" }}>{timeAgo(p.created_at)}</span>
                           </>
                         )}
                       </div>
@@ -297,7 +393,7 @@ export default function ProjectsPage() {
 
                     {/* Status badge */}
                     <span
-                      className="px-2.5 py-1 rounded-full text-[11px] font-medium flex-shrink-0"
+                      className="px-2.5 py-1 rounded-full text-[11px] font-semibold flex-shrink-0"
                       style={{
                         background: statusCfg.bg,
                         color: statusCfg.color,
@@ -311,10 +407,20 @@ export default function ProjectsPage() {
                     {/* Open button */}
                     <Link
                       href={"/dashboard/projects/" + p.id}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 transition-all hover:text-white flex-shrink-0"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex-shrink-0"
                       style={{
-                        background: "rgba(139,92,246,0.1)",
-                        border: "1px solid rgba(139,92,246,0.2)",
+                        background: "rgba(255,107,90,0.10)",
+                        border: "1px solid rgba(255,107,90,0.25)",
+                        color: "#FF8B7A",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(255,107,90,0.18)";
+                        e.currentTarget.style.borderColor = "rgba(255,107,90,0.4)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(255,107,90,0.10)";
+                        e.currentTarget.style.borderColor = "rgba(255,107,90,0.25)";
                       }}
                     >
                       Open →
@@ -325,21 +431,22 @@ export default function ProjectsPage() {
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           onClick={() => deleteProject(p.id)}
-                          className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+                          className="px-2 py-1 rounded text-[11px] font-semibold transition-colors"
                           style={{
-                            background: "rgba(248,113,113,0.15)",
-                            color: "#f87171",
-                            border: "1px solid rgba(248,113,113,0.3)",
+                            background: "rgba(255,107,107,0.15)",
+                            color: "#FF6B6B",
+                            border: "1px solid rgba(255,107,107,0.35)",
                           }}
                         >
                           Yes
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="px-2 py-1 rounded text-[11px] text-gray-500"
+                          className="px-2 py-1 rounded text-[11px] font-medium"
                           style={{
-                            background: "rgba(74,66,96,0.2)",
-                            border: "1px solid rgba(74,66,96,0.3)",
+                            background: "rgba(255,255,255,0.04)",
+                            color: "#8B8794",
+                            border: "1px solid rgba(255,255,255,0.08)",
                           }}
                         >
                           No
@@ -353,11 +460,23 @@ export default function ProjectsPage() {
                         }}
                         disabled={running}
                         title={running ? "Cannot delete while rendering" : "Delete"}
-                        className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
-                          running
-                            ? "text-gray-700 cursor-not-allowed"
-                            : "text-gray-600 hover:text-red-400 hover:bg-red-500/10"
-                        }`}
+                        className="p-1.5 rounded-lg transition-colors flex-shrink-0"
+                        style={{
+                          color: running ? "#3A3845" : "#5A5762",
+                          cursor: running ? "not-allowed" : "pointer",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!running) {
+                            e.currentTarget.style.color = "#FF6B6B";
+                            e.currentTarget.style.background = "rgba(255,107,107,0.10)";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!running) {
+                            e.currentTarget.style.color = "#5A5762";
+                            e.currentTarget.style.background = "transparent";
+                          }
+                        }}
                       >
                         {isDeleting ? (
                           <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -376,16 +495,21 @@ export default function ProjectsPage() {
                   {/* Rendering progress indicator */}
                   {running && (
                     <div className="px-4 pb-3">
-                      <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(74,66,96,0.3)" }}>
+                      <div
+                        className="h-1 rounded-full overflow-hidden"
+                        style={{ background: "rgba(255,255,255,0.06)" }}
+                      >
                         <div
                           className="h-full rounded-full animate-pulse"
                           style={{
                             width: "60%",
-                            background: "linear-gradient(90deg, #fbbf24, #f59e0b)",
+                            background: "linear-gradient(90deg, #FFA94D, #FF6B5A)",
                           }}
                         />
                       </div>
-                      <p className="text-[10px] text-gray-600 mt-1">Rendering in progress — auto-refreshing...</p>
+                      <p className="text-[10px] mt-1" style={{ color: "#5A5762" }}>
+                        Rendering in progress — auto-refreshing...
+                      </p>
                     </div>
                   )}
                 </div>

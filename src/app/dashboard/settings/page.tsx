@@ -1,3 +1,17 @@
+// ============================================================
+// FILE: src/app/dashboard/settings/page.tsx
+// ============================================================
+// Ripple — Settings Page
+// Brand pass: coral CTAs, Ripple cards and ink background,
+// Space Grotesk headings, semantic statuses.
+//
+// YouTube brand red preserved (it's YouTube's identity, not ours).
+// Studio gating now uses coral (matches sidebar Studio tier badge).
+//
+// All logic preserved: YouTube OAuth flow, Voice Clone gating,
+// auto-save on field change, manual Save Preferences button.
+// ============================================================
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -15,7 +29,20 @@ import dynamic from "next/dynamic";
 
 const VoiceCloneStudio = dynamic(
   () => import("@/components/voice-clone/VoiceCloneStudio"),
-  { ssr: false, loading: () => <div className="h-24 flex items-center justify-center"><div className="w-5 h-5 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" /></div> }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-24 flex items-center justify-center">
+        <div
+          className="w-5 h-5 rounded-full border-2 animate-spin"
+          style={{
+            borderColor: "rgba(255,107,90,0.2)",
+            borderTopColor: "#FF6B5A",
+          }}
+        />
+      </div>
+    ),
+  }
 );
 
 /* ── YouTube Connection Status Type ────────────────────────── */
@@ -158,67 +185,116 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return <p className="text-center mt-20 text-gray-500">Loading…</p>;
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0F0E1A" }}>
+        <div className="flex items-center gap-3">
+          <div
+            className="w-5 h-5 rounded-full border-2 animate-spin"
+            style={{
+              borderColor: "rgba(255,107,90,0.2)",
+              borderTopColor: "#FF6B5A",
+            }}
+          />
+          <p className="text-sm" style={{ color: "#8B8794" }}>Loading…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#0f0b1a" }}>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
         className="max-w-3xl mx-auto px-4 py-10"
       >
-        <h1 className="text-3xl font-bold text-white mb-8 flex items-center gap-3">
-          <span className="text-2xl">⚙️</span>
-          Settings
-        </h1>
+        {/* ── Header ─────────────────────────────────────── */}
+        <div className="flex items-center gap-4 mb-8">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: "rgba(255,107,90,0.12)",
+              border: "1px solid rgba(255,107,90,0.2)",
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF8B7A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </div>
+          <div>
+            <h1
+              className="text-3xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Settings
+            </h1>
+            <p className="text-sm mt-1" style={{ color: "#8B8794" }}>
+              Account preferences and integrations
+            </p>
+          </div>
+        </div>
 
         {/* ═══════════════════════════════════════════════════════
             CONNECTED ACCOUNTS
         ═══════════════════════════════════════════════════════ */}
         <div
-          className="rounded-2xl p-6 mb-8"
+          className="rounded-2xl p-6 mb-6"
           style={{
-            background: "rgba(20,17,35,0.6)",
-            border: "1px solid rgba(74,66,96,0.3)",
+            background: "#16151F",
+            border: "1px solid rgba(255,255,255,0.06)",
           }}
         >
-          <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
-            🔗 Connected Accounts
+          <h2
+            className="text-lg font-semibold mb-1 flex items-center gap-2"
+            style={{
+              color: "#F5F2ED",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF8B7A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Connected Accounts
           </h2>
-          <p className="text-xs text-gray-400 mb-5">
+          <p className="text-xs mb-5" style={{ color: "#8B8794" }}>
             Connect your social accounts to publish clips directly
           </p>
 
           {/* Status message */}
           {ytMessage && (
             <div
-              className="mb-4 px-4 py-2 rounded-lg text-sm"
+              className="mb-4 px-4 py-2.5 rounded-lg text-sm"
               style={{
-                background: ytMessage.type === "success" ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
-                border: `1px solid ${ytMessage.type === "success" ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}`,
-                color: ytMessage.type === "success" ? "#4ade80" : "#f87171",
+                background: ytMessage.type === "success" ? "rgba(93,211,158,0.10)" : "rgba(255,107,107,0.10)",
+                border: `1px solid ${ytMessage.type === "success" ? "rgba(93,211,158,0.3)" : "rgba(255,107,107,0.3)"}`,
+                color: ytMessage.type === "success" ? "#5DD39E" : "#FF6B6B",
               }}
             >
               {ytMessage.text}
             </div>
           )}
 
-          {/* YouTube */}
+          {/* YouTube — keeps YouTube red brand color */}
           <div
             className="rounded-xl p-4 flex items-center gap-4"
             style={{
-              background: "rgba(15,12,26,0.6)",
-              border: "1px solid rgba(74,66,96,0.25)",
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.06)",
             }}
           >
             {/* YouTube icon */}
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))",
-                border: "1px solid rgba(239,68,68,0.2)",
+                background: "rgba(255,0,0,0.1)",
+                border: "1px solid rgba(255,0,0,0.2)",
               }}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -228,18 +304,28 @@ export default function SettingsPage() {
 
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-white text-sm">YouTube</div>
+              <div
+                className="font-semibold text-sm"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                YouTube
+              </div>
               {ytLoading ? (
-                <span className="text-xs text-gray-500">Checking...</span>
+                <span className="text-xs" style={{ color: "#5A5762" }}>Checking...</span>
               ) : ytStatus.connected ? (
                 <div className="flex items-center gap-2 mt-0.5">
                   {ytStatus.channel_thumbnail && (
                     <img src={ytStatus.channel_thumbnail} alt="" className="w-5 h-5 rounded-full" />
                   )}
-                  <span className="text-xs text-green-400">{ytStatus.channel_title || "Connected"}</span>
+                  <span className="text-xs font-medium" style={{ color: "#5DD39E" }}>
+                    {ytStatus.channel_title || "Connected"}
+                  </span>
                 </div>
               ) : (
-                <span className="text-xs text-gray-500">Not connected</span>
+                <span className="text-xs" style={{ color: "#5A5762" }}>Not connected</span>
               )}
             </div>
 
@@ -248,10 +334,24 @@ export default function SettingsPage() {
               <button
                 onClick={disconnectYouTube}
                 disabled={ytDisconnecting}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 transition hover:text-red-400"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50"
                 style={{
-                  background: "rgba(74,66,96,0.2)",
-                  border: "1px solid rgba(74,66,96,0.3)",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+                onMouseEnter={(e) => {
+                  if (!ytDisconnecting) {
+                    e.currentTarget.style.color = "#FF6B6B";
+                    e.currentTarget.style.borderColor = "rgba(255,107,107,0.3)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!ytDisconnecting) {
+                    e.currentTarget.style.color = "#8B8794";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                  }
                 }}
               >
                 {ytDisconnecting ? "..." : "Disconnect"}
@@ -261,9 +361,9 @@ export default function SettingsPage() {
                 onClick={connectYouTube}
                 className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition hover:scale-[1.02] active:scale-[0.98]"
                 style={{
-                  background: "linear-gradient(135deg, rgba(239,68,68,0.6), rgba(220,38,38,0.4))",
-                  border: "1px solid rgba(239,68,68,0.4)",
-                  boxShadow: "0 2px 12px rgba(239,68,68,0.15)",
+                  background: "linear-gradient(135deg, #FF0000 0%, #CC0000 100%)",
+                  boxShadow: "0 2px 12px rgba(255,0,0,0.25)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
                 }}
               >
                 Connect YouTube
@@ -273,52 +373,84 @@ export default function SettingsPage() {
 
           {/* TikTok — Coming Soon */}
           <div
-            className="rounded-xl p-4 flex items-center gap-4 mt-3 opacity-50"
+            className="rounded-xl p-4 flex items-center gap-4 mt-3"
             style={{
-              background: "rgba(15,12,26,0.6)",
-              border: "1px solid rgba(74,66,96,0.15)",
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.04)",
+              opacity: 0.5,
             }}
           >
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: "rgba(74,66,96,0.15)",
-                border: "1px solid rgba(74,66,96,0.15)",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <span className="text-xl">🎵</span>
             </div>
             <div className="flex-1">
-              <div className="font-medium text-gray-400 text-sm">TikTok</div>
-              <span className="text-xs text-gray-600">Coming soon</span>
+              <div
+                className="font-semibold text-sm"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                TikTok
+              </div>
+              <span className="text-xs" style={{ color: "#5A5762" }}>Coming soon</span>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-medium text-gray-500 border border-gray-700">
+            <span
+              className="px-2.5 py-1 rounded-full text-[10px] font-semibold"
+              style={{
+                color: "#5A5762",
+                border: "1px solid rgba(255,255,255,0.08)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               Soon
             </span>
           </div>
 
           {/* Instagram — Coming Soon */}
           <div
-            className="rounded-xl p-4 flex items-center gap-4 mt-3 opacity-50"
+            className="rounded-xl p-4 flex items-center gap-4 mt-3"
             style={{
-              background: "rgba(15,12,26,0.6)",
-              border: "1px solid rgba(74,66,96,0.15)",
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.04)",
+              opacity: 0.5,
             }}
           >
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: "rgba(74,66,96,0.15)",
-                border: "1px solid rgba(74,66,96,0.15)",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <span className="text-xl">📸</span>
             </div>
             <div className="flex-1">
-              <div className="font-medium text-gray-400 text-sm">Instagram Reels</div>
-              <span className="text-xs text-gray-600">Coming soon</span>
+              <div
+                className="font-semibold text-sm"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                Instagram Reels
+              </div>
+              <span className="text-xs" style={{ color: "#5A5762" }}>Coming soon</span>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-medium text-gray-500 border border-gray-700">
+            <span
+              className="px-2.5 py-1 rounded-full text-[10px] font-semibold"
+              style={{
+                color: "#5A5762",
+                border: "1px solid rgba(255,255,255,0.08)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               Soon
             </span>
           </div>
@@ -328,38 +460,52 @@ export default function SettingsPage() {
             VOICE CLONING (Studio Tier)
         ═══════════════════════════════════════════════════════ */}
         <div
-          className="rounded-2xl p-6 mb-8 relative overflow-hidden"
+          className="rounded-2xl p-6 mb-6 relative overflow-hidden"
           style={{
-            background: "rgba(20,17,35,0.6)",
-            border: "1px solid rgba(74,66,96,0.3)",
+            background: "#16151F",
+            border: "1px solid rgba(255,255,255,0.06)",
           }}
         >
           {/* Studio-only lock overlay */}
           {userTier !== "studio" && userTier !== "loading" && (
             <div
               className="absolute inset-0 rounded-2xl z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-[1px]"
-              style={{ background: "rgba(15,12,26,0.82)" }}
+              style={{ background: "rgba(15,14,26,0.85)" }}
             >
               <div
                 className="w-12 h-12 rounded-2xl flex items-center justify-center"
                 style={{
-                  background: "linear-gradient(135deg, rgba(245,158,11,0.2), rgba(234,179,8,0.12))",
-                  border: "1px solid rgba(245,158,11,0.3)",
+                  background: "rgba(255,107,90,0.15)",
+                  border: "1px solid rgba(255,107,90,0.3)",
                 }}
               >
-                <span className="text-2xl">🔒</span>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF8B7A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
               </div>
               <div className="text-center">
-                <p className="text-white font-semibold text-sm">Studio Tier Required</p>
-                <p className="text-xs text-gray-500 mt-1">Upgrade to Studio to clone your voice</p>
+                <p
+                  className="font-semibold text-sm"
+                  style={{
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  Studio Tier Required
+                </p>
+                <p className="text-xs mt-1" style={{ color: "#8B8794" }}>
+                  Upgrade to Studio to clone your voice
+                </p>
               </div>
               <a
                 href="/dashboard/billing"
-                className="px-5 py-2 rounded-xl text-xs font-semibold text-white transition hover:scale-[1.02] active:scale-[0.98]"
+                className="px-5 py-2 rounded-xl text-xs font-semibold transition hover:scale-[1.02] active:scale-[0.98]"
                 style={{
-                  background: "linear-gradient(135deg, rgba(245,158,11,0.6), rgba(234,179,8,0.4))",
-                  border: "1px solid rgba(245,158,11,0.4)",
-                  boxShadow: "0 2px 16px rgba(245,158,11,0.15)",
+                  background: "linear-gradient(135deg, #FF6B5A 0%, #FF8B7A 100%)",
+                  color: "#0F0E1A",
+                  boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
                 }}
               >
                 Upgrade to Studio →
@@ -376,12 +522,24 @@ export default function SettingsPage() {
         <div
           className="rounded-2xl p-6"
           style={{
-            background: "rgba(20,17,35,0.6)",
-            border: "1px solid rgba(74,66,96,0.3)",
+            background: "#16151F",
+            border: "1px solid rgba(255,255,255,0.06)",
           }}
         >
-          <h2 className="text-lg font-semibold text-white mb-1">🎬 Video Creation Defaults</h2>
-          <p className="text-xs text-gray-400 mb-5">
+          <h2
+            className="text-lg font-semibold mb-1 flex items-center gap-2"
+            style={{
+              color: "#F5F2ED",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF8B7A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+            Video Creation Defaults
+          </h2>
+          <p className="text-xs mb-5" style={{ color: "#8B8794" }}>
             These settings auto-populate when you start a new video project.
           </p>
 
@@ -436,12 +594,14 @@ export default function SettingsPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-3 text-white rounded-xl font-semibold mt-4 transition"
+            className="w-full py-3 rounded-xl font-semibold mt-4 transition hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
             style={{
               background: saving
-                ? "rgba(99,102,241,0.3)"
-                : "linear-gradient(135deg, rgba(99,102,241,0.5), rgba(139,92,246,0.4))",
-              border: "1px solid rgba(139,92,246,0.4)",
+                ? "rgba(255,107,90,0.4)"
+                : "linear-gradient(135deg, #FF6B5A 0%, #FF8B7A 100%)",
+              color: "#0F0E1A",
+              boxShadow: saving ? "none" : "0 4px 16px -4px rgba(255,107,90,0.5)",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
             }}
           >
             {saving ? "Saving..." : "Save Preferences"}
@@ -455,7 +615,13 @@ export default function SettingsPage() {
               transition={{ duration: 0.25 }}
               className="flex justify-center mt-3"
             >
-              <div className="flex items-center gap-2 text-green-400 font-medium text-sm">
+              <div
+                className="flex items-center gap-2 font-semibold text-sm"
+                style={{
+                  color: "#5DD39E",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>

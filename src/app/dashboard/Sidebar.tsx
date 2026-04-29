@@ -1,14 +1,16 @@
-// src/app/dashboard/Sidebar.tsx
-// ------------------------------------------------------------
-// AutoVideo AI Studio — Simplified Dashboard Sidebar
-// Phase 2: Grouped navigation, 9 items instead of 12
+// ============================================================
+// FILE: src/app/dashboard/Sidebar.tsx
+// ============================================================
+// Ripple — Dashboard Sidebar
+// Brand pass: Ripple logo + wordmark, coral/amber pipeline colors,
+// reduced badge noise, all routes and gating logic preserved.
 //
 // SECTIONS:
-//   CREATE:    Create Video, ReCreate, Dub Video
-//   REPURPOSE: AI Shorts (merged)
+//   CREATE:    Create Video, ReCreate, Channel Cloner, Bulk Factory, Article
+//   REPURPOSE: AI Shorts
 //   OPTIMIZE:  Thumbnails, SEO Generator
 //   MANAGE:    My Projects, Library, Settings
-// ------------------------------------------------------------
+// ============================================================
 
 "use client";
 
@@ -16,6 +18,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUserTier } from "@/lib/useUserTier";
+import RippleLogo from "@/components/RippleLogo";
 
 /* ── SVG Icon Components ──────────────────────────────────── */
 function IconDashboard() {
@@ -79,6 +82,7 @@ function IconDub() {
     </svg>
   );
 }
+
 function IconArticle() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -90,7 +94,6 @@ function IconArticle() {
     </svg>
   );
 }
-
 
 function IconShorts() {
   return (
@@ -152,7 +155,7 @@ function IconUpgrade() {
   );
 }
 
-/* ── Featured item themes ─────────────────────────────────── */
+/* ── Featured item themes — Ripple palette ────────────────── */
 const THEMES: Record<string, {
   gradient: string;
   glow: string;
@@ -161,60 +164,95 @@ const THEMES: Record<string, {
   badgeText: string;
   badgeBg: string;
   badgeBorder: string;
+  badgeColor: string;
 }> = {
+  // HERO: Dub — coral
   "/dashboard/dub-video/new": {
-    gradient: "linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(99,102,241,0.08) 100%)",
-    glow: "0 0 16px rgba(59,130,246,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(59,130,246,0.2) 0%, rgba(99,102,241,0.15) 100%)",
-    iconColor: "#60a5fa",
-    badgeText: "NEW",
-    badgeBg: "rgba(16,185,129,0.15)",
-    badgeBorder: "rgba(16,185,129,0.3)",
+    gradient: "linear-gradient(135deg, rgba(255,107,90,0.12) 0%, rgba(255,169,77,0.06) 100%)",
+    glow: "0 0 16px rgba(255,107,90,0.18)",
+    hoverBg: "linear-gradient(135deg, rgba(255,107,90,0.22) 0%, rgba(255,169,77,0.12) 100%)",
+    iconColor: "#FF6B5A",
+    badgeText: "HERO",
+    badgeBg: "rgba(255,107,90,0.15)",
+    badgeBorder: "rgba(255,107,90,0.35)",
+    badgeColor: "#FF8B7A",
   },
+  // ReCreate — cyan (preserved)
   "/dashboard/recreate": {
-    gradient: "linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(59,130,246,0.08) 100%)",
-    glow: "0 0 16px rgba(6,182,212,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(6,182,212,0.22) 0%, rgba(59,130,246,0.15) 100%)",
-    iconColor: "#22d3ee",
-    badgeText: "NEW",
-    badgeBg: "rgba(6,182,212,0.15)",
-    badgeBorder: "rgba(6,182,212,0.35)",
+    gradient: "linear-gradient(135deg, rgba(93,211,224,0.10) 0%, rgba(93,211,224,0.04) 100%)",
+    glow: "0 0 14px rgba(93,211,224,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(93,211,224,0.18) 0%, rgba(93,211,224,0.10) 100%)",
+    iconColor: "#5DD3E0",
+    badgeText: "",
+    badgeBg: "transparent",
+    badgeBorder: "transparent",
+    badgeColor: "#5DD3E0",
   },
+  // Channel Cloner — magenta (the actual newest, keeps NEW)
   "/dashboard/channel-cloner": {
-    gradient: "linear-gradient(135deg, rgba(244,63,94,0.12) 0%, rgba(236,72,153,0.08) 100%)",
-    glow: "0 0 16px rgba(244,63,94,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(244,63,94,0.22) 0%, rgba(236,72,153,0.15) 100%)",
-    iconColor: "#fb7185",
+    gradient: "linear-gradient(135deg, rgba(232,121,166,0.10) 0%, rgba(232,121,166,0.04) 100%)",
+    glow: "0 0 14px rgba(232,121,166,0.18)",
+    hoverBg: "linear-gradient(135deg, rgba(232,121,166,0.20) 0%, rgba(232,121,166,0.10) 100%)",
+    iconColor: "#E879A6",
     badgeText: "NEW",
-    badgeBg: "rgba(244,63,94,0.15)",
-    badgeBorder: "rgba(244,63,94,0.35)",
+    badgeBg: "rgba(232,121,166,0.15)",
+    badgeBorder: "rgba(232,121,166,0.35)",
+    badgeColor: "#E879A6",
   },
+  // Bulk Factory — slate (no badge)
+  "/dashboard/bulk": {
+    gradient: "linear-gradient(135deg, rgba(123,122,142,0.08) 0%, rgba(123,122,142,0.03) 100%)",
+    glow: "0 0 12px rgba(123,122,142,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(123,122,142,0.16) 0%, rgba(123,122,142,0.08) 100%)",
+    iconColor: "#A4A3B5",
+    badgeText: "",
+    badgeBg: "transparent",
+    badgeBorder: "transparent",
+    badgeColor: "#A4A3B5",
+  },
+  // Article — soft lavender
+  "/dashboard/article": {
+    gradient: "linear-gradient(135deg, rgba(163,155,217,0.08) 0%, rgba(163,155,217,0.03) 100%)",
+    glow: "0 0 12px rgba(163,155,217,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(163,155,217,0.16) 0%, rgba(163,155,217,0.08) 100%)",
+    iconColor: "#A39BD9",
+    badgeText: "",
+    badgeBg: "transparent",
+    badgeBorder: "transparent",
+    badgeColor: "#A39BD9",
+  },
+  // AI Shorts — amber (Ripple's secondary brand color)
   "/dashboard/shorts": {
-    gradient: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.08) 100%)",
-    glow: "0 0 16px rgba(245,158,11,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(245,158,11,0.22) 0%, rgba(251,191,36,0.15) 100%)",
-    iconColor: "#fbbf24",
-    badgeText: "NEW",
-    badgeBg: "rgba(245,158,11,0.15)",
-    badgeBorder: "rgba(251,191,36,0.35)",
+    gradient: "linear-gradient(135deg, rgba(255,169,77,0.10) 0%, rgba(255,193,116,0.04) 100%)",
+    glow: "0 0 14px rgba(255,169,77,0.18)",
+    hoverBg: "linear-gradient(135deg, rgba(255,169,77,0.20) 0%, rgba(255,193,116,0.10) 100%)",
+    iconColor: "#FFA94D",
+    badgeText: "",
+    badgeBg: "transparent",
+    badgeBorder: "transparent",
+    badgeColor: "#FFA94D",
   },
+  // Thumbnails — pink + PRO
   "/dashboard/thumbnails": {
-    gradient: "linear-gradient(135deg, rgba(236,72,153,0.12) 0%, rgba(244,114,182,0.08) 100%)",
-    glow: "0 0 16px rgba(236,72,153,0.12)",
-    hoverBg: "linear-gradient(135deg, rgba(236,72,153,0.2) 0%, rgba(244,114,182,0.15) 100%)",
-    iconColor: "#f472b6",
+    gradient: "linear-gradient(135deg, rgba(244,114,182,0.08) 0%, rgba(244,114,182,0.03) 100%)",
+    glow: "0 0 12px rgba(244,114,182,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(244,114,182,0.16) 0%, rgba(244,114,182,0.08) 100%)",
+    iconColor: "#F472B6",
     badgeText: "PRO",
-    badgeBg: "rgba(168,85,247,0.12)",
-    badgeBorder: "rgba(168,85,247,0.3)",
+    badgeBg: "rgba(255,107,90,0.12)",
+    badgeBorder: "rgba(255,107,90,0.3)",
+    badgeColor: "#FF8B7A",
   },
+  // SEO — green + PRO
   "/dashboard/seo": {
-    gradient: "linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(16,185,129,0.08) 100%)",
-    glow: "0 0 16px rgba(34,197,94,0.12)",
-    hoverBg: "linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(16,185,129,0.15) 100%)",
-    iconColor: "#4ade80",
+    gradient: "linear-gradient(135deg, rgba(93,211,158,0.08) 0%, rgba(93,211,158,0.03) 100%)",
+    glow: "0 0 12px rgba(93,211,158,0.15)",
+    hoverBg: "linear-gradient(135deg, rgba(93,211,158,0.16) 0%, rgba(93,211,158,0.08) 100%)",
+    iconColor: "#5DD39E",
     badgeText: "PRO",
-    badgeBg: "rgba(168,85,247,0.12)",
-    badgeBorder: "rgba(168,85,247,0.3)",
+    badgeBg: "rgba(255,107,90,0.12)",
+    badgeBorder: "rgba(255,107,90,0.3)",
+    badgeColor: "#FF8B7A",
   },
 };
 
@@ -229,7 +267,7 @@ type NavItem = {
 };
 
 type NavSection = {
-  title: string | null; // null = no section header (for Dashboard)
+  title: string | null;
   items: NavItem[];
 };
 
@@ -281,9 +319,10 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-64 min-h-screen flex flex-col border-r border-gray-800/50"
+      className="w-64 min-h-screen flex flex-col"
       style={{
-        background: "linear-gradient(180deg, #120e1e 0%, #15112a 50%, #120e1e 100%)",
+        background: "linear-gradient(180deg, #0C0B16 0%, #100E1C 50%, #0C0B16 100%)",
+        borderRight: "1px solid rgba(255,255,255,0.05)",
       }}
     >
       {/* Animations */}
@@ -307,26 +346,13 @@ export default function Sidebar() {
         }
       `}</style>
 
-      {/* ── Brand ──────────────────────────────────────────── */}
-      <div className="px-5 pt-5 pb-4 border-b border-gray-800/50">
-        <Link href="/dashboard" className="flex items-center gap-2.5 group">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
-            style={{
-              background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
-              boxShadow: "0 2px 10px rgba(99, 102, 241, 0.35)",
-            }}
-          >
-            <span className="text-white">A</span>
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-white tracking-tight group-hover:text-blue-400 transition-colors duration-200">
-              AutoVideo AI
-            </div>
-            <div className="text-[9px] text-gray-600 font-semibold tracking-[0.2em] uppercase">
-              Studio
-            </div>
-          </div>
+      {/* ── Brand: Ripple ────────────────────────────────── */}
+      <div
+        className="px-5 pt-5 pb-4"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+      >
+        <Link href="/dashboard" className="flex items-center group">
+          <RippleLogo size="base" />
         </Link>
       </div>
 
@@ -338,7 +364,7 @@ export default function Sidebar() {
             {section.title && (
               <div
                 className="px-3 pt-4 pb-1.5 text-[9px] font-bold tracking-[0.15em] uppercase"
-                style={{ color: "#4a4260" }}
+                style={{ color: "#5A5762" }}
               >
                 {section.title}
               </div>
@@ -360,15 +386,18 @@ export default function Sidebar() {
 
               /* Featured items */
               if (isFeatured) {
+                const showBadge = theme.badgeText.length > 0 || isLocked;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="featured-item group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 text-white"
+                    className="featured-item group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300"
                     style={{
                       background: isActive ? theme.hoverBg : theme.gradient,
                       boxShadow: isActive ? theme.glow : "none",
                       border: isActive ? `1px solid ${theme.iconColor}33` : "1px solid transparent",
+                      color: "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = theme.hoverBg;
@@ -387,22 +416,24 @@ export default function Sidebar() {
                       className="featured-icon flex-shrink-0"
                       style={{
                         color: theme.iconColor,
-                        filter: `drop-shadow(0 0 6px ${theme.iconColor}80)`,
+                        filter: `drop-shadow(0 0 6px ${theme.iconColor}66)`,
                       }}
                     >
                       <Icon />
                     </span>
                     <span className="flex-1 truncate">{item.label}</span>
-                    <span
-                      className="featured-glow text-[8px] font-bold px-1.5 py-0.5 rounded-full tracking-wider"
-                      style={{
-                        backgroundColor: theme.badgeBg,
-                        color: theme.badgeText === "NEW" ? "#34d399" : "#c084fc",
-                        border: `1px solid ${theme.badgeBorder}`,
-                      }}
-                    >
-                      {isLocked ? "🔒" : theme.badgeText}
-                    </span>
+                    {showBadge && (
+                      <span
+                        className="featured-glow text-[8px] font-bold px-1.5 py-0.5 rounded-full tracking-wider"
+                        style={{
+                          backgroundColor: theme.badgeBg,
+                          color: theme.badgeColor,
+                          border: `1px solid ${theme.badgeBorder}`,
+                        }}
+                      >
+                        {isLocked ? "🔒" : theme.badgeText}
+                      </span>
+                    )}
                   </Link>
                 );
               }
@@ -412,23 +443,30 @@ export default function Sidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={
-                    "group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 " +
-                    (isActive
-                      ? "bg-white/[0.07] text-white"
-                      : "text-gray-500 hover:text-gray-200 hover:bg-white/[0.03]")
-                  }
-                  style={
-                    isActive
-                      ? { boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.2)" }
-                      : undefined
-                  }
+                  className="group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+                  style={{
+                    background: isActive ? "rgba(255,107,90,0.08)" : "transparent",
+                    color: isActive ? "#F5F2ED" : "#8B8794",
+                    boxShadow: isActive ? "inset 0 0 0 1px rgba(255,107,90,0.15), 0 1px 3px rgba(0,0,0,0.2)" : undefined,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                      e.currentTarget.style.color = "#F5F2ED";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = "#8B8794";
+                    }
+                  }}
                 >
                   <span
-                    className={
-                      "flex-shrink-0 transition-colors duration-200 " +
-                      (isActive ? "text-blue-400" : "text-gray-600 group-hover:text-gray-400")
-                    }
+                    className="flex-shrink-0 transition-colors duration-200"
+                    style={{
+                      color: isActive ? "#FF8B7A" : "#5A5762",
+                    }}
                   >
                     <Icon />
                   </span>
@@ -443,65 +481,91 @@ export default function Sidebar() {
       {/* ── Tier / Upgrade ─────────────────────────────────── */}
       <div className="px-3 pb-5">
         {userTier === "loading" ? (
-          <div className="px-3 py-2 text-[11px] text-gray-700">Loading...</div>
+          <div className="px-3 py-2 text-[11px]" style={{ color: "#3A3845" }}>Loading...</div>
         ) : userTier === "studio" ? (
           <div
             className="rounded-xl px-4 py-3.5 text-center"
             style={{
-              background: "linear-gradient(135deg, rgba(55,138,221,0.15) 0%, rgba(127,119,221,0.08) 100%)",
-              border: "1px solid rgba(55,138,221,0.25)",
+              background: "linear-gradient(135deg, rgba(255,107,90,0.15) 0%, rgba(255,169,77,0.08) 100%)",
+              border: "1px solid rgba(255,107,90,0.25)",
             }}
           >
             <div className="flex items-center justify-center gap-1.5">
               <span className="text-sm">🚀</span>
-              <span className="text-[11px] font-bold text-blue-300 tracking-wide uppercase">
+              <span
+                className="text-[11px] font-bold tracking-wide uppercase"
+                style={{
+                  color: "#FF8B7A",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
                 Studio Plan
               </span>
             </div>
-            <div className="text-[10px] text-gray-500 mt-1">All features unlocked</div>
+            <div className="text-[10px] mt-1" style={{ color: "#5A5762" }}>All features unlocked</div>
           </div>
         ) : userTier === "creator" ? (
           <div
             className="rounded-xl px-4 py-3.5 text-center"
             style={{
-              background: "linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(59,130,246,0.08) 100%)",
-              border: "1px solid rgba(139,92,246,0.18)",
-              boxShadow: "0 0 24px rgba(139,92,246,0.06), inset 0 1px 0 rgba(255,255,255,0.03)",
+              background: "linear-gradient(135deg, rgba(255,169,77,0.12) 0%, rgba(255,107,90,0.06) 100%)",
+              border: "1px solid rgba(255,169,77,0.2)",
+              boxShadow: "0 0 24px rgba(255,169,77,0.05), inset 0 1px 0 rgba(255,255,255,0.03)",
             }}
           >
             <div className="flex items-center justify-center gap-1.5">
               <span className="text-sm">⭐</span>
-              <span className="text-[11px] font-bold text-purple-300 tracking-wide uppercase">
+              <span
+                className="text-[11px] font-bold tracking-wide uppercase"
+                style={{
+                  color: "#FFA94D",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
                 Creator Plan
               </span>
             </div>
-            <div className="text-[10px] text-gray-500 mt-1">All features unlocked</div>
+            <div className="text-[10px] mt-1" style={{ color: "#5A5762" }}>All features unlocked</div>
           </div>
         ) : (
           <Link
             href="/dashboard/billing"
             className="group block rounded-xl px-4 py-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             style={{
-              background: "linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.06) 100%)",
-              border: "1px solid rgba(59,130,246,0.12)",
+              background: "linear-gradient(135deg, rgba(255,107,90,0.10) 0%, rgba(255,169,77,0.06) 100%)",
+              border: "1px solid rgba(255,107,90,0.15)",
             }}
           >
             <div className="flex items-center justify-center gap-1.5">
-              <span className="text-blue-400 group-hover:text-blue-300 transition-colors">
+              <span style={{ color: "#FF8B7A" }} className="group-hover:opacity-90 transition-colors">
                 <IconUpgrade />
               </span>
-              <span className="text-[11px] font-bold text-blue-400 group-hover:text-blue-300 tracking-wide uppercase transition-colors">
+              <span
+                className="text-[11px] font-bold tracking-wide uppercase transition-colors"
+                style={{
+                  color: "#FF8B7A",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
                 Upgrade Plan
               </span>
             </div>
-            <div className="text-[10px] text-gray-600 mt-1 text-center">
+            <div className="text-[10px] mt-1 text-center" style={{ color: "#5A5762" }}>
               Starter → Creator from $19/mo
             </div>
           </Link>
         )}
 
         <div className="text-center mt-3">
-          <span className="text-[9px] text-gray-800 tracking-wider font-medium">v2.1</span>
+          <span
+            className="text-[9px] tracking-wider font-medium"
+            style={{
+              color: "#3A3845",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            Ripple v2.1
+          </span>
         </div>
       </div>
     </aside>

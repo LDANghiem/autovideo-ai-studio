@@ -1,3 +1,19 @@
+// ============================================================
+// FILE: src/app/dashboard/channel-cloner/ChannelClonerClient.tsx
+// ============================================================
+// Ripple — Channel Cloner (Studio exclusive)
+// Brand pass: magenta pipeline cue in header (matches sidebar),
+// coral CTAs and selection states, semantic status colors.
+//
+// Pipeline:
+//   Step 1: Paste YouTube channel URL or @handle
+//   Step 2: Filter + select up to 10 videos
+//   Step 3: Confirm + queue all selections through ReCreate
+//
+// All logic preserved: scrape API, queue API, filter calculations,
+// selection cap enforcement, yt-dlp date parsing.
+// ============================================================
+
 "use client";
 
 import { useState, useMemo } from "react";
@@ -10,6 +26,14 @@ const supabase = createClient(
 );
 
 const MAX_SELECTION = 10;
+
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
+const MAGENTA = "#E879A6";          // Channel Cloner pipeline color
+const MAGENTA_BG = "rgba(232,121,166,0.12)";
+const MAGENTA_BORDER = "rgba(232,121,166,0.3)";
 
 type ScrapedVideo = {
   video_id: string;
@@ -41,6 +65,7 @@ export default function ChannelClonerClient() {
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeResult, setScrapeResult] = useState<ScrapeResult | null>(null);
+  const [channelInputFocused, setChannelInputFocused] = useState(false);
 
   // Step 2 state
   const [minViews, setMinViews] = useState<number>(0);
@@ -140,7 +165,6 @@ export default function ChannelClonerClient() {
       });
     }
 
-    // Rank by views desc
     list.sort((a, b) => b.views - a.views);
     return list;
   }, [scrapeResult, minViews, minDuration, maxDuration, postedWithinDays]);
@@ -151,7 +175,7 @@ export default function ChannelClonerClient() {
       if (next.has(videoId)) {
         next.delete(videoId);
       } else {
-        if (next.size >= MAX_SELECTION) return prev; // enforce cap
+        if (next.size >= MAX_SELECTION) return prev;
         next.add(videoId);
       }
       return next;
@@ -199,7 +223,6 @@ export default function ChannelClonerClient() {
         throw new Error(data.message || data.error || "Queue failed");
       }
 
-      // Success — go to library
       router.push("/dashboard/library");
     } catch (err: any) {
       setQueueError(err?.message || "Something went wrong");
@@ -208,55 +231,146 @@ export default function ChannelClonerClient() {
     }
   }
 
+  /* ── Reusable input style for filter inputs ── */
+  const filterInputStyle: React.CSSProperties = {
+    background: "#0F0E1A",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#F5F2ED",
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    color: "#8B8794",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "0.05em",
+  };
+
   // ─── Render ─────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0a0a1a] text-white p-6 md:p-10">
+    <div className="min-h-screen p-6 md:p-10" style={{ background: "#0F0E1A", color: "#F5F2ED" }}>
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Channel Cloner</h1>
-          <p className="text-gray-400">
-            Scrape a YouTube channel, pick top videos, and batch ReCreate them — all at once.
-          </p>
+
+        {/* ── Header (magenta pipeline cue) ─────────────────── */}
+        <div className="flex items-center gap-4 mb-8">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: MAGENTA_BG,
+              border: `1px solid ${MAGENTA_BORDER}`,
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={MAGENTA} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12a10 10 0 1 0 20 0 10 10 0 1 0-20 0z" />
+              <path d="M10 8l6 4-6 4V8z" fill={MAGENTA} />
+            </svg>
+          </div>
+          <div>
+            <h1
+              className="text-3xl md:text-4xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Channel Cloner
+            </h1>
+            <p className="text-sm mt-1" style={{ color: "#8B8794" }}>
+              Scrape a YouTube channel, pick top videos, and batch ReCreate them — all at once.
+            </p>
+          </div>
         </div>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2 mb-8">
-          {[1, 2, 3].map(n => (
-            <div key={n} className="flex items-center gap-2">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition ${
-                  step === n
-                    ? "bg-violet-500 text-white"
-                    : step > n
-                    ? "bg-violet-500/30 text-violet-300"
-                    : "bg-white/10 text-gray-500"
-                }`}
-              >
-                {step > n ? "✓" : n}
+        {/* ── Step indicator ─────────────────────────────────── */}
+        <div className="flex items-center gap-2 mb-8 flex-wrap">
+          {[1, 2, 3].map(n => {
+            const isCurrent = step === n;
+            const isCompleted = step > n;
+            return (
+              <div key={n} className="flex items-center gap-2">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition"
+                  style={{
+                    background: isCurrent
+                      ? CORAL
+                      : isCompleted
+                        ? "rgba(255,107,90,0.20)"
+                        : "rgba(255,255,255,0.06)",
+                    color: isCurrent
+                      ? "#0F0E1A"
+                      : isCompleted
+                        ? CORAL_SOFT
+                        : "#5A5762",
+                    boxShadow: isCurrent ? "0 4px 12px -2px rgba(255,107,90,0.5)" : "none",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {isCompleted ? "✓" : n}
+                </div>
+                <span
+                  className="text-sm font-semibold"
+                  style={{
+                    color: isCurrent ? "#F5F2ED" : isCompleted ? "#8B8794" : "#5A5762",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {n === 1 ? "Enter channel" : n === 2 ? "Pick videos" : "Confirm"}
+                </span>
+                {n < 3 && (
+                  <div
+                    className="w-8 h-px mx-2"
+                    style={{
+                      background: step > n ? "rgba(255,107,90,0.3)" : "rgba(255,255,255,0.08)",
+                    }}
+                  />
+                )}
               </div>
-              <span
-                className={`text-sm ${
-                  step === n ? "text-white" : "text-gray-500"
-                }`}
-              >
-                {n === 1 ? "Enter channel" : n === 2 ? "Pick videos" : "Confirm"}
-              </span>
-              {n < 3 && <div className="w-8 h-px bg-white/10 mx-2" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Step 1: Input */}
+        {/* ── Step 1: Input ──────────────────────────────────── */}
         {step === 1 && (
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 md:p-8">
-            <h2 className="text-xl font-semibold mb-4">
+          <div
+            className="rounded-2xl p-6 md:p-8"
+            style={{
+              background: "#16151F",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <h2
+              className="text-xl font-semibold mb-4"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.01em",
+              }}
+            >
               Paste a YouTube channel URL or handle
             </h2>
-            <p className="text-gray-400 text-sm mb-6">
+            <p className="text-sm mb-6" style={{ color: "#8B8794" }}>
               We&apos;ll pull up to 50 most recent videos. Try{" "}
-              <code className="text-violet-300">@mkbhd</code> or{" "}
-              <code className="text-violet-300">
+              <code
+                className="px-1.5 py-0.5 rounded"
+                style={{
+                  color: MAGENTA,
+                  background: MAGENTA_BG,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: "0.9em",
+                }}
+              >
+                @mkbhd
+              </code>{" "}
+              or{" "}
+              <code
+                className="px-1.5 py-0.5 rounded"
+                style={{
+                  color: MAGENTA,
+                  background: MAGENTA_BG,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: "0.9em",
+                }}
+              >
                 youtube.com/@veritasium
               </code>
               .
@@ -267,13 +381,30 @@ export default function ChannelClonerClient() {
               value={channelInput}
               onChange={e => setChannelInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleScrape()}
+              onFocus={() => setChannelInputFocused(true)}
+              onBlur={() => setChannelInputFocused(false)}
               placeholder="@channelhandle or https://youtube.com/@..."
-              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:border-violet-500 focus:outline-none transition mb-4"
               disabled={scraping}
+              className="w-full rounded-xl px-4 py-3 text-sm transition mb-4 outline-none disabled:opacity-50"
+              style={{
+                background: "#0F0E1A",
+                border: channelInputFocused
+                  ? "1px solid rgba(255,107,90,0.5)"
+                  : "1px solid rgba(255,255,255,0.1)",
+                color: "#F5F2ED",
+                boxShadow: channelInputFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+              }}
             />
 
             {scrapeError && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 mb-4 text-sm">
+              <div
+                className="rounded-xl px-4 py-3 mb-4 text-sm"
+                style={{
+                  background: "rgba(255,107,107,0.10)",
+                  border: "1px solid rgba(255,107,107,0.3)",
+                  color: "#FF6B6B",
+                }}
+              >
                 {scrapeError}
               </div>
             )}
@@ -281,31 +412,54 @@ export default function ChannelClonerClient() {
             <button
               onClick={handleScrape}
               disabled={scraping || !channelInput.trim()}
-              className="w-full md:w-auto bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/30 disabled:cursor-not-allowed text-white font-semibold rounded-xl px-6 py-3 transition"
+              className="w-full md:w-auto rounded-xl px-6 py-3 font-semibold transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                background: (scraping || !channelInput.trim())
+                  ? "rgba(255,107,90,0.3)"
+                  : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: (scraping || !channelInput.trim()) ? "none" : "0 4px 16px -4px rgba(255,107,90,0.5)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
             >
               {scraping ? "Scraping channel..." : "Scrape channel"}
             </button>
 
             {scraping && (
-              <p className="text-xs text-gray-500 mt-4">
+              <p className="text-xs mt-4" style={{ color: "#5A5762" }}>
                 This can take 10–30 seconds on first scrape.
               </p>
             )}
           </div>
         )}
 
-        {/* Step 2: Preview + Select */}
+        {/* ── Step 2: Preview + Select ───────────────────────── */}
         {step === 2 && scrapeResult && (
           <div className="space-y-6">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+            <div
+              className="rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4"
+              style={{
+                background: "#16151F",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
               <div>
-                <div className="text-lg font-semibold">
+                <div
+                  className="text-lg font-semibold"
+                  style={{
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
                   {scrapeResult.channel_title}
                 </div>
-                <div className="text-sm text-gray-400">
-                  {scrapeResult.videos.length} videos scraped
+                <div className="text-sm" style={{ color: "#8B8794" }}>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#F5F2ED" }}>
+                    {scrapeResult.videos.length}
+                  </span>{" "}
+                  videos scraped
                   {scrapeResult.cached && (
-                    <span className="ml-2 text-violet-400">
+                    <span className="ml-2 font-semibold" style={{ color: MAGENTA }}>
                       • cached
                     </span>
                   )}
@@ -317,20 +471,35 @@ export default function ChannelClonerClient() {
                   setScrapeResult(null);
                   setSelectedIds(new Set());
                 }}
-                className="text-sm text-gray-400 hover:text-white transition"
+                className="text-sm transition"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = CORAL_SOFT; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#8B8794"; }}
               >
                 ← Try another channel
               </button>
             </div>
 
             {/* Filters */}
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-              <div className="text-sm font-semibold mb-4 text-gray-300">
+            <div
+              className="rounded-2xl p-5"
+              style={{
+                background: "#16151F",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div
+                className="text-xs font-bold mb-4 uppercase tracking-wider"
+                style={labelStyle}
+              >
                 Filters
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
+                  <label className="text-xs mb-1 block" style={{ color: "#5A5762" }}>
                     Min views
                   </label>
                   <input
@@ -338,11 +507,12 @@ export default function ChannelClonerClient() {
                     value={minViews || ""}
                     onChange={e => setMinViews(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none focus:border-[rgba(255,107,90,0.5)]"
+                    style={filterInputStyle}
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
+                  <label className="text-xs mb-1 block" style={{ color: "#5A5762" }}>
                     Min duration (sec)
                   </label>
                   <input
@@ -350,11 +520,12 @@ export default function ChannelClonerClient() {
                     value={minDuration || ""}
                     onChange={e => setMinDuration(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none focus:border-[rgba(255,107,90,0.5)]"
+                    style={filterInputStyle}
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
+                  <label className="text-xs mb-1 block" style={{ color: "#5A5762" }}>
                     Max duration (sec)
                   </label>
                   <input
@@ -362,85 +533,155 @@ export default function ChannelClonerClient() {
                     value={maxDuration || ""}
                     onChange={e => setMaxDuration(Number(e.target.value) || 0)}
                     placeholder="0 = any"
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none focus:border-[rgba(255,107,90,0.5)]"
+                    style={filterInputStyle}
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">
+                  <label className="text-xs mb-1 block" style={{ color: "#5A5762" }}>
                     Posted within (days)
                   </label>
                   <input
                     type="number"
                     value={postedWithinDays || ""}
-                    onChange={e =>
-                      setPostedWithinDays(Number(e.target.value) || 0)
-                    }
+                    onChange={e => setPostedWithinDays(Number(e.target.value) || 0)}
                     placeholder="0 = any"
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none focus:border-[rgba(255,107,90,0.5)]"
+                    style={filterInputStyle}
                   />
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-white/10">
+              <div
+                className="flex flex-wrap items-center gap-3 mt-4 pt-4"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+              >
                 <button
                   onClick={() => selectTopN(10)}
-                  className="text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 transition"
+                  className="text-xs rounded-lg px-3 py-1.5 transition font-semibold"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255,107,90,0.10)";
+                    e.currentTarget.style.borderColor = "rgba(255,107,90,0.3)";
+                    e.currentTarget.style.color = CORAL_SOFT;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                    e.currentTarget.style.color = "#F5F2ED";
+                  }}
                 >
                   Select top 10
                 </button>
                 <button
                   onClick={() => selectTopN(5)}
-                  className="text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 transition"
+                  className="text-xs rounded-lg px-3 py-1.5 transition font-semibold"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255,107,90,0.10)";
+                    e.currentTarget.style.borderColor = "rgba(255,107,90,0.3)";
+                    e.currentTarget.style.color = CORAL_SOFT;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                    e.currentTarget.style.color = "#F5F2ED";
+                  }}
                 >
                   Select top 5
                 </button>
                 <button
                   onClick={clearSelection}
-                  className="text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 transition"
+                  className="text-xs rounded-lg px-3 py-1.5 transition font-semibold"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#8B8794",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                    e.currentTarget.style.color = "#F5F2ED";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                    e.currentTarget.style.color = "#8B8794";
+                  }}
                 >
                   Clear
                 </button>
                 <div className="ml-auto text-sm">
                   <span
-                    className={
-                      selectedIds.size >= MAX_SELECTION
-                        ? "text-amber-400 font-semibold"
-                        : "text-violet-300 font-semibold"
-                    }
+                    className="font-bold"
+                    style={{
+                      color: selectedIds.size >= MAX_SELECTION ? AMBER : CORAL_SOFT,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
                   >
                     {selectedIds.size} / {MAX_SELECTION}
                   </span>{" "}
-                  <span className="text-gray-500">selected</span>
+                  <span style={{ color: "#5A5762" }}>selected</span>
                 </div>
               </div>
             </div>
 
             {/* Video grid */}
             {filteredVideos.length === 0 ? (
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-10 text-center text-gray-400">
+              <div
+                className="rounded-2xl p-10 text-center"
+                style={{
+                  background: "#16151F",
+                  border: "1px dashed rgba(255,255,255,0.08)",
+                  color: "#8B8794",
+                }}
+              >
                 No videos match your filters. Try widening the criteria.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredVideos.map(v => {
                   const selected = selectedIds.has(v.video_id);
-                  const atCap =
-                    !selected && selectedIds.size >= MAX_SELECTION;
+                  const atCap = !selected && selectedIds.size >= MAX_SELECTION;
                   const daysAgo = daysSinceUpload(v.upload_date);
                   return (
                     <button
                       key={v.video_id}
                       onClick={() => toggleSelect(v.video_id)}
                       disabled={atCap}
-                      className={`text-left rounded-xl overflow-hidden border transition relative ${
-                        selected
-                          ? "border-violet-500 bg-violet-500/10"
+                      className="text-left rounded-xl overflow-hidden transition relative disabled:cursor-not-allowed"
+                      style={{
+                        background: selected ? "rgba(255,107,90,0.08)" : "#16151F",
+                        border: selected
+                          ? `1px solid rgba(255,107,90,0.5)`
                           : atCap
-                          ? "border-white/10 bg-white/5 opacity-40 cursor-not-allowed"
-                          : "border-white/10 bg-white/5 hover:border-white/30"
-                      }`}
+                            ? "1px solid rgba(255,255,255,0.04)"
+                            : "1px solid rgba(255,255,255,0.06)",
+                        opacity: atCap ? 0.4 : 1,
+                        boxShadow: selected ? "0 4px 16px -4px rgba(255,107,90,0.3)" : "none",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!selected && !atCap) {
+                          e.currentTarget.style.borderColor = "rgba(255,107,90,0.25)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!selected && !atCap) {
+                          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                        }
+                      }}
                     >
-                      <div className="aspect-video bg-black/40 relative">
+                      <div className="aspect-video relative" style={{ background: "#0F0E1A" }}>
                         {v.thumbnail && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -449,22 +690,48 @@ export default function ChannelClonerClient() {
                             className="w-full h-full object-cover"
                           />
                         )}
-                        <div className="absolute bottom-2 right-2 bg-black/80 text-xs px-2 py-0.5 rounded">
+                        <div
+                          className="absolute bottom-2 right-2 text-xs px-2 py-0.5 rounded"
+                          style={{
+                            background: "rgba(15,14,26,0.85)",
+                            color: "#F5F2ED",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }}
+                        >
                           {formatDuration(v.duration_seconds)}
                         </div>
                         {selected && (
-                          <div className="absolute top-2 right-2 w-6 h-6 bg-violet-500 rounded-full flex items-center justify-center text-xs font-bold">
+                          <div
+                            className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                            style={{
+                              background: CORAL,
+                              color: "#0F0E1A",
+                              boxShadow: "0 4px 12px -2px rgba(255,107,90,0.5)",
+                            }}
+                          >
                             ✓
                           </div>
                         )}
                       </div>
                       <div className="p-3">
-                        <div className="text-sm font-medium line-clamp-2 mb-2">
+                        <div
+                          className="text-sm font-semibold line-clamp-2 mb-2"
+                          style={{
+                            color: "#F5F2ED",
+                            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                          }}
+                        >
                           {v.title}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-gray-500">
-                          <span>{formatViews(v.views)} views</span>
-                          {daysAgo !== null && <span>{daysAgo}d ago</span>}
+                        <div className="flex items-center gap-3 text-xs" style={{ color: "#5A5762" }}>
+                          <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                            {formatViews(v.views)} views
+                          </span>
+                          {daysAgo !== null && (
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                              {daysAgo}d ago
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -478,7 +745,15 @@ export default function ChannelClonerClient() {
               <button
                 onClick={() => setStep(3)}
                 disabled={selectedIds.size === 0}
-                className="bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/30 disabled:cursor-not-allowed text-white font-semibold rounded-xl px-6 py-3 transition"
+                className="rounded-xl px-6 py-3 font-semibold transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                style={{
+                  background: selectedIds.size === 0
+                    ? "rgba(255,107,90,0.3)"
+                    : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                  color: "#0F0E1A",
+                  boxShadow: selectedIds.size === 0 ? "none" : "0 4px 16px -4px rgba(255,107,90,0.5)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
               >
                 Proceed to confirm ({selectedIds.size}) →
               </button>
@@ -486,14 +761,32 @@ export default function ChannelClonerClient() {
           </div>
         )}
 
-        {/* Step 3: Confirm */}
+        {/* ── Step 3: Confirm ────────────────────────────────── */}
         {step === 3 && scrapeResult && (
           <div className="space-y-6">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-              <h2 className="text-xl font-semibold mb-2">Ready to clone</h2>
-              <p className="text-gray-400 text-sm mb-6">
-                {selectedVideos.length} videos from{" "}
-                <span className="text-white font-medium">
+            <div
+              className="rounded-2xl p-6"
+              style={{
+                background: "#16151F",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <h2
+                className="text-xl font-semibold mb-2"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Ready to clone
+              </h2>
+              <p className="text-sm mb-6" style={{ color: "#8B8794" }}>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#F5F2ED" }}>
+                  {selectedVideos.length}
+                </span>{" "}
+                videos from{" "}
+                <span style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 600 }}>
                   {scrapeResult.channel_title}
                 </span>{" "}
                 will be queued through the ReCreate pipeline.
@@ -503,7 +796,11 @@ export default function ChannelClonerClient() {
                 {selectedVideos.map(v => (
                   <div
                     key={v.video_id}
-                    className="flex items-center gap-3 bg-black/20 rounded-lg p-2"
+                    className="flex items-center gap-3 rounded-lg p-2"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid rgba(255,255,255,0.04)",
+                    }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -512,12 +809,23 @@ export default function ChannelClonerClient() {
                       className="w-20 h-12 object-cover rounded"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">
+                      <div
+                        className="text-sm font-semibold truncate"
+                        style={{
+                          color: "#F5F2ED",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                      >
                         {v.title}
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {formatViews(v.views)} views ·{" "}
-                        {formatDuration(v.duration_seconds)}
+                      <div
+                        className="text-xs"
+                        style={{
+                          color: "#5A5762",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}
+                      >
+                        {formatViews(v.views)} views · {formatDuration(v.duration_seconds)}
                       </div>
                     </div>
                   </div>
@@ -526,29 +834,52 @@ export default function ChannelClonerClient() {
             </div>
 
             {queueError && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 text-sm">
+              <div
+                className="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  background: "rgba(255,107,107,0.10)",
+                  border: "1px solid rgba(255,107,107,0.3)",
+                  color: "#FF6B6B",
+                }}
+              >
                 {queueError}
               </div>
             )}
 
-            <div className="flex justify-between">
+            <div className="flex justify-between flex-wrap gap-3">
               <button
                 onClick={() => setStep(2)}
                 disabled={queuing}
-                className="text-gray-400 hover:text-white transition"
+                className="text-sm transition disabled:opacity-50"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+                onMouseEnter={(e) => {
+                  if (!queuing) e.currentTarget.style.color = CORAL_SOFT;
+                }}
+                onMouseLeave={(e) => {
+                  if (!queuing) e.currentTarget.style.color = "#8B8794";
+                }}
               >
                 ← Back to selection
               </button>
               <button
                 onClick={handleQueue}
                 disabled={queuing || selectedIds.size === 0}
-                className="bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/30 disabled:cursor-not-allowed text-white font-semibold rounded-xl px-6 py-3 transition"
+                className="rounded-xl px-6 py-3 font-semibold transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                style={{
+                  background: (queuing || selectedIds.size === 0)
+                    ? "rgba(255,107,90,0.3)"
+                    : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                  color: "#0F0E1A",
+                  boxShadow: (queuing || selectedIds.size === 0) ? "none" : "0 4px 16px -4px rgba(255,107,90,0.5)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
               >
                 {queuing
                   ? "Queuing videos..."
-                  : `Start cloning ${selectedIds.size} video${
-                      selectedIds.size === 1 ? "" : "s"
-                    }`}
+                  : `Start cloning ${selectedIds.size} video${selectedIds.size === 1 ? "" : "s"}`}
               </button>
             </div>
           </div>

@@ -1,13 +1,20 @@
 // ============================================================
 // FILE: src/app/dashboard/dub-video/new/page.tsx
 // ============================================================
-// "Dub Any Video" — 3 source modes:
-//   [A] YouTube URL (full video)
-//   [B] Partial Dub (YouTube URL + time range)
-//   [C] Upload Video (drag & drop local file)
+// Ripple — Dub Any Video (HERO feature)
 //
+// Brand pass: Dub IS coral. Every accent in this page uses coral
+// as the primary brand color, with semantic green/red/amber only
+// for status states. This is the marquee feature — one unified
+// brand color = strongest possible identity signal.
+//
+// Three source modes: YouTube URL / Partial / Upload
 // All modes share: language picker, voice picker, caption style,
 // original audio toggle, and submit button.
+//
+// All pipeline logic preserved: oEmbed preview, time parsing,
+// Supabase storage upload with progress simulation, drag-drop,
+// /api/dub-video/create then /start flow, and validation.
 // ============================================================
 
 "use client";
@@ -19,6 +26,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
+
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
 
 /* ============================================================
    LANGUAGE + VOICE DATABASE
@@ -273,6 +285,11 @@ export default function DubVideoNewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // Focus tracking for inputs
+  const [urlFocused, setUrlFocused] = useState(false);
+  const [startFocused, setStartFocused] = useState(false);
+  const [endFocused, setEndFocused] = useState(false);
+
   const selectedLang = useMemo(
     () => LANGUAGES.find((l) => l.code === langCode) || LANGUAGES[0],
     [langCode]
@@ -350,10 +367,8 @@ export default function DubVideoNewPage() {
       const userId = sessionData.session?.user?.id;
       if (!userId) throw new Error("Not logged in");
 
-      const ext = file.name.split(".").pop() || "mp4";
       const fileName = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
 
-      // Simulate progress (Supabase JS client doesn't support upload progress natively)
       const progressInterval = setInterval(() => {
         setUploadProgress((prev) => Math.min(prev + 3, 90));
       }, 500);
@@ -402,7 +417,6 @@ export default function DubVideoNewPage() {
   async function handleSubmit() {
     setError("");
 
-    // Validate based on mode
     if (sourceMode === "upload") {
       if (!uploadedUrl) { setError("Please upload a video file first."); return; }
     } else {
@@ -432,11 +446,9 @@ export default function DubVideoNewPage() {
       const token = data.session?.access_token;
       if (!token) { setError("Not logged in. Please log in again."); setSubmitting(false); return; }
 
-      // Build the source URL — either YouTube or uploaded file
       const sourceUrl = sourceMode === "upload" ? uploadedUrl! : url;
       const sourceType = sourceMode === "upload" ? "upload" : "youtube";
 
-      // Parse time range for partial mode
       const startSec = sourceMode === "partial" ? parseTimeToSeconds(startTime) : null;
       const endSec = sourceMode === "partial" ? parseTimeToSeconds(endTime) : null;
 
@@ -454,10 +466,8 @@ export default function DubVideoNewPage() {
           caption_position: captionConfig.position,
           keep_original_audio: keepOriginal,
           original_audio_volume: originalVolume,
-          // Partial dub fields
           start_time: startSec,
           end_time: endSec,
-          // Upload metadata
           uploaded_file_name: sourceMode === "upload" ? uploadFile?.name : null,
         }),
       });
@@ -480,25 +490,65 @@ export default function DubVideoNewPage() {
     }
   }
 
-  /* ── Can submit? ─────────────────────────────────────────── */
   const canSubmit = sourceMode === "upload"
     ? !!uploadedUrl && !submitting
     : !!url && !submitting;
 
-  /* ── Render ────────────────────────────────────────────── */
+  // Reusable label style
+  const labelStyle: React.CSSProperties = {
+    color: "#8B8794",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "0.05em",
+  };
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen" style={{ background: "#0F0E1A", color: "#F5F2ED" }}>
       <div className="max-w-3xl mx-auto px-4 py-8">
 
-        {/* Header */}
+        {/* Back link */}
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 text-sm mb-6 transition"
+          style={{ color: "#8B8794", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = CORAL_SOFT; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#8B8794"; }}
+        >
+          ← Back
+        </Link>
 
         <UsageBanner pipeline="dub" className="mb-6" />
 
+        {/* ── Header (HERO — coral pipeline cue) ───────────── */}
         <div className="flex items-center gap-4 mb-8">
-          <Link href="/dashboard" className="text-gray-400 hover:text-white transition">← Back</Link>
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: `linear-gradient(135deg, rgba(255,107,90,0.25) 0%, rgba(255,169,77,0.15) 100%)`,
+              border: "1px solid rgba(255,107,90,0.4)",
+              boxShadow: "0 8px 24px -8px rgba(255,107,90,0.4)",
+            }}
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={CORAL} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">🎬 Dub Any Video</h1>
-            <p className="text-sm text-gray-400">Auto-detect any language & dub into 18 languages</p>
+            <h1
+              className="text-3xl md:text-4xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Dub Any Video
+            </h1>
+            <p className="text-sm mt-1" style={{ color: "#8B8794" }}>
+              Translate your video into 18 languages with native voices — auto-detect any source language.
+            </p>
           </div>
         </div>
 
@@ -506,7 +556,12 @@ export default function DubVideoNewPage() {
             SOURCE MODE SELECTOR — 3 tabs
         ════════════════════════════════════════════════════ */}
         <section className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-3">Source</label>
+          <label
+            className="block text-xs font-semibold mb-3 uppercase tracking-wider"
+            style={labelStyle}
+          >
+            Source
+          </label>
           <div className="grid grid-cols-3 gap-2">
             {([
               { mode: "youtube" as SourceMode, icon: "🔗", label: "YouTube URL", desc: "Paste any YouTube link" },
@@ -519,48 +574,88 @@ export default function DubVideoNewPage() {
                   key={mode}
                   onClick={() => { setSourceMode(mode); setError(""); }}
                   className="p-3 rounded-xl text-left transition-all duration-200"
-                  style={isSelected ? {
-                    border: "2px solid #8b5cf6",
-                    background: "linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(109,40,217,0.08) 100%)",
-                    boxShadow: "0 0 20px rgba(139,92,246,0.2)",
-                  } : {
-                    border: "1px solid #374151",
-                    background: "rgba(31,41,55,0.4)",
+                  style={{
+                    border: isSelected
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    background: isSelected ? "rgba(255,107,90,0.10)" : "rgba(255,255,255,0.02)",
+                    boxShadow: isSelected ? "0 4px 16px -4px rgba(255,107,90,0.35)" : "none",
                   }}
                 >
                   <div className="text-lg mb-1">{icon}</div>
-                  <div className="text-sm font-semibold" style={{ color: isSelected ? "#c4b5fd" : "#d1d5db" }}>{label}</div>
-                  <div className="text-[10px]" style={{ color: isSelected ? "#a78bfa" : "#6b7280" }}>{desc}</div>
+                  <div
+                    className="text-sm font-semibold"
+                    style={{
+                      color: isSelected ? CORAL_SOFT : "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <div className="text-[10px] mt-0.5" style={{ color: isSelected ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
+                    {desc}
+                  </div>
                 </button>
               );
             })}
           </div>
         </section>
 
-        {/* ════════════════════════════════════════════════════
-            SOURCE INPUT — changes based on mode
-        ════════════════════════════════════════════════════ */}
-
         {/* YouTube URL (for youtube + partial modes) */}
         {(sourceMode === "youtube" || sourceMode === "partial") && (
           <section className="mb-6">
-            <label className="block text-sm font-medium text-gray-300 mb-2">YouTube URL</label>
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              YouTube URL
+            </label>
             <input
               type="url"
               placeholder="https://www.youtube.com/watch?v=... or youtube.com/shorts/..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+              onFocus={() => setUrlFocused(true)}
+              onBlur={() => setUrlFocused(false)}
+              className="w-full px-4 py-3 rounded-lg text-sm outline-none transition"
+              style={{
+                background: "#16151F",
+                border: urlFocused
+                  ? "1px solid rgba(255,107,90,0.5)"
+                  : "1px solid rgba(255,255,255,0.1)",
+                color: "#F5F2ED",
+                boxShadow: urlFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+              }}
             />
             {loadingPreview && (
-              <div className="mt-3 p-3 bg-gray-800/50 rounded-lg text-gray-400 text-sm">Loading preview...</div>
+              <div
+                className="mt-3 p-3 rounded-lg text-sm"
+                style={{
+                  background: "#16151F",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  color: "#8B8794",
+                }}
+              >
+                Loading preview...
+              </div>
             )}
             {preview && (
-              <div className="mt-3 flex gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+              <div
+                className="mt-3 flex gap-4 p-3 rounded-lg"
+                style={{
+                  background: "rgba(255,107,90,0.05)",
+                  border: "1px solid rgba(255,107,90,0.20)",
+                }}
+              >
                 <img src={preview.thumbnail} alt="" className="w-32 h-20 object-cover rounded" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{preview.title}</p>
-                  <p className="text-xs text-green-400 mt-1">✓ Video found</p>
+                  <p
+                    className="text-sm font-semibold truncate"
+                    style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+                  >
+                    {preview.title}
+                  </p>
+                  <p className="text-xs mt-1 font-semibold" style={{ color: "#5DD39E" }}>✓ Video found</p>
                 </div>
               </div>
             )}
@@ -570,27 +665,54 @@ export default function DubVideoNewPage() {
         {/* Partial Dub — Time Range Inputs */}
         {sourceMode === "partial" && (
           <section className="mb-6">
-            <label className="block text-sm font-medium text-gray-300 mb-2">⏱ Time Range to Dub</label>
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              ⏱ Time Range to Dub
+            </label>
             <div className="flex gap-3 items-center">
               <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+                <label className="block text-xs mb-1" style={{ color: "#5A5762" }}>Start Time</label>
                 <input
                   type="text"
                   placeholder="0:00"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 text-center text-lg font-mono"
+                  onFocus={() => setStartFocused(true)}
+                  onBlur={() => setStartFocused(false)}
+                  className="w-full px-4 py-3 rounded-lg text-center text-lg outline-none transition"
+                  style={{
+                    background: "#16151F",
+                    border: startFocused
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.1)",
+                    color: "#F5F2ED",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    boxShadow: startFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+                  }}
                 />
               </div>
-              <span className="text-gray-500 text-2xl mt-5">→</span>
+              <span className="text-2xl mt-5" style={{ color: "#5A5762" }}>→</span>
               <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">End Time</label>
+                <label className="block text-xs mb-1" style={{ color: "#5A5762" }}>End Time</label>
                 <input
                   type="text"
                   placeholder="5:30"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 text-center text-lg font-mono"
+                  onFocus={() => setEndFocused(true)}
+                  onBlur={() => setEndFocused(false)}
+                  className="w-full px-4 py-3 rounded-lg text-center text-lg outline-none transition"
+                  style={{
+                    background: "#16151F",
+                    border: endFocused
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.1)",
+                    color: "#F5F2ED",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    boxShadow: endFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+                  }}
                 />
               </div>
             </div>
@@ -600,21 +722,38 @@ export default function DubVideoNewPage() {
               if (s !== null && e !== null && e > s) {
                 const dur = e - s;
                 return (
-                  <p className="mt-2 text-xs text-violet-400">
-                    Dubbing {Math.floor(dur / 60)}:{String(Math.floor(dur % 60)).padStart(2, "0")} of video — saves time & ElevenLabs credits
+                  <p
+                    className="mt-2 text-xs font-semibold"
+                    style={{
+                      color: CORAL_SOFT,
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
+                    Dubbing{" "}
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                      {Math.floor(dur / 60)}:{String(Math.floor(dur % 60)).padStart(2, "0")}
+                    </span>{" "}
+                    of video — saves time & ElevenLabs credits
                   </p>
                 );
               }
               return null;
             })()}
-            <p className="mt-2 text-[10px] text-gray-600">Format: MM:SS (e.g., 2:30 for 2 minutes 30 seconds) or H:MM:SS for longer videos</p>
+            <p className="mt-2 text-[10px]" style={{ color: "#5A5762" }}>
+              Format: MM:SS (e.g., 2:30 for 2 minutes 30 seconds) or H:MM:SS for longer videos
+            </p>
           </section>
         )}
 
         {/* Upload Video — Drag & Drop Zone */}
         {sourceMode === "upload" && (
           <section className="mb-6">
-            <label className="block text-sm font-medium text-gray-300 mb-2">📤 Upload Your Video</label>
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              📤 Upload Your Video
+            </label>
 
             {!uploadFile ? (
               <div
@@ -624,16 +763,24 @@ export default function DubVideoNewPage() {
                 onClick={() => fileInputRef.current?.click()}
                 className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
                 style={{
-                  borderColor: dragOver ? "#8b5cf6" : "#374151",
-                  background: dragOver ? "rgba(139,92,246,0.08)" : "rgba(31,41,55,0.3)",
+                  borderColor: dragOver ? CORAL : "rgba(255,255,255,0.1)",
+                  background: dragOver ? "rgba(255,107,90,0.08)" : "#16151F",
                 }}
               >
                 <div className="text-4xl mb-3">{dragOver ? "📥" : "🎬"}</div>
-                <p className="text-sm text-gray-300 font-medium mb-1">
+                <p
+                  className="text-sm font-semibold mb-1"
+                  style={{
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
                   {dragOver ? "Drop your video here" : "Drag & drop video file here"}
                 </p>
-                <p className="text-xs text-gray-500 mb-3">or click to browse</p>
-                <p className="text-[10px] text-gray-600">MP4, MOV, WEBM, AVI, MKV — up to 1GB</p>
+                <p className="text-xs mb-3" style={{ color: "#8B8794" }}>or click to browse</p>
+                <p className="text-[10px]" style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}>
+                  MP4, MOV, WEBM, AVI, MKV — up to 1GB
+                </p>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -646,17 +793,31 @@ export default function DubVideoNewPage() {
                 />
               </div>
             ) : (
-              <div className="p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
+              <div
+                className="p-4 rounded-xl"
+                style={{
+                  background: "#16151F",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
                 <div className="flex items-center gap-3 mb-3">
                   <span className="text-2xl">🎬</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{uploadFile.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p
+                      className="text-sm font-semibold truncate"
+                      style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+                    >
+                      {uploadFile.name}
+                    </p>
+                    <p
+                      className="text-xs"
+                      style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}
+                    >
                       {(uploadFile.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
                   </div>
                   {uploadedUrl && (
-                    <span className="text-xs text-green-400 font-medium">✓ Uploaded</span>
+                    <span className="text-xs font-semibold" style={{ color: "#5DD39E" }}>✓ Uploaded</span>
                   )}
                   <button
                     onClick={() => {
@@ -664,26 +825,36 @@ export default function DubVideoNewPage() {
                       setUploadedUrl(null);
                       setUploadProgress(0);
                     }}
-                    className="text-gray-500 hover:text-red-400 transition text-sm"
+                    className="text-sm transition"
+                    style={{ color: "#5A5762" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "#FF6B6B"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = "#5A5762"; }}
                   >
                     ✕
                   </button>
                 </div>
 
-                {/* Upload progress bar */}
                 {(uploading || (uploadProgress > 0 && uploadProgress < 100)) && (
-                  <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                     <div
                       className="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${uploadProgress}%`,
-                        background: "linear-gradient(90deg, #8b5cf6, #6366f1)",
+                        background: `linear-gradient(90deg, ${CORAL}, ${AMBER})`,
                       }}
                     />
                   </div>
                 )}
                 {uploading && (
-                  <p className="text-xs text-violet-400 mt-2">Uploading... {uploadProgress}%</p>
+                  <p
+                    className="text-xs mt-2 font-semibold"
+                    style={{
+                      color: CORAL_SOFT,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    Uploading... {uploadProgress}%
+                  </p>
                 )}
               </div>
             )}
@@ -694,7 +865,10 @@ export default function DubVideoNewPage() {
             TARGET LANGUAGE
         ════════════════════════════════════════════════════ */}
         <section className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label
+            className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+            style={labelStyle}
+          >
             Dub Into — {selectedLang.flag} {selectedLang.name}
           </label>
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -704,20 +878,23 @@ export default function DubVideoNewPage() {
                 <button
                   key={lang.code}
                   onClick={() => setLangCode(lang.code)}
-                  className="p-2 rounded-lg text-center transition-all duration-300 text-sm"
-                  style={isSelected ? {
-                    border: "2px solid #f472b6",
-                    background: "linear-gradient(135deg, rgba(236,72,153,0.2) 0%, rgba(244,114,182,0.1) 100%)",
-                    boxShadow: "0 0 16px rgba(236,72,153,0.3)",
-                    color: "#ffffff",
-                  } : {
-                    border: "1px solid #374151",
-                    background: "rgba(31,41,55,0.5)",
-                    color: "#d1d5db",
+                  className="p-2 rounded-lg text-center transition-all duration-200"
+                  style={{
+                    border: isSelected
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    background: isSelected ? "rgba(255,107,90,0.12)" : "rgba(255,255,255,0.02)",
+                    boxShadow: isSelected ? "0 4px 16px -4px rgba(255,107,90,0.3)" : "none",
                   }}
                 >
                   <div className="text-lg">{lang.flag}</div>
-                  <div className="text-xs truncate" style={{ color: isSelected ? "#fbcfe8" : "#9ca3af" }}>
+                  <div
+                    className="text-xs truncate"
+                    style={{
+                      color: isSelected ? CORAL_SOFT : "#8B8794",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
                     {lang.name}
                   </div>
                 </button>
@@ -730,7 +907,10 @@ export default function DubVideoNewPage() {
             VOICE PICKER
         ════════════════════════════════════════════════════ */}
         <section className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label
+            className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+            style={labelStyle}
+          >
             Voice — {selectedLang.flag} {voices.length} {selectedLang.name} narrator{voices.length > 1 ? "s" : ""}
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -740,23 +920,26 @@ export default function DubVideoNewPage() {
                 <button
                   key={voice.id}
                   onClick={() => setVoiceId(voice.id)}
-                  className="p-3 rounded-lg text-left transition-all duration-300"
-                  style={isSelected ? {
-                    border: "2px solid #34d399",
-                    background: "linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(16,185,129,0.1) 100%)",
-                    boxShadow: "0 0 16px rgba(34,197,94,0.3)",
-                    color: "#ffffff",
-                  } : {
-                    border: "1px solid #374151",
-                    background: "rgba(31,41,55,0.5)",
-                    color: "#d1d5db",
+                  className="p-3 rounded-lg text-left transition-all duration-200"
+                  style={{
+                    border: isSelected
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    background: isSelected ? "rgba(255,107,90,0.12)" : "rgba(255,255,255,0.02)",
+                    boxShadow: isSelected ? "0 4px 14px -4px rgba(255,107,90,0.3)" : "none",
                   }}
                 >
-                  <div className="font-medium text-sm" style={{ color: isSelected ? "#ffffff" : "#d1d5db" }}>
+                  <div
+                    className="font-semibold text-sm"
+                    style={{
+                      color: isSelected ? CORAL_SOFT : "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
                     {voice.name}
                   </div>
-                  <div className="text-xs" style={{ color: isSelected ? "#a7f3d0" : "#9ca3af" }}>
-                    {voice.gender}
+                  <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,139,122,0.7)" : "#8B8794" }}>
+                    {voice.gender === "Female" ? "♀" : "♂"} {voice.gender}
                   </div>
                 </button>
               );
@@ -769,34 +952,54 @@ export default function DubVideoNewPage() {
           <CaptionStylePicker
             value={captionConfig}
             onChange={setCaptionConfig}
-            accent="#60a5fa"
+            accent={CORAL}
           />
         </section>
 
         {/* Original Audio Toggle + Volume */}
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-300">Keep Original Audio (Background)</label>
+            <label
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Keep Original Audio (Background)
+            </label>
             <button
               onClick={() => setKeepOriginal(!keepOriginal)}
-              className={`relative w-11 h-6 rounded-full transition ${keepOriginal ? "bg-blue-500" : "bg-gray-600"}`}
-              style={{ border: "none", boxShadow: "none" }}
+              className="relative w-11 h-6 rounded-full transition"
+              style={{
+                background: keepOriginal ? CORAL : "rgba(255,255,255,0.1)",
+                border: keepOriginal ? `1px solid ${CORAL}` : "1px solid rgba(255,255,255,0.1)",
+              }}
             >
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${keepOriginal ? "translate-x-5" : "translate-x-0.5"}`} />
+              <span
+                className="absolute top-0.5 w-5 h-5 rounded-full transition-transform"
+                style={{
+                  background: keepOriginal ? "#0F0E1A" : "#8B8794",
+                  transform: keepOriginal ? "translateX(20px)" : "translateX(2px)",
+                }}
+              />
             </button>
           </div>
           {keepOriginal && (
             <div className="mt-2">
-              <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <div
+                className="flex justify-between text-xs mb-1"
+                style={{ color: "#8B8794" }}
+              >
                 <span>Muted</span>
-                <span>{Math.round(originalVolume * 100)}%</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: CORAL_SOFT }}>
+                  {Math.round(originalVolume * 100)}%
+                </span>
                 <span>Full</span>
               </div>
               <input
                 type="range" min={0} max={0.5} step={0.05}
                 value={originalVolume}
                 onChange={(e) => setOriginalVolume(parseFloat(e.target.value))}
-                className="w-full accent-blue-500"
+                className="w-full"
+                style={{ accentColor: CORAL }}
               />
             </div>
           )}
@@ -804,21 +1007,32 @@ export default function DubVideoNewPage() {
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div
+            className="mb-6 p-3 rounded-lg text-sm"
+            style={{
+              background: "rgba(255,107,107,0.10)",
+              border: "1px solid rgba(255,107,107,0.3)",
+              color: "#FF6B6B",
+            }}
+          >
             {error}
           </div>
         )}
 
-        {/* Submit */}
+        {/* ── HERO SUBMIT CTA ────────────────────────────────── */}
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="w-full py-5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed font-normal text-xl tracking-wide transition-all duration-300 hover:scale-[1.01] active:scale-[0.99]"
+          className="w-full py-5 rounded-2xl font-bold text-xl tracking-tight transition-all duration-300 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
           style={{
-            background: !canSubmit ? "#252040" : "#5b21b6",
-            border: !canSubmit ? "1px solid #3a3555" : "1px solid rgba(167,139,250,0.6)",
-            boxShadow: !canSubmit ? "none" : "0 0 24px rgba(91,33,182,0.35)",
-            color: !canSubmit ? "#5a5070" : "#ffffff",
+            background: !canSubmit
+              ? "rgba(255,107,90,0.25)"
+              : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 50%, ${AMBER} 100%)`,
+            color: "#0F0E1A",
+            boxShadow: !canSubmit
+              ? "none"
+              : "0 12px 40px -8px rgba(255,107,90,0.6), 0 0 0 1px rgba(255,107,90,0.3)",
+            fontFamily: "'Space Grotesk', system-ui, sans-serif",
           }}
         >
           {submitting
@@ -830,37 +1044,46 @@ export default function DubVideoNewPage() {
                 : <>🚀 Start Dubbing into {selectedLang.flag} {selectedLang.name}</>}
         </button>
 
-        <p className="text-xs text-gray-500 mt-4 text-center">
+        <p className="text-xs mt-4 text-center" style={{ color: "#5A5762" }}>
           By using this feature, you confirm you have the rights to dub this content.
         </p>
 
-        {/* Copyright Guidance */}
+        {/* Copyright Guidance — kept amber/yellow (semantic warning) */}
         <div
           className="mt-4 rounded-xl p-4"
           style={{
-            background: "rgba(251,191,36,0.04)",
-            border: "1px solid rgba(251,191,36,0.15)",
+            background: "rgba(255,169,77,0.05)",
+            border: "1px solid rgba(255,169,77,0.20)",
           }}
         >
           <div className="flex items-start gap-2.5">
             <span className="text-sm mt-0.5">⚠️</span>
             <div>
-              <p className="text-[11px] font-semibold text-yellow-300/90 mb-1.5">Copyright &amp; YouTube Policy Notice</p>
-              <ul className="text-[10px] text-gray-400 space-y-1.5 leading-relaxed">
+              <p
+                className="text-[11px] font-bold mb-1.5"
+                style={{
+                  color: AMBER,
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                Copyright &amp; YouTube Policy Notice
+              </p>
+              <ul className="text-[10px] space-y-1.5 leading-relaxed" style={{ color: "#8B8794" }}>
                 <li>
-                  <span className="text-green-400 font-bold">✅ Safe:</span>{" "}
-                  Dubbing <strong className="text-gray-300">your own videos</strong> into other languages for global reach.
+                  <span className="font-bold" style={{ color: "#5DD39E" }}>✅ Safe:</span>{" "}
+                  Dubbing <strong style={{ color: "#F5F2ED" }}>your own videos</strong> into other languages for global reach.
                 </li>
                 <li>
-                  <span className="text-green-400 font-bold">✅ Safe:</span>{" "}
-                  Dubbing content you have <strong className="text-gray-300">written permission</strong> to translate.
+                  <span className="font-bold" style={{ color: "#5DD39E" }}>✅ Safe:</span>{" "}
+                  Dubbing content you have <strong style={{ color: "#F5F2ED" }}>written permission</strong> to translate.
                 </li>
                 <li>
-                  <span className="text-yellow-400 font-bold">⚡ Caution:</span>{" "}
-                  Dubbing others&apos; content with <strong className="text-gray-300">substantial added value</strong> — commentary, new visuals, on-camera hosting.
+                  <span className="font-bold" style={{ color: AMBER }}>⚡ Caution:</span>{" "}
+                  Dubbing others&apos; content with <strong style={{ color: "#F5F2ED" }}>substantial added value</strong> — commentary, new visuals, on-camera hosting.
                 </li>
                 <li>
-                  <span className="text-red-400 font-bold">🚫 Not allowed:</span>{" "}
+                  <span className="font-bold" style={{ color: "#FF6B6B" }}>🚫 Not allowed:</span>{" "}
                   Simply dubbing someone else&apos;s video into another language and reuploading.
                 </li>
               </ul>

@@ -1,22 +1,17 @@
 // ============================================================
 // FILE: src/app/dashboard/dub-video/[id]/page.tsx
 // ============================================================
-// Dub Video status + result page.
-// Polls /api/dub-video/status/[id] every 3 seconds while
-// the pipeline is running, shows progress steps, and displays
-// the video player + download button when done.
+// Ripple — Dub Video status + result page (HERO feature)
 //
-// AUTH: Uses supabase from @/lib/supabaseClient to get session
-//       token, sends as Bearer in API calls.
-//       Same pattern as your existing dashboard pages.
+// Brand pass: coral progress + step indicators (Dub IS coral),
+// green-checked when steps complete (semantic), coral primary
+// Download CTA, Ripple ink surfaces.
 //
-// SECTIONS:
-//   [S1] Pipeline step definitions (7 steps)
-//   [S2] Types
-//   [S3] Page component + polling logic
-//   [S4] Render — info card, progress tracker, video player
+// Polls /api/dub-video/status/[id] every 3 seconds while the
+// pipeline is running, shows progress steps, and displays the
+// video player + download button when done.
 //
-// POLLS: GET /api/dub-video/status/[id] every 3 seconds
+// All polling, auth (Bearer token), and download logic preserved.
 // ============================================================
 
 "use client";
@@ -26,8 +21,13 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
+
 /* ============================================================
-   [S1] Pipeline Steps — maps to status values in dub_projects
+   [S1] Pipeline Steps
 ============================================================ */
 const PIPELINE_STEPS = [
   { key: "downloading",     label: "Downloading video",            icon: "⬇️",  pct: 10 },
@@ -72,7 +72,6 @@ export default function DubVideoStatusPage() {
   /* ── Fetch status from API (with auth token) ───────────── */
   const fetchStatus = useCallback(async () => {
     try {
-      // Get auth token (same pattern as create/page.tsx)
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
 
@@ -116,8 +115,17 @@ export default function DubVideoStatusPage() {
   /* ── Loading state ─────────────────────────────────────── */
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0F0E1A" }}>
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-full animate-spin"
+            style={{
+              border: "2px solid rgba(255,107,90,0.2)",
+              borderTopColor: CORAL,
+            }}
+          />
+          <div style={{ color: "#8B8794" }}>Loading...</div>
+        </div>
       </div>
     );
   }
@@ -125,10 +133,25 @@ export default function DubVideoStatusPage() {
   /* ── Error / not found ─────────────────────────────────── */
   if (error || !project) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0F0E1A" }}>
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error || "Project not found"}</p>
-          <Link href="/dashboard" className="text-blue-400 hover:underline">
+          <p
+            className="mb-4"
+            style={{
+              color: "#FF6B6B",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            }}
+          >
+            {error || "Project not found"}
+          </p>
+          <Link
+            href="/dashboard"
+            className="font-semibold transition"
+            style={{
+              color: CORAL_SOFT,
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            }}
+          >
             ← Back to Dashboard
           </Link>
         </div>
@@ -136,49 +159,88 @@ export default function DubVideoStatusPage() {
     );
   }
 
-  /* ============================================================
-     [S4] Render
-  ============================================================ */
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen" style={{ background: "#0F0E1A", color: "#F5F2ED" }}>
       <div className="max-w-3xl mx-auto px-4 py-8">
 
         {/* ── Header ─────────────────────────────────────── */}
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 text-sm mb-6 transition"
+          style={{ color: "#8B8794", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = CORAL_SOFT; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#8B8794"; }}
+        >
+          ← Back
+        </Link>
+
         <div className="flex items-center gap-4 mb-8">
-          <Link
-            href="/dashboard"
-            className="text-gray-400 hover:text-white transition"
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: `linear-gradient(135deg, rgba(255,107,90,0.2) 0%, rgba(255,169,77,0.12) 100%)`,
+              border: "1px solid rgba(255,107,90,0.4)",
+            }}
           >
-            ← Back
-          </Link>
-          <h1 className="text-2xl font-bold">🎬 Dub Video</h1>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={CORAL} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          </div>
+          <h1
+            className="text-2xl font-bold"
+            style={{
+              color: "#F5F2ED",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Dub Video
+          </h1>
         </div>
 
         {/* ── Video Info Card ────────────────────────────── */}
-        <div className="mb-8 p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
-          <div className="flex gap-4">
+        <div
+          className="mb-8 p-4 rounded-xl"
+          style={{
+            background: "#16151F",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <div className="flex gap-4 flex-wrap sm:flex-nowrap">
             {project.source_thumbnail && (
               <img
                 src={project.source_thumbnail}
                 alt=""
-                className="w-40 h-24 object-cover rounded-lg"
+                className="w-40 h-24 object-cover rounded-lg flex-shrink-0"
               />
             )}
             <div className="flex-1 min-w-0">
-              <h2 className="font-semibold text-lg truncate">
+              <h2
+                className="font-semibold text-lg truncate"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "-0.01em",
+                }}
+              >
                 {project.source_title || "Untitled Video"}
               </h2>
-              <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-400">
+              <div className="flex flex-wrap gap-3 mt-2 text-xs" style={{ color: "#8B8794" }}>
                 {project.source_language && (
                   <span>Original: {project.source_language}</span>
                 )}
-                <span>→ {project.target_language}</span>
+                <span style={{ color: CORAL_SOFT, fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 600 }}>
+                  → {project.target_language}
+                </span>
                 {project.voice_name && <span>Voice: {project.voice_name}</span>}
                 {project.caption_style && (
                   <span>Captions: {project.caption_style}</span>
                 )}
                 {project.source_duration_sec && (
-                  <span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                     {Math.floor(project.source_duration_sec / 60)}:
                     {String(
                       Math.floor(project.source_duration_sec % 60)
@@ -192,14 +254,34 @@ export default function DubVideoStatusPage() {
 
         {/* ── Error State ────────────────────────────────── */}
         {project.status === "error" && (
-          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <div className="font-semibold text-red-400 mb-1">❌ Error</div>
-            <p className="text-sm text-red-300">
+          <div
+            className="mb-8 p-4 rounded-xl"
+            style={{
+              background: "rgba(255,107,107,0.10)",
+              border: "1px solid rgba(255,107,107,0.3)",
+            }}
+          >
+            <div
+              className="font-bold mb-1"
+              style={{
+                color: "#FF6B6B",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
+              ❌ Error
+            </div>
+            <p className="text-sm" style={{ color: "#FF8B8B" }}>
               {project.error_message || "An unknown error occurred."}
             </p>
             <Link
               href="/dashboard/dub-video/new"
-              className="inline-block mt-3 text-sm text-blue-400 hover:underline"
+              className="inline-block mt-3 text-sm font-semibold transition"
+              style={{
+                color: CORAL_SOFT,
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = CORAL; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = CORAL_SOFT; }}
             >
               Try again →
             </Link>
@@ -211,11 +293,41 @@ export default function DubVideoStatusPage() {
          project.status !== "done" &&
          project.status !== "error" && (
           <div className="mb-8">
-            {/* Progress bar */}
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden mb-6">
+            {/* Header row with percentage */}
+            <div className="flex items-center justify-between mb-3">
+              <span
+                className="text-sm font-semibold"
+                style={{
+                  color: CORAL_SOFT,
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                Dubbing in progress
+              </span>
+              <span
+                className="text-sm font-bold"
+                style={{
+                  color: CORAL_SOFT,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {progressPct}%
+              </span>
+            </div>
+
+            {/* Progress bar (coral-amber gradient) */}
+            <div
+              className="h-2 rounded-full overflow-hidden mb-6"
+              style={{ background: "rgba(255,255,255,0.06)" }}
+            >
               <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${progressPct}%`,
+                  background: `linear-gradient(90deg, ${CORAL}, ${AMBER})`,
+                  boxShadow: "0 0 12px rgba(255,107,90,0.4)",
+                }}
               />
             </div>
 
@@ -228,32 +340,44 @@ export default function DubVideoStatusPage() {
                 return (
                   <div
                     key={step.key}
-                    className={`flex items-center gap-3 p-3 rounded-lg transition ${
-                      isActive
-                        ? "bg-blue-500/10 border border-blue-500/30"
+                    className="flex items-center gap-3 p-3 rounded-lg transition"
+                    style={{
+                      background: isActive
+                        ? "rgba(255,107,90,0.10)"
                         : isDone
-                        ? "bg-green-500/5 border border-green-500/20"
-                        : "bg-gray-800/30 border border-gray-800"
-                    }`}
+                          ? "rgba(93,211,158,0.05)"
+                          : "rgba(255,255,255,0.02)",
+                      border: isActive
+                        ? "1px solid rgba(255,107,90,0.3)"
+                        : isDone
+                          ? "1px solid rgba(93,211,158,0.20)"
+                          : "1px solid rgba(255,255,255,0.05)",
+                    }}
                   >
-                    <span className="text-xl w-8 text-center">
+                    <span className="text-xl w-8 text-center flex-shrink-0">
                       {isDone ? "✅" : step.icon}
                     </span>
                     <span
-                      className={`text-sm font-medium ${
-                        isActive
-                          ? "text-blue-300"
+                      className="text-sm font-semibold flex-1"
+                      style={{
+                        color: isActive
+                          ? CORAL_SOFT
                           : isDone
-                          ? "text-green-400"
-                          : "text-gray-500"
-                      }`}
+                            ? "#5DD39E"
+                            : "#5A5762",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
                     >
                       {step.label}
                     </span>
                     {isActive && (
-                      <span className="ml-auto">
-                        <span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                      </span>
+                      <span
+                        className="inline-block w-4 h-4 rounded-full animate-spin flex-shrink-0"
+                        style={{
+                          border: `2px solid rgba(255,107,90,0.3)`,
+                          borderTopColor: CORAL,
+                        }}
+                      />
                     )}
                   </div>
                 );
@@ -265,7 +389,14 @@ export default function DubVideoStatusPage() {
         {/* ── Done — Video Player + Download ─────────────── */}
         {project.status === "done" && project.video_url && (
           <div className="mb-8">
-            <div className="bg-black rounded-xl overflow-hidden mb-4">
+            <div
+              className="rounded-xl overflow-hidden mb-4"
+              style={{
+                background: "#000",
+                border: "1px solid rgba(93,211,158,0.25)",
+                boxShadow: "0 8px 30px -8px rgba(93,211,158,0.15)",
+              }}
+            >
               <video
                 src={project.video_url}
                 controls
@@ -273,7 +404,7 @@ export default function DubVideoStatusPage() {
                 poster={project.source_thumbnail || undefined}
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
               <button
                 onClick={async () => {
                   try {
@@ -282,7 +413,6 @@ export default function DubVideoStatusPage() {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    // Custom filename from source title, e.g. "Spirituality-in-Daily-Life-Vietnamese.mp4"
                     const safeName = (project.source_title || "dubbed-video")
                       .replace(/[^a-zA-Z0-9\s\u00C0-\u024F\u1E00-\u1EFF]/g, "")
                       .replace(/\s+/g, "-")
@@ -296,7 +426,13 @@ export default function DubVideoStatusPage() {
                     window.open(project.video_url!, "_blank");
                   }
                 }}
-                className="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-center transition cursor-pointer"
+                className="flex-1 min-w-[200px] py-3 rounded-xl font-semibold text-center transition cursor-pointer hover:scale-[1.01] active:scale-[0.99]"
+                style={{
+                  background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                  color: "#0F0E1A",
+                  boxShadow: "0 8px 24px -6px rgba(255,107,90,0.5)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
               >
                 ⬇️ Download Video
               </button>
@@ -306,14 +442,36 @@ export default function DubVideoStatusPage() {
                   download
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="py-3 px-6 rounded-lg bg-gray-700 hover:bg-gray-600 font-medium text-center transition"
+                  className="py-3 px-6 rounded-xl font-semibold text-center transition"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#F5F2ED",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
                 >
                   📄 SRT
                 </a>
               )}
               <Link
                 href="/dashboard/dub-video/new"
-                className="py-3 px-6 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium text-center transition"
+                className="py-3 px-6 rounded-xl font-semibold text-center transition"
+                style={{
+                  background: "rgba(255,107,90,0.10)",
+                  border: "1px solid rgba(255,107,90,0.3)",
+                  color: CORAL_SOFT,
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255,107,90,0.15)";
+                  e.currentTarget.style.borderColor = "rgba(255,107,90,0.5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,107,90,0.10)";
+                  e.currentTarget.style.borderColor = "rgba(255,107,90,0.3)";
+                }}
               >
                 + New Dub
               </Link>
@@ -323,11 +481,15 @@ export default function DubVideoStatusPage() {
 
         {/* ── Draft State (shouldn't normally be seen) ───── */}
         {project.status === "draft" && (
-          <div className="text-center text-gray-400 py-12">
-            <p>This project hasn&apos;t been started yet.</p>
+          <div className="text-center py-12">
+            <p style={{ color: "#8B8794" }}>This project hasn&apos;t been started yet.</p>
             <Link
               href="/dashboard"
-              className="text-blue-400 hover:underline mt-2 inline-block"
+              className="inline-block mt-2 font-semibold transition"
+              style={{
+                color: CORAL_SOFT,
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
             >
               Go to Dashboard
             </Link>

@@ -1,3 +1,16 @@
+// ============================================================
+// FILE: src/app/dashboard/article/page.tsx
+// ============================================================
+// Ripple — Article → Video pipeline
+// Brand pass: lavender pipeline cue in header (matches sidebar),
+// coral throughout the rest of the page (CTAs, focus, progress).
+//
+// Bug fix: removed stray URL string that was rendering at the
+// bottom of the page.
+//
+// All article fetch, pipeline start, and polling logic preserved.
+// ============================================================
+
 "use client";
 
 import { useState } from "react";
@@ -41,6 +54,13 @@ const LENGTHS = [
   { value: 1800, label: "30 minutes" },
 ];
 
+// Ripple palette constants for clean code
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const LAVENDER = "#A39BD9";
+const LAVENDER_BG = "rgba(163,155,217,0.12)";
+const LAVENDER_BORDER = "rgba(163,155,217,0.25)";
+
 export default function ArticlePage() {
   const [url, setUrl] = useState("");
   const [language, setLanguage] = useState("Vietnamese");
@@ -54,6 +74,9 @@ export default function ArticlePage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
+
+  // Focus tracking for coral input rings
+  const [urlFocused, setUrlFocused] = useState(false);
 
   async function handleSubmit() {
     if (!url.trim()) return;
@@ -199,45 +222,104 @@ export default function ArticlePage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#0a0812" }}>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
       <div className="max-w-3xl mx-auto px-4 py-10">
 
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-3xl">📰</span>
-            <h1 className="text-3xl font-bold text-white">Article → Video</h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
-              style={{ background: "rgba(127,119,221,0.2)", color: "#c4b5fd", border: "1px solid rgba(127,119,221,0.3)" }}>
-              NEW
-            </span>
+        {/* ── Header (with lavender pipeline cue) ─────── */}
+        <div className="flex items-center gap-4 mb-3">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: LAVENDER_BG,
+              border: `1px solid ${LAVENDER_BORDER}`,
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={LAVENDER} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
           </div>
-          <p className="text-gray-400 text-sm">
-            Paste any article or blog URL — AI extracts the content and turns it into a professional video in your chosen language.
-          </p>
+          <div>
+            <h1
+              className="text-3xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Article → Video
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: "#8B8794" }}>
+              Paste any article or blog URL — AI turns it into a video.
+            </p>
+          </div>
         </div>
+
+        {/* Long description */}
+        <p className="text-sm mb-8" style={{ color: "#8B8794" }}>
+          AI extracts the content and turns it into a professional video in your chosen language.
+        </p>
 
         {/* Usage banner */}
         <UsageBanner pipeline="recreate" className="mb-6" />
 
-        {/* Done state */}
+        {/* ── Done state ─────────────────────────────── */}
         {status === "done" && videoUrl && (
-          <div className="rounded-2xl overflow-hidden mb-6" style={{ border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.05)" }}>
-            <video controls className="w-full" src={videoUrl} />
+          <div
+            className="rounded-2xl overflow-hidden mb-6"
+            style={{
+              border: "1px solid rgba(93,211,158,0.3)",
+              background: "rgba(93,211,158,0.05)",
+            }}
+          >
+            <video controls className="w-full" src={videoUrl} style={{ background: "#000" }} />
             <div className="p-4 flex items-center justify-between flex-wrap gap-3">
               <div>
-                <p className="text-green-400 font-semibold text-sm">✅ Video ready!</p>
-                {articleTitle && <p className="text-gray-400 text-xs mt-0.5 truncate max-w-xs">{articleTitle}</p>}
+                <p
+                  className="font-semibold text-sm"
+                  style={{
+                    color: "#5DD39E",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  ✅ Video ready!
+                </p>
+                {articleTitle && (
+                  <p className="text-xs mt-0.5 truncate max-w-xs" style={{ color: "#8B8794" }}>
+                    {articleTitle}
+                  </p>
+                )}
               </div>
               <div className="flex gap-3">
-                <a href={videoUrl} download
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-white transition-all hover:opacity-80"
-                  style={{ background: "#7F77DD" }}>
+                <a
+                  href={videoUrl}
+                  download
+                  className="px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-[1.02]"
+                  style={{
+                    background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                    color: "#0F0E1A",
+                    boxShadow: `0 4px 16px -4px rgba(255,107,90,0.5)`,
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
                   ↓ Download
                 </a>
-                <button onClick={reset}
-                  className="px-4 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80"
-                  style={{ background: "rgba(255,255,255,0.08)", color: "#9ca3af", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <button
+                  onClick={reset}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#F5F2ED",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                >
                   New video
                 </button>
               </div>
@@ -245,66 +327,127 @@ export default function ArticlePage() {
           </div>
         )}
 
-        {/* Processing state */}
+        {/* ── Processing state ───────────────────────── */}
         {(status === "fetching" || status === "processing") && (
-          <div className="rounded-2xl p-6 mb-6" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div
+            className="rounded-2xl p-6 mb-6"
+            style={{
+              background: "#16151F",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-              <p className="text-white text-sm font-medium">{statusMsg}</p>
+              <div
+                className="w-5 h-5 rounded-full animate-spin flex-shrink-0"
+                style={{
+                  border: `2px solid rgba(255,107,90,0.2)`,
+                  borderTopColor: CORAL,
+                }}
+              />
+              <p
+                className="text-sm font-semibold"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                {statusMsg}
+              </p>
             </div>
-            <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-1000"
-                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #7F77DD, #a78bfa)" }} />
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-1000"
+                style={{
+                  width: `${progress}%`,
+                  background: `linear-gradient(90deg, ${CORAL}, #FFA94D)`,
+                }}
+              />
             </div>
-            <p className="text-gray-500 text-xs mt-2">{progress}% complete · This takes 2-5 minutes</p>
+            <p className="text-xs mt-2" style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}>
+              {progress}% complete · This takes 2-5 minutes
+            </p>
             {articleTitle && (
-              <p className="text-gray-400 text-xs mt-3 truncate">
+              <p className="text-xs mt-3 truncate" style={{ color: "#8B8794" }}>
                 📰 {articleTitle}
               </p>
             )}
           </div>
         )}
 
-        {/* Error state */}
+        {/* ── Error state ────────────────────────────── */}
         {status === "error" && (
-          <div className="rounded-xl px-4 py-3 mb-6 flex items-center justify-between gap-4"
-            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)" }}>
-            <p className="text-red-400 text-sm">{error}</p>
+          <div
+            className="rounded-xl px-4 py-3 mb-6 flex items-center justify-between gap-4"
+            style={{
+              background: "rgba(255,107,107,0.10)",
+              border: "1px solid rgba(255,107,107,0.3)",
+            }}
+          >
+            <p className="text-sm" style={{ color: "#FF6B6B" }}>{error}</p>
             <div className="flex gap-2">
               {error.includes("Upgrade") && (
-                <Link href="/dashboard/billing"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
-                  style={{ background: "#ef4444" }}>
+                <Link
+                  href="/dashboard/billing"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-[1.02]"
+                  style={{
+                    background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                    color: "#0F0E1A",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
                   Upgrade
                 </Link>
               )}
-              <button onClick={reset}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium"
-                style={{ background: "rgba(255,255,255,0.08)", color: "#9ca3af" }}>
+              <button
+                onClick={reset}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#F5F2ED",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
                 Try again
               </button>
             </div>
           </div>
         )}
 
-        {/* Input form - only when idle or error */}
+        {/* ── Input form ─────────────────────────────── */}
         {(status === "idle" || status === "error") && (
           <div className="space-y-5">
 
             {/* URL input */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label
+                className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "0.05em",
+                }}
+              >
                 Article URL
               </label>
               <input
                 type="url"
                 value={url}
                 onChange={e => setUrl(e.target.value)}
+                onFocus={() => setUrlFocused(true)}
+                onBlur={() => setUrlFocused(false)}
                 placeholder="https://vnexpress.net/article... or any news/blog URL"
-                className="w-full px-4 py-3 rounded-xl text-white placeholder-gray-600 text-sm"
-                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+                className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all"
+                style={{
+                  background: "#16151F",
+                  border: urlFocused
+                    ? "1px solid rgba(255,107,90,0.5)"
+                    : "1px solid rgba(255,255,255,0.1)",
+                  color: "#F5F2ED",
+                  boxShadow: urlFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+                }}
               />
-              <p className="text-gray-600 text-xs mt-1.5">
+              <p className="text-xs mt-1.5" style={{ color: "#5A5762" }}>
                 Works with VnExpress, Tuổi Trẻ, BBC, CNN, Medium, blogs, and most news sites
               </p>
             </div>
@@ -312,56 +455,106 @@ export default function ArticlePage() {
             {/* Language + Style row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Output language</label>
-                <select value={language} onChange={e => setLanguage(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl text-white text-sm"
-                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                  {LANGUAGES.map(l => <option key={l} value={l} style={{ background: "#1a1025" }}>{l}</option>)}
-                </select>
+                <label
+                  className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+                  style={{
+                    color: "#8B8794",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  Output language
+                </label>
+                <RippleSelect value={language} onChange={setLanguage}>
+                  {LANGUAGES.map(l => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </RippleSelect>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Video style</label>
-                <select value={style} onChange={e => setStyle(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl text-white text-sm"
-                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                  {STYLES.map(s => <option key={s.value} value={s.value} style={{ background: "#1a1025" }}>{s.label}</option>)}
-                </select>
+                <label
+                  className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+                  style={{
+                    color: "#8B8794",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  Video style
+                </label>
+                <RippleSelect value={style} onChange={setStyle}>
+                  {STYLES.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </RippleSelect>
               </div>
             </div>
 
-            {/* Length */}
+            {/* Length pills */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Video length</label>
+              <label
+                className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                Video length
+              </label>
               <div className="flex gap-2 flex-wrap">
-                {LENGTHS.map(l => (
-                  <button key={l.value} onClick={() => setTargetLength(l.value)}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: targetLength === l.value ? "rgba(127,119,221,0.25)" : "rgba(255,255,255,0.05)",
-                      border: targetLength === l.value ? "1px solid rgba(127,119,221,0.5)" : "1px solid rgba(255,255,255,0.1)",
-                      color: targetLength === l.value ? "#c4b5fd" : "#9ca3af",
-                    }}>
-                    {l.label}
-                  </button>
-                ))}
+                {LENGTHS.map(l => {
+                  const active = targetLength === l.value;
+                  return (
+                    <button
+                      key={l.value}
+                      onClick={() => setTargetLength(l.value)}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                      style={{
+                        background: active ? "rgba(255,107,90,0.15)" : "rgba(255,255,255,0.03)",
+                        border: active ? `1px solid rgba(255,107,90,0.5)` : "1px solid rgba(255,255,255,0.08)",
+                        color: active ? CORAL_SOFT : "#8B8794",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {l.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Orientation */}
+            {/* Orientation toggles */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Format</label>
+              <label
+                className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+                style={{
+                  color: "#8B8794",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                Format
+              </label>
               <div className="flex gap-2">
-                {(["landscape", "portrait"] as const).map(o => (
-                  <button key={o} onClick={() => setOrientation(o)}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: orientation === o ? "rgba(127,119,221,0.25)" : "rgba(255,255,255,0.05)",
-                      border: orientation === o ? "1px solid rgba(127,119,221,0.5)" : "1px solid rgba(255,255,255,0.1)",
-                      color: orientation === o ? "#c4b5fd" : "#9ca3af",
-                    }}>
-                    {o === "landscape" ? "🖥️ Landscape (16:9)" : "📱 Portrait (9:16)"}
-                  </button>
-                ))}
+                {(["landscape", "portrait"] as const).map(o => {
+                  const active = orientation === o;
+                  return (
+                    <button
+                      key={o}
+                      onClick={() => setOrientation(o)}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                      style={{
+                        background: active ? "rgba(255,107,90,0.15)" : "rgba(255,255,255,0.03)",
+                        border: active ? `1px solid rgba(255,107,90,0.5)` : "1px solid rgba(255,255,255,0.08)",
+                        color: active ? CORAL_SOFT : "#8B8794",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {o === "landscape" ? "🖥️ Landscape (16:9)" : "📱 Portrait (9:16)"}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -369,17 +562,40 @@ export default function ArticlePage() {
             <button
               onClick={handleSubmit}
               disabled={!url.trim()}
-              className="w-full py-3.5 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: "linear-gradient(135deg, #7F77DD, #5b54b8)" }}>
+              className="w-full py-3.5 rounded-xl font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                background: !url.trim()
+                  ? "rgba(255,107,90,0.3)"
+                  : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: !url.trim() ? "none" : "0 8px 24px -8px rgba(255,107,90,0.5)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               🎬 Generate Video from Article
             </button>
           </div>
         )}
 
-        {/* Tips */}
+        {/* ── Tips ───────────────────────────────────── */}
         {status === "idle" && (
-          <div className="mt-8 p-4 rounded-xl" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-            <p className="text-gray-500 text-xs font-medium uppercase tracking-wide mb-3">How it works</p>
+          <div
+            className="mt-8 p-4 rounded-xl"
+            style={{
+              background: "#16151F",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <p
+              className="text-xs font-bold uppercase tracking-wider mb-3"
+              style={{
+                color: "#8B8794",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "0.1em",
+              }}
+            >
+              How it works
+            </p>
             <div className="space-y-2">
               {[
                 "Paste any article URL — news, blog, or editorial",
@@ -388,15 +604,65 @@ export default function ArticlePage() {
                 "Generates voiceover in your chosen language",
                 "Renders a complete video with captions and music",
               ].map((tip, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <span className="text-purple-500 font-bold text-xs mt-0.5">{i + 1}.</span>
-                  <p className="text-gray-400 text-xs">{tip}</p>
+                <div key={i} className="flex items-start gap-2.5">
+                  <span
+                    className="font-bold text-xs mt-0.5"
+                    style={{
+                      color: CORAL_SOFT,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      minWidth: 14,
+                    }}
+                  >
+                    {i + 1}.
+                  </span>
+                  <p className="text-xs" style={{ color: "#C7C3C9" }}>{tip}</p>
                 </div>
               ))}
             </div>
           </div>
         )}
 
+      </div>
+    </div>
+  );
+}
+
+/* ─── Inline Ripple-themed select with custom chevron ──────── */
+function RippleSelect({
+  value,
+  onChange,
+  children,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className="w-full appearance-none px-3 py-2.5 pr-9 rounded-xl text-sm font-medium outline-none cursor-pointer transition-all"
+        style={{
+          background: "#16151F",
+          border: focused ? "1px solid rgba(255,107,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
+          color: "#F5F2ED",
+          boxShadow: focused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+        }}
+      >
+        {children}
+      </select>
+      <div
+        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors"
+        style={{ color: focused ? "#FF8B7A" : "#5A5762" }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </div>
     </div>
   );

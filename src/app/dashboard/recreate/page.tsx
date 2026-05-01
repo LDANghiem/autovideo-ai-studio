@@ -1,8 +1,10 @@
 // ============================================================
 // FILE: src/app/dashboard/recreate/page.tsx
 // ============================================================
-// ReCreate — Paste any video, get an original version in any
-// language with fresh stock footage. Zero copyright issues.
+// Ripple — ReCreate pipeline
+// Brand pass: cyan pipeline cue in header + cyan progress bars
+// (so in-flight renders match the cyan ReCreate cards in Library),
+// coral throughout for forms, CTAs, and selections.
 //
 // Pipeline:
 //   [1] User pastes YouTube URL + picks language/style
@@ -18,6 +20,14 @@ import UsageBanner from "@/components/UsageBanner";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
+
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
+const CYAN = "#5DD3E0";        // ReCreate pipeline color (header + progress)
+const CYAN_BG = "rgba(93,211,224,0.10)";
+const CYAN_BORDER = "rgba(93,211,224,0.3)";
 
 /* ── Types ──────────────────────────────────────────────────── */
 interface ReCreateProject {
@@ -261,6 +271,7 @@ export default function ReCreatePage() {
   const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [voiceId, setVoiceId] = useState(LANGUAGES[0].voices[0]?.id || "");
   const [music, setMusic] = useState("none");
+  const [urlFocused, setUrlFocused] = useState(false);
 
   const voices = selectedLang.voices;
 
@@ -452,10 +463,10 @@ export default function ReCreatePage() {
         `Language: ${selectedLang.name}`,
         `Style: ${selectedStyle}`,
         "",
-        "Created with AutoVideo AI Studio — AI-powered content recreation",
+        "Created with Ripple — One video. Infinite reach.",
         "Original content rewritten with fresh narration and stock footage.",
         "",
-        "#shorts #AI #AutoVideo",
+        "#shorts #AI #Ripple",
       ].join("\n");
 
       const res = await fetch("/api/publish/youtube", {
@@ -465,7 +476,7 @@ export default function ReCreatePage() {
           video_url: project.final_video_url,
           title: title.slice(0, 100),
           description,
-          tags: ["AI", "AutoVideo", "ReCreate", selectedLang.name, selectedStyle],
+          tags: ["AI", "Ripple", "ReCreate", selectedLang.name, selectedStyle],
           privacy: "public",
         }),
       });
@@ -491,64 +502,84 @@ export default function ReCreatePage() {
   const isDone = project?.status === "done";
   const hasError = project?.status === "error";
 
+  // Shared label style helper
+  const labelStyle: React.CSSProperties = {
+    color: "#8B8794",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "0.05em",
+  };
+
   return (
-    <div className="min-h-screen" style={{ background: "#0a0714" }}>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* ── Header ────────────────────────────────────────── */}
-        <div className="text-center mb-10">
 
-        <UsageBanner pipeline="recreate" className="mb-6" />
-
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-semibold mb-4"
+        {/* ── Header (cyan pipeline cue) ──────────────────── */}
+        <div className="flex items-center gap-4 mb-3">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{
-              background: "linear-gradient(135deg, rgba(6,182,212,0.15), rgba(59,130,246,0.15))",
-              border: "1px solid rgba(6,182,212,0.3)",
-              color: "#22d3ee",
+              background: CYAN_BG,
+              border: `1px solid ${CYAN_BORDER}`,
             }}
           >
-            ✨ NEW — AI-Powered Content ReCreation
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={CYAN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
           </div>
-
-          <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
-            <span style={{
-              background: "linear-gradient(135deg, #22d3ee, #3b82f6, #a78bfa)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}>
+          <div>
+            <h1
+              className="text-3xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.02em",
+              }}
+            >
               ReCreate
-            </span>
-          </h1>
-          <p className="text-gray-400 text-sm max-w-xl mx-auto leading-relaxed">
-            Paste any video → AI writes an original script in your language → 
-            Fresh stock footage + voiceover → Brand new video. 
-            <span className="text-cyan-400"> Zero copyright issues.</span>
-          </p>
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: "#8B8794" }}>
+              Reimagine any video in your language with fresh stock footage. Zero copyright issues.
+            </p>
+          </div>
         </div>
+
+        <UsageBanner pipeline="recreate" className="mb-6 mt-6" />
 
         {/* ── Main Card ─────────────────────────────────────── */}
         <div
           className="rounded-2xl p-6 mb-6"
           style={{
-            background: "rgba(15,12,28,0.7)",
-            border: "1px solid rgba(6,182,212,0.15)",
-            boxShadow: "0 0 60px rgba(6,182,212,0.03)",
+            background: "#16151F",
+            border: "1px solid rgba(255,255,255,0.06)",
           }}
         >
           {/* URL Input */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              📎 Source Video URL
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Source Video URL
             </label>
             <input
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onFocus={() => setUrlFocused(true)}
+              onBlur={() => setUrlFocused(false)}
               placeholder="https://www.youtube.com/watch?v=..."
               disabled={generating}
-              className="w-full px-4 py-3.5 rounded-xl text-white placeholder-gray-600 text-sm transition focus:outline-none"
+              className="w-full px-4 py-3.5 rounded-xl text-sm transition outline-none disabled:opacity-50"
               style={{
-                background: "rgba(10,7,20,0.8)",
-                border: "1px solid rgba(6,182,212,0.2)",
+                background: "#0F0E1A",
+                border: urlFocused
+                  ? "1px solid rgba(255,107,90,0.5)"
+                  : "1px solid rgba(255,255,255,0.1)",
+                color: "#F5F2ED",
+                boxShadow: urlFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
               }}
             />
           </div>
@@ -557,102 +588,131 @@ export default function ReCreatePage() {
           {preview && (
             <div
               className="flex items-center gap-4 p-3 rounded-xl mb-5"
-              style={{ background: "rgba(6,182,212,0.05)", border: "1px solid rgba(6,182,212,0.1)" }}
+              style={{
+                background: "rgba(255,107,90,0.05)",
+                border: "1px solid rgba(255,107,90,0.15)",
+              }}
             >
               <img src={preview.thumbnail} alt="" className="w-28 h-16 rounded-lg object-cover" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-white font-medium truncate">{preview.title}</p>
-                <p className="text-xs text-gray-500">{preview.channel}</p>
+                <p
+                  className="text-sm font-semibold truncate"
+                  style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+                >
+                  {preview.title}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "#8B8794" }}>{preview.channel}</p>
               </div>
             </div>
           )}
 
           {/* Target Language */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              🌍 ReCreate In
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              ReCreate In
             </label>
             <div className="flex flex-wrap gap-2">
-              {LANGUAGES.map((lang) => (
-                <button
-                  key={lang.code}
-                  onClick={() => setSelectedLang(lang)}
-                  disabled={generating}
-                  className="px-3 py-2 rounded-lg text-xs font-medium transition-all"
-                  style={{
-                    background: selectedLang.code === lang.code
-                      ? "rgba(6,182,212,0.2)"
-                      : "rgba(30,25,50,0.5)",
-                    border: selectedLang.code === lang.code
-                      ? "1px solid rgba(6,182,212,0.5)"
-                      : "1px solid rgba(74,66,96,0.2)",
-                    color: selectedLang.code === lang.code ? "#22d3ee" : "#9ca3af",
-                    boxShadow: selectedLang.code === lang.code ? "0 0 12px rgba(6,182,212,0.15)" : "none",
-                  }}
-                >
-                  {lang.flag} {lang.name}
-                </button>
-              ))}
+              {LANGUAGES.map((lang) => {
+                const active = selectedLang.code === lang.code;
+                return (
+                  <button
+                    key={lang.code}
+                    onClick={() => setSelectedLang(lang)}
+                    disabled={generating}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                    style={{
+                      background: active ? "rgba(255,107,90,0.15)" : "rgba(255,255,255,0.03)",
+                      border: active ? "1px solid rgba(255,107,90,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                      color: active ? CORAL_SOFT : "#8B8794",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
+                    {lang.flag} {lang.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {/* Style */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              🎨 Content Style
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Content Style
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {STYLES.map((style) => (
-                <button
-                  key={style.id}
-                  onClick={() => setSelectedStyle(style.id)}
-                  disabled={generating}
-                  className="px-3 py-2.5 rounded-lg text-left transition-all"
-                  style={{
-                    background: selectedStyle === style.id
-                      ? "rgba(6,182,212,0.12)"
-                      : "rgba(30,25,50,0.5)",
-                    border: selectedStyle === style.id
-                      ? "1px solid rgba(6,182,212,0.4)"
-                      : "1px solid rgba(74,66,96,0.2)",
-                  }}
-                >
-                  <div className="text-xs font-medium" style={{ color: selectedStyle === style.id ? "#22d3ee" : "#d1d5db" }}>
-                    {style.label}
-                  </div>
-                  <div className="text-[10px] text-gray-500 mt-0.5">{style.desc}</div>
-                </button>
-              ))}
+              {STYLES.map((style) => {
+                const active = selectedStyle === style.id;
+                return (
+                  <button
+                    key={style.id}
+                    onClick={() => setSelectedStyle(style.id)}
+                    disabled={generating}
+                    className="px-3 py-2.5 rounded-lg text-left transition-all disabled:opacity-50"
+                    style={{
+                      background: active ? "rgba(255,107,90,0.12)" : "rgba(255,255,255,0.03)",
+                      border: active ? "1px solid rgba(255,107,90,0.4)" : "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <div
+                      className="text-xs font-semibold"
+                      style={{
+                        color: active ? CORAL_SOFT : "#F5F2ED",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {style.label}
+                    </div>
+                    <div className="text-[10px] mt-0.5" style={{ color: active ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
+                      {style.desc}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {/* Voice */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              🗣️ Voice — {selectedLang.flag} {voices.length} {selectedLang.name} narrator{voices.length > 1 ? "s" : ""}
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Voice — {selectedLang.flag} {voices.length} {selectedLang.name} narrator{voices.length > 1 ? "s" : ""}
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
               {voices.map((voice) => {
-                const isSelected = voiceId === voice.id;
+                const active = voiceId === voice.id;
                 return (
                   <button
                     key={voice.id}
                     onClick={() => setVoiceId(voice.id)}
                     disabled={generating}
-                    className="p-2.5 rounded-lg text-left transition-all"
-                    style={isSelected ? {
-                      border: "1px solid rgba(6,182,212,0.6)",
-                      background: "rgba(6,182,212,0.12)",
-                      boxShadow: "0 0 14px rgba(6,182,212,0.2)",
+                    className="p-2.5 rounded-lg text-left transition-all disabled:opacity-50"
+                    style={active ? {
+                      border: "1px solid rgba(255,107,90,0.5)",
+                      background: "rgba(255,107,90,0.12)",
+                      boxShadow: "0 0 14px rgba(255,107,90,0.15)",
                     } : {
-                      border: "1px solid rgba(74,66,96,0.2)",
-                      background: "rgba(30,25,50,0.5)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
                     }}
                   >
-                    <div className="text-xs font-medium" style={{ color: isSelected ? "#22d3ee" : "#d1d5db" }}>
+                    <div
+                      className="text-xs font-semibold"
+                      style={{
+                        color: active ? CORAL_SOFT : "#F5F2ED",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
                       {voice.name}
                     </div>
-                    <div className="text-[10px] mt-0.5" style={{ color: isSelected ? "rgba(6,182,212,0.7)" : "#6b7280" }}>
+                    <div className="text-[10px] mt-0.5" style={{ color: active ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
                       {voice.gender === "Female" ? "♀" : "♂"} {voice.gender}
                     </div>
                   </button>
@@ -663,7 +723,12 @@ export default function ReCreatePage() {
 
           {/* Video Length */}
           <div className="mb-6">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Video Length</p>
+            <p
+              className="text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Video Length
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {([
                 { val: 30,   label: "30s",    desc: "Shorts" },
@@ -677,44 +742,75 @@ export default function ReCreatePage() {
                 { val: 1200, label: "20 min", desc: "Podcast" },
                 { val: 1440, label: "24 min", desc: "Series ep." },
                 { val: 1800, label: "30 min", desc: "Full ep." },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.val}
-                  onClick={() => setTargetLength(opt.val)}
-                  className="flex flex-col items-center py-2.5 px-3 rounded-lg transition-all w-[calc(25%-6px)]"
-                  style={{
-                    background: targetLength === opt.val ? "rgba(6,182,212,0.15)" : "rgba(15,12,28,0.7)",
-                    border: targetLength === opt.val ? "1.5px solid rgba(6,182,212,0.6)" : "1px solid rgba(255,255,255,0.08)",
-                  }}
-                >
-                  <span className="text-sm font-bold" style={{ color: targetLength === opt.val ? "#22d3ee" : "#fff" }}>{opt.label}</span>
-                  <span className="text-[10px] mt-0.5" style={{ color: targetLength === opt.val ? "#67e8f9" : "#6b7280" }}>{opt.desc}</span>
-                </button>
-              ))}
+              ] as const).map((opt) => {
+                const active = targetLength === opt.val;
+                return (
+                  <button
+                    key={opt.val}
+                    onClick={() => setTargetLength(opt.val)}
+                    className="flex flex-col items-center py-2.5 px-3 rounded-lg transition-all w-[calc(25%-6px)]"
+                    style={{
+                      background: active ? "rgba(255,107,90,0.15)" : "rgba(255,255,255,0.03)",
+                      border: active ? "1.5px solid rgba(255,107,90,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <span
+                      className="text-sm font-bold"
+                      style={{
+                        color: active ? CORAL_SOFT : "#F5F2ED",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {opt.label}
+                    </span>
+                    <span className="text-[10px] mt-0.5" style={{ color: active ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {/* Output Format */}
           <div className="mb-6">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Output Format</p>
+            <p
+              className="text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Output Format
+            </p>
             <div className="grid grid-cols-2 gap-1.5">
               {([
                 { val: "landscape", label: "16:9 Landscape", desc: "YouTube / standard" },
                 { val: "portrait",  label: "9:16 Portrait",  desc: "Shorts / TikTok" },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.val}
-                  onClick={() => setOrientation(opt.val)}
-                  className="flex flex-col items-center py-2.5 rounded-lg transition-all"
-                  style={{
-                    background: orientation === opt.val ? "rgba(6,182,212,0.15)" : "rgba(15,12,28,0.7)",
-                    border: orientation === opt.val ? "1.5px solid rgba(6,182,212,0.6)" : "1px solid rgba(255,255,255,0.08)",
-                  }}
-                >
-                  <span className="text-xs font-semibold" style={{ color: orientation === opt.val ? "#22d3ee" : "#fff" }}>{opt.label}</span>
-                  <span className="text-[10px] mt-0.5" style={{ color: orientation === opt.val ? "#67e8f9" : "#6b7280" }}>{opt.desc}</span>
-                </button>
-              ))}
+              ] as const).map((opt) => {
+                const active = orientation === opt.val;
+                return (
+                  <button
+                    key={opt.val}
+                    onClick={() => setOrientation(opt.val)}
+                    className="flex flex-col items-center py-2.5 rounded-lg transition-all"
+                    style={{
+                      background: active ? "rgba(255,107,90,0.15)" : "rgba(255,255,255,0.03)",
+                      border: active ? "1.5px solid rgba(255,107,90,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <span
+                      className="text-xs font-semibold"
+                      style={{
+                        color: active ? CORAL_SOFT : "#F5F2ED",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {opt.label}
+                    </span>
+                    <span className="text-[10px] mt-0.5" style={{ color: active ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -725,33 +821,36 @@ export default function ReCreatePage() {
                 onClick={() => setIncludeCaptions(!includeCaptions)}
                 className="w-10 h-5 rounded-full transition-all relative"
                 style={{
-                  background: includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)",
-                  border: `1px solid ${includeCaptions ? "rgba(6,182,212,0.5)" : "rgba(74,66,96,0.3)"}`,
+                  background: includeCaptions ? "rgba(255,107,90,0.5)" : "rgba(255,255,255,0.1)",
+                  border: `1px solid ${includeCaptions ? "rgba(255,107,90,0.6)" : "rgba(255,255,255,0.1)"}`,
                 }}
               >
                 <div
                   className="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all"
                   style={{
-                    background: includeCaptions ? "#22d3ee" : "#6b7280",
+                    background: includeCaptions ? "#F5F2ED" : "#8B8794",
                     left: includeCaptions ? "22px" : "2px",
                   }}
                 />
               </button>
-              <span className="text-xs text-gray-400">Include captions in video</span>
+              <span className="text-xs" style={{ color: "#8B8794" }}>Include captions in video</span>
             </div>
             {includeCaptions && (
               <CaptionStylePicker
                 value={captionConfig}
                 onChange={setCaptionConfig}
-                accent="#22d3ee"
+                accent={CORAL}
               />
             )}
           </div>
 
           {/* Background Music */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              🎵 Background Music
+            <label
+              className="block text-xs font-semibold mb-2 uppercase tracking-wider"
+              style={labelStyle}
+            >
+              Background Music
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
@@ -766,16 +865,22 @@ export default function ReCreatePage() {
                     key={m.id}
                     onClick={() => setMusic(m.id)}
                     disabled={generating}
-                    className="px-3 py-2.5 rounded-lg text-left transition-all"
+                    className="px-3 py-2.5 rounded-lg text-left transition-all disabled:opacity-50"
                     style={{
-                      background: active ? "rgba(6,182,212,0.12)" : "rgba(30,25,50,0.5)",
-                      border: active ? "1px solid rgba(6,182,212,0.4)" : "1px solid rgba(74,66,96,0.2)",
+                      background: active ? "rgba(255,107,90,0.12)" : "rgba(255,255,255,0.03)",
+                      border: active ? "1px solid rgba(255,107,90,0.4)" : "1px solid rgba(255,255,255,0.08)",
                     }}
                   >
-                    <div className="text-xs font-medium" style={{ color: active ? "#22d3ee" : "#d1d5db" }}>
+                    <div
+                      className="text-xs font-semibold"
+                      style={{
+                        color: active ? CORAL_SOFT : "#F5F2ED",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
                       {m.label}
                     </div>
-                    <div className="text-[10px] mt-0.5" style={{ color: active ? "rgba(6,182,212,0.7)" : "#6b7280" }}>
+                    <div className="text-[10px] mt-0.5" style={{ color: active ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
                       {m.desc}
                     </div>
                   </button>
@@ -786,10 +891,14 @@ export default function ReCreatePage() {
 
           {/* Error */}
           {error && (
-            <div className="mb-4 p-3 rounded-lg text-sm text-red-400" style={{
-              background: "rgba(248,113,113,0.08)",
-              border: "1px solid rgba(248,113,113,0.2)",
-            }}>
+            <div
+              className="mb-4 p-3 rounded-lg text-sm"
+              style={{
+                background: "rgba(255,107,107,0.10)",
+                border: "1px solid rgba(255,107,107,0.3)",
+                color: "#FF6B6B",
+              }}
+            >
               {error}
             </div>
           )}
@@ -798,16 +907,14 @@ export default function ReCreatePage() {
           <button
             onClick={handleGenerate}
             disabled={!url || generating}
-            className="w-full py-4 rounded-xl text-base font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+            className="w-full py-4 rounded-xl text-base font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             style={{
               background: !url || generating
-                ? "rgba(30,25,50,0.5)"
-                : "linear-gradient(135deg, rgba(6,182,212,0.5), rgba(59,130,246,0.4))",
-              border: !url || generating
-                ? "1px solid rgba(74,66,96,0.3)"
-                : "1px solid rgba(6,182,212,0.4)",
-              color: !url || generating ? "#5a5070" : "#ffffff",
-              boxShadow: !url || generating ? "none" : "0 0 30px rgba(6,182,212,0.15)",
+                ? "rgba(255,107,90,0.3)"
+                : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+              color: "#0F0E1A",
+              boxShadow: !url || generating ? "none" : "0 8px 30px -8px rgba(255,107,90,0.5)",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
             }}
           >
             {generating
@@ -818,17 +925,24 @@ export default function ReCreatePage() {
           </button>
 
           {/* How it works note */}
-          <div className="mt-4 flex items-start gap-2 px-3 py-2.5 rounded-lg"
-            style={{ background: "rgba(6,182,212,0.03)", border: "1px solid rgba(6,182,212,0.08)" }}
+          <div
+            className="mt-4 flex items-start gap-2 px-3 py-2.5 rounded-lg"
+            style={{
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.05)",
+            }}
           >
             <span className="text-xs mt-0.5">💡</span>
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              <strong className="text-gray-400">How it works:</strong> AI transcribes the source video, 
-              {selectedLang.code === "en" 
-                ? " rewrites the content using completely different words while keeping the same facts," 
+            <p className="text-[11px] leading-relaxed" style={{ color: "#8B8794" }}>
+              <strong style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                How it works:
+              </strong>{" "}
+              AI transcribes the source video,
+              {selectedLang.code === "en"
+                ? " rewrites the content using completely different words while keeping the same facts,"
                 : ` writes a completely original script in ${selectedLang.name},`}
-              {" "}finds matching stock footage from Pexels + Pixabay, generates 
-              voiceover narration, and renders a brand new video. The output contains zero original footage 
+              {" "}finds matching stock footage from Pexels + Pixabay, generates
+              voiceover narration, and renders a brand new video. The output contains zero original footage
               — fully original and safe to monetize.
             </p>
           </div>
@@ -839,12 +953,12 @@ export default function ReCreatePage() {
           <div
             className="rounded-2xl p-6"
             style={{
-              background: "rgba(15,12,28,0.7)",
+              background: "#16151F",
               border: isDone
-                ? "1px solid rgba(74,222,128,0.2)"
+                ? "1px solid rgba(93,211,158,0.25)"
                 : hasError
-                  ? "1px solid rgba(248,113,113,0.2)"
-                  : "1px solid rgba(6,182,212,0.15)",
+                  ? "1px solid rgba(255,107,107,0.25)"
+                  : `1px solid ${CYAN_BORDER}`,
             }}
           >
             {/* Source info */}
@@ -854,26 +968,39 @@ export default function ReCreatePage() {
                   <img src={project.source_thumbnail} alt="" className="w-16 h-10 rounded-lg object-cover opacity-60" />
                 )}
                 <div className="min-w-0">
-                  <p className="text-xs text-gray-400 truncate">{project.source_title}</p>
-                  <p className="text-[10px] text-gray-600">{project.source_channel} → {selectedLang.flag} {selectedLang.name}</p>
+                  <p className="text-xs truncate" style={{ color: "#F5F2ED" }}>{project.source_title}</p>
+                  <p className="text-[10px]" style={{ color: "#5A5762" }}>
+                    {project.source_channel} → {selectedLang.flag} {selectedLang.name}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* Progress bar */}
+            {/* Progress bar (cyan — pipeline cue for in-flight) */}
             {isProcessing && (
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-cyan-300">{progressText}</span>
-                  <span className="text-xs text-cyan-400/70">{progressPct}%</span>
+                  <span className="text-sm font-semibold" style={{ color: CYAN, fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                    {progressText}
+                  </span>
+                  <span
+                    className="text-xs"
+                    style={{
+                      color: CYAN,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {progressPct}%
+                  </span>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(6,182,212,0.1)" }}>
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                   <div
                     className="h-full rounded-full transition-all duration-700"
                     style={{
                       width: `${progressPct}%`,
-                      background: "linear-gradient(90deg, #06b6d4, #3b82f6)",
-                      boxShadow: "0 0 12px rgba(6,182,212,0.4)",
+                      background: `linear-gradient(90deg, ${CYAN}, #5DD3E0)`,
+                      boxShadow: "0 0 12px rgba(93,211,224,0.4)",
                     }}
                   />
                 </div>
@@ -896,19 +1023,23 @@ export default function ReCreatePage() {
                         className="text-center py-2 rounded-lg"
                         style={{
                           background: current
-                            ? "rgba(6,182,212,0.1)"
+                            ? CYAN_BG
                             : completed
-                              ? "rgba(74,222,128,0.05)"
-                              : "rgba(30,25,50,0.3)",
+                              ? "rgba(93,211,158,0.08)"
+                              : "rgba(255,255,255,0.02)",
                           border: current
-                            ? "1px solid rgba(6,182,212,0.3)"
+                            ? `1px solid ${CYAN_BORDER}`
                             : "1px solid transparent",
                         }}
                       >
                         <div className="text-sm">{completed ? "✅" : step.icon}</div>
-                        <div className="text-[9px] mt-0.5" style={{
-                          color: current ? "#22d3ee" : completed ? "#4ade80" : "#6b7280",
-                        }}>
+                        <div
+                          className="text-[9px] mt-0.5 font-semibold"
+                          style={{
+                            color: current ? CYAN : completed ? "#5DD39E" : "#5A5762",
+                            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                          }}
+                        >
                           {step.label}
                         </div>
                       </div>
@@ -920,15 +1051,25 @@ export default function ReCreatePage() {
 
             {/* Error */}
             {hasError && (
-              <div className="p-3 rounded-lg mb-4" style={{
-                background: "rgba(248,113,113,0.08)",
-                border: "1px solid rgba(248,113,113,0.2)",
-              }}>
-                <p className="text-sm text-red-400">{project.error_message || "Something went wrong"}</p>
+              <div
+                className="p-3 rounded-lg mb-4"
+                style={{
+                  background: "rgba(255,107,107,0.10)",
+                  border: "1px solid rgba(255,107,107,0.3)",
+                }}
+              >
+                <p className="text-sm" style={{ color: "#FF6B6B" }}>
+                  {project.error_message || "Something went wrong"}
+                </p>
                 <button
                   onClick={handleGenerate}
-                  className="mt-2 px-3 py-1.5 rounded-lg text-xs font-medium text-cyan-300 transition"
-                  style={{ background: "rgba(6,182,212,0.1)", border: "1px solid rgba(6,182,212,0.2)" }}
+                  className="mt-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                  style={{
+                    background: "rgba(255,107,90,0.10)",
+                    border: "1px solid rgba(255,107,90,0.3)",
+                    color: CORAL_SOFT,
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
                 >
                   🔄 Try Again
                 </button>
@@ -938,7 +1079,7 @@ export default function ReCreatePage() {
             {/* Done — Show result */}
             {isDone && project.final_video_url && (
               <div>
-                <div className="rounded-xl overflow-hidden mb-4" style={{ border: "1px solid rgba(74,222,128,0.2)" }}>
+                <div className="rounded-xl overflow-hidden mb-4" style={{ border: "1px solid rgba(93,211,158,0.25)" }}>
                   <video
                     src={project.final_video_url}
                     controls
@@ -954,27 +1095,29 @@ export default function ReCreatePage() {
                       const name = `recreate-${selectedLang.code}-${Date.now()}`;
                       downloadVideo(project.final_video_url!, `${name}.mp4`);
                     }}
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium text-white transition hover:scale-[1.02]"
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold transition hover:scale-[1.02]"
                     style={{
-                      background: "linear-gradient(135deg, rgba(6,182,212,0.4), rgba(59,130,246,0.3))",
-                      border: "1px solid rgba(6,182,212,0.3)",
+                      background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                      color: "#0F0E1A",
+                      boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
                     }}
                   >
                     ⬇️ Download Video
                   </button>
 
-                  {/* YouTube Publish Button */}
+                  {/* YouTube Publish Button (kept YouTube red — brand identity) */}
                   {ytConnected && !publishResult?.url && (
                     <button
                       onClick={handlePublishToYouTube}
                       disabled={publishing}
-                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-white transition hover:scale-[1.02] disabled:opacity-50"
+                      className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition hover:scale-[1.02] disabled:opacity-50"
                       style={{
                         background: publishing
                           ? "rgba(220,38,38,0.3)"
-                          : "linear-gradient(135deg, rgba(220,38,38,0.6), rgba(185,28,28,0.5))",
-                        border: "1px solid rgba(220,38,38,0.4)",
-                        boxShadow: publishing ? "none" : "0 0 20px rgba(220,38,38,0.15)",
+                          : "linear-gradient(135deg, #FF0000 0%, #CC0000 100%)",
+                        boxShadow: publishing ? "none" : "0 4px 16px -4px rgba(255,0,0,0.4)",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
                       }}
                     >
                       {publishing ? "⏳ Publishing..." : "▶ Publish to YouTube"}
@@ -987,11 +1130,12 @@ export default function ReCreatePage() {
                       href={publishResult.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2.5 rounded-xl text-sm font-medium transition hover:scale-[1.02]"
+                      className="px-4 py-2.5 rounded-xl text-sm font-semibold transition hover:scale-[1.02]"
                       style={{
-                        background: "rgba(74,222,128,0.1)",
-                        border: "1px solid rgba(74,222,128,0.3)",
-                        color: "#4ade80",
+                        background: "rgba(93,211,158,0.10)",
+                        border: "1px solid rgba(93,211,158,0.3)",
+                        color: "#5DD39E",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
                       }}
                     >
                       ✅ Live on YouTube ↗
@@ -1001,11 +1145,16 @@ export default function ReCreatePage() {
                   {/* YouTube Publish Error */}
                   {publishResult?.error && (
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-red-400">⚠ {publishResult.error}</span>
+                      <span className="text-xs" style={{ color: "#FF6B6B" }}>⚠ {publishResult.error}</span>
                       <button
                         onClick={handlePublishToYouTube}
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-300 transition"
-                        style={{ background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.2)" }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                        style={{
+                          background: "rgba(255,107,107,0.10)",
+                          border: "1px solid rgba(255,107,107,0.3)",
+                          color: "#FF6B6B",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
                       >
                         Retry
                       </button>
@@ -1016,8 +1165,13 @@ export default function ReCreatePage() {
                   {!ytConnected && (
                     <a
                       href="/dashboard/settings"
-                      className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 transition hover:text-gray-300"
-                      style={{ background: "rgba(30,25,50,0.5)", border: "1px solid rgba(74,66,96,0.3)" }}
+                      className="px-4 py-2.5 rounded-xl text-sm font-semibold transition"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        color: "#8B8794",
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
                     >
                       🔗 Connect YouTube to publish
                     </a>
@@ -1027,16 +1181,26 @@ export default function ReCreatePage() {
                     onClick={() => {
                       navigator.clipboard.writeText(project.final_video_url!);
                     }}
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-300 transition"
-                    style={{ background: "rgba(30,25,50,0.5)", border: "1px solid rgba(74,66,96,0.3)" }}
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold transition"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
                   >
                     🔗 Copy URL
                   </button>
 
                   <button
                     onClick={() => window.open(project.final_video_url!, "_blank")}
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-300 transition"
-                    style={{ background: "rgba(30,25,50,0.5)", border: "1px solid rgba(74,66,96,0.3)" }}
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold transition"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
                   >
                     ↗ Open
                   </button>
@@ -1050,14 +1214,25 @@ export default function ReCreatePage() {
                         const el = document.getElementById("script-preview");
                         if (el) el.style.display = el.style.display === "none" ? "block" : "none";
                       }}
-                      className="text-xs text-cyan-400/60 hover:text-cyan-400 transition"
+                      className="text-xs font-semibold transition"
+                      style={{
+                        color: CORAL_SOFT,
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
                     >
                       📝 Show/Hide AI Script
                     </button>
                     <div
                       id="script-preview"
-                      className="mt-2 p-4 rounded-xl text-xs text-gray-400 leading-relaxed whitespace-pre-wrap"
-                      style={{ display: "none", background: "rgba(10,7,20,0.8)", border: "1px solid rgba(6,182,212,0.1)", maxHeight: "300px", overflow: "auto" }}
+                      className="mt-2 p-4 rounded-xl text-xs leading-relaxed whitespace-pre-wrap"
+                      style={{
+                        display: "none",
+                        background: "#0F0E1A",
+                        border: "1px solid rgba(255,255,255,0.06)",
+                        color: "#C7C3C9",
+                        maxHeight: "300px",
+                        overflow: "auto",
+                      }}
                     >
                       {project.script_translated}
                     </div>

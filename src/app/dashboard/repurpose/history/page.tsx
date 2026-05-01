@@ -1,8 +1,14 @@
 // ============================================================
 // FILE: src/app/dashboard/repurpose/history/page.tsx
 // ============================================================
-// Repurpose History — View all past repurpose projects,
-// see clips, download, and re-open results.
+// Ripple — Shorts History (DB tables stay named repurpose_*,
+// user-facing this is now called "Shorts History").
+//
+// Brand pass: amber pipeline cue for in-flight (matches main
+// /dashboard/shorts page), coral CTAs, semantic status colors.
+//
+// All Supabase fetch, expand/collapse, download, and delete
+// logic preserved.
 // ============================================================
 
 "use client";
@@ -10,6 +16,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
 
 /* ── Types ──────────────────────────────────────────────────── */
 interface RepurposeClip {
@@ -68,19 +79,19 @@ function formatDuration(sec: number | null): string {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  done: { label: "Complete", color: "#4ade80", bg: "rgba(74,222,128,0.1)" },
-  processing: { label: "Processing", color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
-  analyzing: { label: "Analyzing", color: "#60a5fa", bg: "rgba(96,165,250,0.1)" },
-  clipping: { label: "Clipping", color: "#a78bfa", bg: "rgba(167,139,250,0.1)" },
-  downloading: { label: "Downloading", color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
-  transcribing: { label: "Transcribing", color: "#22d3ee", bg: "rgba(34,211,238,0.1)" },
-  uploading: { label: "Uploading", color: "#34d399", bg: "rgba(52,211,153,0.1)" },
-  error: { label: "Failed", color: "#f87171", bg: "rgba(248,113,113,0.1)" },
-  draft: { label: "Draft", color: "#9ca3af", bg: "rgba(156,163,175,0.1)" },
+  done:         { label: "Complete",     color: "#5DD39E", bg: "rgba(93,211,158,0.10)" },
+  processing:   { label: "Processing",   color: "#FFA94D", bg: "rgba(255,169,77,0.10)" },
+  analyzing:    { label: "Analyzing",    color: "#FFA94D", bg: "rgba(255,169,77,0.10)" },
+  clipping:     { label: "Clipping",     color: "#FFA94D", bg: "rgba(255,169,77,0.10)" },
+  downloading:  { label: "Downloading",  color: "#FFA94D", bg: "rgba(255,169,77,0.10)" },
+  transcribing: { label: "Transcribing", color: "#5DD3E0", bg: "rgba(93,211,224,0.10)" },
+  uploading:    { label: "Uploading",    color: "#FFA94D", bg: "rgba(255,169,77,0.10)" },
+  error:        { label: "Failed",       color: "#FF6B6B", bg: "rgba(255,107,107,0.10)" },
+  draft:        { label: "Draft",        color: "#8B8794", bg: "rgba(139,135,148,0.10)" },
 };
 
 /* ── Main Component ─────────────────────────────────────────── */
-export default function RepurposeHistoryPage() {
+export default function ShortsHistoryPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<RepurposeProject[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,95 +164,135 @@ export default function RepurposeHistoryPage() {
   const doneProjects = projects.filter((p) => p.status === "done").length;
   const totalClips = projects.reduce((sum, p) => sum + (p.clips?.length || 0), 0);
 
-  /* ── Render ──────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen" style={{ background: "#0f0b1a" }}>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        {/* ── Header ─────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <span className="text-2xl">📋</span>
-              Repurpose History
+            <h1
+              className="text-2xl font-bold"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Shorts History
             </h1>
-            <p className="text-gray-400 mt-1 text-sm">
+            <p className="text-sm mt-1" style={{ color: "#8B8794" }}>
               View and manage all your repurposed videos
             </p>
           </div>
           <button
-            onClick={() => router.push("/dashboard/repurpose")}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+            onClick={() => router.push("/dashboard/shorts")}
+            className="px-4 py-2 rounded-xl text-sm font-semibold transition hover:scale-[1.02]"
             style={{
-              background: "linear-gradient(135deg, rgba(139,92,246,0.4), rgba(168,85,247,0.3))",
-              border: "1px solid rgba(139,92,246,0.4)",
+              background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+              color: "#0F0E1A",
+              boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
             }}
           >
-            + New Repurpose
+            + New Shorts
           </button>
         </div>
 
-        {/* Stats Row */}
+        {/* ── Stats Row ──────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            { label: "Total Projects", value: totalProjects, icon: "📁", color: "#a78bfa" },
-            { label: "Completed", value: doneProjects, icon: "✅", color: "#4ade80" },
-            { label: "Clips Created", value: totalClips, icon: "🎬", color: "#fbbf24" },
+            { label: "Total Projects", value: totalProjects, icon: "📁", color: CORAL_SOFT },
+            { label: "Completed", value: doneProjects, icon: "✅", color: "#5DD39E" },
+            { label: "Clips Created", value: totalClips, icon: "🎬", color: AMBER },
           ].map((stat) => (
             <div
               key={stat.label}
               className="rounded-xl p-4"
               style={{
-                background: "rgba(20,17,35,0.6)",
-                border: "1px solid rgba(74,66,96,0.3)",
+                background: "#16151F",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <div className="flex items-center gap-2 mb-1">
                 <span>{stat.icon}</span>
-                <span className="text-xs text-gray-400">{stat.label}</span>
+                <span
+                  className="text-xs font-semibold uppercase tracking-wider"
+                  style={{
+                    color: "#8B8794",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {stat.label}
+                </span>
               </div>
-              <div className="text-2xl font-bold" style={{ color: stat.color }}>
+              <div
+                className="text-2xl font-bold"
+                style={{
+                  color: stat.color,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
                 {stat.value}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Loading */}
+        {/* ── Loading ────────────────────────────────────────── */}
         {loading && (
           <div className="text-center py-20">
-            <div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-gray-400">Loading your projects...</p>
+            <div
+              className="w-8 h-8 rounded-full animate-spin mx-auto mb-4"
+              style={{
+                border: "2px solid rgba(255,107,90,0.2)",
+                borderTopColor: CORAL,
+              }}
+            />
+            <p style={{ color: "#8B8794" }}>Loading your projects...</p>
           </div>
         )}
 
-        {/* Empty State */}
+        {/* ── Empty State ────────────────────────────────────── */}
         {!loading && projects.length === 0 && (
           <div
             className="text-center py-20 rounded-xl"
             style={{
-              background: "rgba(20,17,35,0.6)",
-              border: "1px solid rgba(74,66,96,0.3)",
+              background: "#16151F",
+              border: "1px dashed rgba(255,255,255,0.08)",
             }}
           >
-            <div className="text-5xl mb-4">🔄</div>
-            <h3 className="text-lg font-medium text-white mb-2">No repurpose projects yet</h3>
-            <p className="text-gray-400 text-sm mb-6">
+            <div className="text-5xl mb-4 opacity-40">✂️</div>
+            <h3
+              className="text-lg font-semibold mb-2"
+              style={{
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
+              No shorts created yet
+            </h3>
+            <p className="text-sm mb-6" style={{ color: "#8B8794" }}>
               Turn any long YouTube video into viral shorts
             </p>
             <button
-              onClick={() => router.push("/dashboard/repurpose")}
-              className="px-6 py-2 rounded-lg text-white text-sm font-medium"
+              onClick={() => router.push("/dashboard/shorts")}
+              className="px-6 py-2.5 rounded-xl text-sm font-semibold transition hover:scale-[1.02]"
               style={{
-                background: "linear-gradient(135deg, #8b5cf6, #a855f7)",
+                background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: "0 4px 16px -4px rgba(255,107,90,0.5)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
               }}
             >
-              Create Your First Repurpose
+              Create Your First Shorts
             </button>
           </div>
         )}
 
-        {/* Project List */}
+        {/* ── Project List ───────────────────────────────────── */}
         {!loading && projects.length > 0 && (
           <div className="space-y-4">
             {projects.map((project) => {
@@ -255,27 +306,39 @@ export default function RepurposeHistoryPage() {
                   key={project.id}
                   className="rounded-xl overflow-hidden transition-all"
                   style={{
-                    background: "rgba(20,17,35,0.6)",
+                    background: "#16151F",
                     border: isExpanded
-                      ? "1px solid rgba(139,92,246,0.4)"
-                      : "1px solid rgba(74,66,96,0.3)",
+                      ? "1px solid rgba(255,107,90,0.4)"
+                      : "1px solid rgba(255,255,255,0.06)",
                   }}
                 >
                   {/* Project Header (clickable) */}
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : project.id)}
-                    className="w-full flex items-center gap-4 p-4 text-left hover:bg-white/[0.02] transition-colors"
+                    className="w-full flex items-center gap-4 p-4 text-left transition-colors"
+                    onMouseEnter={(e) => {
+                      if (!isExpanded) e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isExpanded) e.currentTarget.style.background = "transparent";
+                    }}
                   >
                     {/* Thumbnail */}
-                    <div className="w-20 h-12 rounded-lg overflow-hidden bg-gray-800 flex-shrink-0">
+                    <div
+                      className="w-20 h-12 rounded-lg overflow-hidden flex-shrink-0"
+                      style={{ background: "rgba(255,255,255,0.02)" }}
+                    >
                       {project.source_thumbnail ? (
                         <img
                           src={project.source_thumbnail}
                           alt=""
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover opacity-70"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-600 text-lg">
+                        <div
+                          className="w-full h-full flex items-center justify-center text-lg"
+                          style={{ color: "#3A3845" }}
+                        >
                           🎬
                         </div>
                       )}
@@ -283,35 +346,63 @@ export default function RepurposeHistoryPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-medium text-white truncate">
+                      <h3
+                        className="text-sm font-semibold truncate"
+                        style={{
+                          color: "#F5F2ED",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                      >
                         {project.source_title || "Untitled Video"}
                       </h3>
-                      <div className="flex items-center gap-3 mt-0.5">
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         {project.source_channel && (
-                          <span className="text-xs text-gray-500">{project.source_channel}</span>
+                          <span className="text-xs" style={{ color: "#8B8794" }}>
+                            {project.source_channel}
+                          </span>
                         )}
                         {project.source_duration_sec && (
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs" style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}>
                             {formatDuration(project.source_duration_sec)}
                           </span>
                         )}
-                        <span className="text-xs text-gray-600">{timeAgo(project.created_at)}</span>
+                        <span className="text-xs" style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}>
+                          {timeAgo(project.created_at)}
+                        </span>
                       </div>
                     </div>
 
                     {/* Clips count */}
                     <div className="text-center flex-shrink-0 px-3">
-                      <div className="text-lg font-bold text-white">{doneClips.length}</div>
-                      <div className="text-[10px] text-gray-500">clips</div>
+                      <div
+                        className="text-lg font-bold"
+                        style={{
+                          color: "#F5F2ED",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {doneClips.length}
+                      </div>
+                      <div
+                        className="text-[10px] uppercase tracking-wider"
+                        style={{
+                          color: "#5A5762",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                      >
+                        clips
+                      </div>
                     </div>
 
                     {/* Status badge */}
                     <span
-                      className="px-2.5 py-1 rounded-full text-[11px] font-medium flex-shrink-0"
+                      className="px-2.5 py-1 rounded-full text-[11px] font-semibold flex-shrink-0"
                       style={{
                         background: statusCfg.bg,
                         color: statusCfg.color,
                         border: `1px solid ${statusCfg.color}30`,
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
                       }}
                     >
                       {statusCfg.label}
@@ -319,8 +410,12 @@ export default function RepurposeHistoryPage() {
 
                     {/* Expand arrow */}
                     <svg
-                      className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                      className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                      style={{ color: "#5A5762" }}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
@@ -328,17 +423,19 @@ export default function RepurposeHistoryPage() {
 
                   {/* Expanded: Clips Grid */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 border-t border-gray-800/50">
+                    <div className="px-4 pb-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
                       {/* Action buttons */}
-                      <div className="flex items-center gap-2 py-3">
+                      <div className="flex items-center gap-2 py-3 flex-wrap">
                         {doneClips.length > 0 && (
                           <button
                             onClick={() => downloadAllClips(project)}
                             disabled={downloading === project.id}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-all flex items-center gap-1.5"
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 hover:scale-[1.02]"
                             style={{
-                              background: "rgba(139,92,246,0.2)",
-                              border: "1px solid rgba(139,92,246,0.3)",
+                              background: "rgba(255,107,90,0.10)",
+                              border: "1px solid rgba(255,107,90,0.3)",
+                              color: CORAL_SOFT,
+                              fontFamily: "'Space Grotesk', system-ui, sans-serif",
                             }}
                           >
                             {downloading === project.id ? (
@@ -355,26 +452,40 @@ export default function RepurposeHistoryPage() {
                             const url = `https://www.youtube.com/watch?v=${project.youtube_video_id}`;
                             window.open(url, "_blank");
                           }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 transition-all"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
                           style={{
-                            background: "rgba(20,17,35,0.8)",
-                            border: "1px solid rgba(74,66,96,0.3)",
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                            color: "#8B8794",
+                            fontFamily: "'Space Grotesk', system-ui, sans-serif",
                           }}
                         >
                           📺 Source Video
                         </button>
                         {deleteConfirm === project.id ? (
                           <div className="flex items-center gap-1 ml-auto">
-                            <span className="text-xs text-red-400 mr-1">Delete forever?</span>
+                            <span className="text-xs mr-1" style={{ color: "#FF6B6B" }}>Delete forever?</span>
                             <button
                               onClick={() => deleteProject(project.id)}
-                              className="px-2 py-1 rounded text-xs bg-red-500/20 text-red-400 border border-red-500/30"
+                              className="px-2 py-1 rounded text-xs font-semibold"
+                              style={{
+                                background: "rgba(255,107,107,0.15)",
+                                color: "#FF6B6B",
+                                border: "1px solid rgba(255,107,107,0.3)",
+                                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                              }}
                             >
                               Yes
                             </button>
                             <button
                               onClick={() => setDeleteConfirm(null)}
-                              className="px-2 py-1 rounded text-xs bg-gray-700/30 text-gray-400 border border-gray-600/30"
+                              className="px-2 py-1 rounded text-xs font-semibold"
+                              style={{
+                                background: "rgba(255,255,255,0.04)",
+                                color: "#8B8794",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                              }}
                             >
                               No
                             </button>
@@ -382,7 +493,10 @@ export default function RepurposeHistoryPage() {
                         ) : (
                           <button
                             onClick={() => setDeleteConfirm(project.id)}
-                            className="ml-auto px-2 py-1 rounded text-xs text-gray-500 hover:text-red-400 transition-colors"
+                            className="ml-auto px-2 py-1 rounded text-xs transition"
+                            style={{ color: "#5A5762" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#FF6B6B"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = "#5A5762"; }}
                           >
                             🗑️
                           </button>
@@ -391,25 +505,57 @@ export default function RepurposeHistoryPage() {
 
                       {/* Error message */}
                       {project.error_message && (
-                        <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                          <p className="text-xs text-red-400">{project.error_message}</p>
+                        <div
+                          className="mb-3 p-3 rounded-lg"
+                          style={{
+                            background: "rgba(255,107,107,0.08)",
+                            border: "1px solid rgba(255,107,107,0.2)",
+                          }}
+                        >
+                          <p className="text-xs" style={{ color: "#FF6B6B" }}>{project.error_message}</p>
                         </div>
                       )}
 
-                      {/* Processing indicator */}
+                      {/* Processing indicator (amber — matches main page) */}
                       {project.status !== "done" && project.status !== "error" && project.status !== "draft" && (
-                        <div className="mb-3 p-3 rounded-lg" style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)" }}>
+                        <div
+                          className="mb-3 p-3 rounded-lg"
+                          style={{
+                            background: "rgba(255,169,77,0.06)",
+                            border: "1px solid rgba(255,169,77,0.20)",
+                          }}
+                        >
                           <div className="flex items-center gap-2 mb-1.5">
                             <span className="animate-spin text-sm">⏳</span>
-                            <span className="text-xs text-yellow-300">{project.progress_stage || "Processing"}...</span>
-                            <span className="text-xs text-yellow-400/70 ml-auto">{project.progress_pct}%</span>
+                            <span
+                              className="text-xs font-semibold"
+                              style={{
+                                color: AMBER,
+                                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                              }}
+                            >
+                              {project.progress_stage || "Processing"}...
+                            </span>
+                            <span
+                              className="text-xs ml-auto"
+                              style={{
+                                color: AMBER,
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {project.progress_pct}%
+                            </span>
                           </div>
-                          <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
+                          <div
+                            className="h-1 rounded-full overflow-hidden"
+                            style={{ background: "rgba(255,255,255,0.06)" }}
+                          >
                             <div
                               className="h-full rounded-full transition-all duration-500"
                               style={{
                                 width: `${project.progress_pct}%`,
-                                background: "linear-gradient(90deg, #fbbf24, #f59e0b)",
+                                background: `linear-gradient(90deg, ${CORAL}, ${AMBER})`,
                               }}
                             />
                           </div>
@@ -424,12 +570,12 @@ export default function RepurposeHistoryPage() {
                               key={clip.id}
                               className="rounded-lg overflow-hidden group"
                               style={{
-                                background: "rgba(15,12,26,0.8)",
-                                border: "1px solid rgba(74,66,96,0.25)",
+                                background: "#0F0E1A",
+                                border: "1px solid rgba(255,255,255,0.06)",
                               }}
                             >
                               {/* Video preview */}
-                              <div className="relative aspect-[9/16] bg-gray-900">
+                              <div className="relative aspect-[9/16]" style={{ background: "#000" }}>
                                 {clip.thumbnail_url ? (
                                   <img
                                     src={clip.thumbnail_url}
@@ -444,7 +590,10 @@ export default function RepurposeHistoryPage() {
                                     preload="metadata"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-gray-700 text-2xl">
+                                  <div
+                                    className="w-full h-full flex items-center justify-center text-2xl"
+                                    style={{ color: "#3A3845" }}
+                                  >
                                     🎬
                                   </div>
                                 )}
@@ -455,7 +604,11 @@ export default function RepurposeHistoryPage() {
                                     <>
                                       <button
                                         onClick={() => window.open(clip.video_url, "_blank")}
-                                        className="px-2 py-1 rounded bg-white/20 text-white text-xs backdrop-blur-sm"
+                                        className="px-2 py-1 rounded text-white text-xs backdrop-blur-sm font-semibold"
+                                        style={{
+                                          background: "rgba(255,107,90,0.8)",
+                                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                                        }}
                                       >
                                         ▶ Play
                                       </button>
@@ -464,7 +617,11 @@ export default function RepurposeHistoryPage() {
                                           clip.video_url!,
                                           `${(clip.suggested_title || `clip-${clip.index}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50)}.mp4`
                                         )}
-                                        className="px-2 py-1 rounded bg-white/20 text-white text-xs backdrop-blur-sm"
+                                        className="px-2 py-1 rounded text-white text-xs backdrop-blur-sm font-semibold"
+                                        style={{
+                                          background: "rgba(255,255,255,0.2)",
+                                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                                        }}
                                       >
                                         ⬇️
                                       </button>
@@ -474,14 +631,28 @@ export default function RepurposeHistoryPage() {
 
                                 {/* Duration badge */}
                                 {clip.duration && (
-                                  <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] font-medium">
+                                  <span
+                                    className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded text-white text-[10px] font-semibold"
+                                    style={{
+                                      background: "rgba(0,0,0,0.7)",
+                                      fontFamily: "'JetBrains Mono', monospace",
+                                    }}
+                                  >
                                     {formatDuration(clip.duration)}
                                   </span>
                                 )}
 
                                 {/* Hook score */}
                                 {clip.hook_score && (
-                                  <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 text-[9px] font-bold border border-orange-500/30">
+                                  <span
+                                    className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold"
+                                    style={{
+                                      background: "rgba(255,169,77,0.20)",
+                                      color: AMBER,
+                                      border: "1px solid rgba(255,169,77,0.4)",
+                                      fontFamily: "'JetBrains Mono', monospace",
+                                    }}
+                                  >
                                     🔥 {clip.hook_score}
                                   </span>
                                 )}
@@ -489,11 +660,23 @@ export default function RepurposeHistoryPage() {
 
                               {/* Clip info */}
                               <div className="p-2">
-                                <p className="text-[11px] text-gray-300 font-medium truncate">
+                                <p
+                                  className="text-[11px] font-semibold truncate"
+                                  style={{
+                                    color: "#F5F2ED",
+                                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                                  }}
+                                >
                                   {clip.suggested_title || clip.title || `Clip ${clip.index}`}
                                 </p>
                                 {clip.suggested_hashtags && clip.suggested_hashtags.length > 0 && (
-                                  <p className="text-[9px] text-purple-400/60 mt-0.5 truncate">
+                                  <p
+                                    className="text-[9px] mt-0.5 truncate"
+                                    style={{
+                                      color: "rgba(255,139,122,0.7)",
+                                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                                    }}
+                                  >
                                     {clip.suggested_hashtags.slice(0, 3).join(" ")}
                                   </p>
                                 )}
@@ -502,7 +685,7 @@ export default function RepurposeHistoryPage() {
                           ))}
                         </div>
                       ) : project.status === "done" ? (
-                        <p className="text-xs text-gray-500 text-center py-4">
+                        <p className="text-xs text-center py-4" style={{ color: "#5A5762" }}>
                           No clips were generated for this project.
                         </p>
                       ) : null}

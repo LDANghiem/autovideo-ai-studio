@@ -1,9 +1,35 @@
 "use client";
 
+// ============================================================
+// FILE: src/app/dashboard/thumbnails/page.tsx
+// ============================================================
+// Ripple — YouTube Thumbnail Creator (PRO feature in sidebar)
+//
+// Brand pass: pink pipeline cue in header (matches sidebar),
+// coral CTAs and focus, semantic active states. The canvas
+// drawing itself is untouched — templates and user designs
+// render exactly as designed.
+//
+// 3-pane layout: Templates (left) | Canvas (center) | Controls (right)
+// 8 templates, 1280×720 output, downloads as PNG.
+//
+// Removed dark:* classes throughout — Ripple is dark-only.
+// All canvas rendering, template definitions, image upload,
+// font selection, and download logic preserved 100%.
+// ============================================================
+
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Download, RotateCcw, Image as ImageIcon, ChevronRight } from "lucide-react";
 
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const PINK = "#F472B6";              // Thumbnails pipeline color
+const PINK_BG = "rgba(244,114,182,0.12)";
+const PINK_BORDER = "rgba(244,114,182,0.3)";
+
 // ─── Template Definitions ────────────────────────────────────────────────────
+// (Untouched — these define what the actual user thumbnail looks like)
 
 const TEMPLATES = [
   {
@@ -110,6 +136,7 @@ interface FormValues {
 }
 
 // ─── Canvas Drawing Helpers ───────────────────────────────────────────────────
+// (Untouched — pure canvas logic)
 
 function hexA(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -164,6 +191,7 @@ function drawFace(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, x
 }
 
 // ─── Template Renderers ───────────────────────────────────────────────────────
+// (Untouched — these draw the actual user thumbnail to canvas)
 
 function renderNews(ctx: CanvasRenderingContext2D, W: number, H: number, v: FormValues, imgs: Record<string, HTMLImageElement | null>, font: string) {
   drawBg(ctx, W, H, v.bgColor, imgs.img1, v.overlay);
@@ -413,7 +441,7 @@ const RENDERERS: Record<TemplateId, (ctx: CanvasRenderingContext2D, W: number, H
   reaction: renderReaction,
 };
 
-// ─── Upload Button Component ──────────────────────────────────────────────────
+// ─── Upload Button Component (Ripple-themed) ──────────────────────────────────
 
 function UploadBtn({
   id, label, onLoad,
@@ -423,6 +451,7 @@ function UploadBtn({
   onLoad: (img: HTMLImageElement, src: string) => void;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
+  const [hover, setHover] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -440,19 +469,39 @@ function UploadBtn({
 
   return (
     <div>
-      <p className="text-xs text-slate-500 mb-1.5">{label}</p>
+      <p
+        className="text-xs mb-1.5"
+        style={{ color: "#8B8794", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+      >
+        {label}
+      </p>
       {preview ? (
         <div className="relative group cursor-pointer" onClick={() => inputRef.current?.click()}>
-          <img src={preview} alt="uploaded" className="w-full h-20 object-cover rounded-lg border border-slate-200 dark:border-slate-700" />
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-medium">Change</span>
+          <img
+            src={preview}
+            alt="uploaded"
+            className="w-full h-20 object-cover rounded-lg"
+            style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+          />
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+            <span className="text-xs font-semibold" style={{ color: "#F5F2ED", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+              Change
+            </span>
           </div>
         </div>
       ) : (
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="w-full h-16 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-400 hover:border-slate-400 hover:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all flex flex-col items-center justify-center gap-1"
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+          className="w-full h-16 rounded-lg text-xs transition-all flex flex-col items-center justify-center gap-1"
+          style={{
+            border: hover ? "1px dashed rgba(255,107,90,0.4)" : "1px dashed rgba(255,255,255,0.1)",
+            background: hover ? "rgba(255,107,90,0.04)" : "transparent",
+            color: hover ? CORAL_SOFT : "#5A5762",
+            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+          }}
         >
           <ImageIcon size={16} />
           <span>Click to upload</span>
@@ -525,54 +574,147 @@ export default function ThumbnailsPage() {
     setForm({ ...TEMPLATES[activeIdx].defaults, headline: "", subline: "", bigNum: 5, overlay: 0.5 });
   };
 
+  /* Reusable styles */
+  const sectionLabelStyle: React.CSSProperties = {
+    color: "#8B8794",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "0.1em",
+  };
+
   return (
-    <div className="flex h-full bg-slate-50 dark:bg-slate-900 overflow-hidden" style={{ height: "calc(100vh - 64px)" }}>
+    <div
+      className="flex h-full overflow-hidden"
+      style={{
+        background: "#0F0E1A",
+        height: "calc(100vh - 64px)",
+      }}
+    >
 
       {/* ── Template Sidebar ── */}
-      <aside className="w-52 flex-shrink-0 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Templates</h2>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">8 styles · 1280×720</p>
+      <aside
+        className="w-52 flex-shrink-0 flex flex-col overflow-hidden"
+        style={{
+          background: "#16151F",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <h2
+            className="text-xs font-bold uppercase"
+            style={sectionLabelStyle}
+          >
+            Templates
+          </h2>
+          <p
+            className="text-xs mt-0.5"
+            style={{
+              color: "#5A5762",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            8 styles · 1280×720
+          </p>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {TEMPLATES.map((tmpl, i) => (
-            <button
-              key={tmpl.id}
-              onClick={() => selectTemplate(i)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all ${
-                i === activeIdx
-                  ? "bg-blue-50 dark:bg-blue-950/50"
-                  : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-              }`}
-            >
-              <div
-                className="w-11 h-6 rounded flex-shrink-0 flex items-center justify-center overflow-hidden"
-                style={{ background: tmpl.thumbBg }}
+          {TEMPLATES.map((tmpl, i) => {
+            const isActive = i === activeIdx;
+            return (
+              <button
+                key={tmpl.id}
+                onClick={() => selectTemplate(i)}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all"
+                style={{
+                  background: isActive ? PINK_BG : "transparent",
+                  border: isActive ? `1px solid ${PINK_BORDER}` : "1px solid transparent",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) e.currentTarget.style.background = "transparent";
+                }}
               >
-                <div className="w-3/5 h-2/3 rounded-sm opacity-80" style={{ background: tmpl.thumbAccent }} />
-              </div>
-              <span className={`text-xs font-medium leading-tight ${i === activeIdx ? "text-blue-600 dark:text-blue-400" : "text-slate-700 dark:text-slate-300"}`}>
-                {tmpl.name}
-              </span>
-              {i === activeIdx && <ChevronRight size={12} className="ml-auto text-blue-400 flex-shrink-0" />}
-            </button>
-          ))}
+                <div
+                  className="w-11 h-6 rounded flex-shrink-0 flex items-center justify-center overflow-hidden"
+                  style={{ background: tmpl.thumbBg }}
+                >
+                  <div className="w-3/5 h-2/3 rounded-sm opacity-80" style={{ background: tmpl.thumbAccent }} />
+                </div>
+                <span
+                  className="text-xs font-semibold leading-tight"
+                  style={{
+                    color: isActive ? PINK : "#C7C3C9",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {tmpl.name}
+                </span>
+                {isActive && <ChevronRight size={12} className="ml-auto flex-shrink-0" style={{ color: PINK }} />}
+              </button>
+            );
+          })}
         </div>
       </aside>
 
       {/* ── Canvas Area ── */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar */}
-        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-5 py-2.5 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t.name}</h1>
-            <p className="text-xs text-slate-400 dark:text-slate-500">{t.desc}</p>
+        {/* Top bar (with pink pipeline cue on the icon) */}
+        <div
+          className="px-5 py-2.5 flex items-center justify-between flex-shrink-0 gap-3 flex-wrap"
+          style={{
+            background: "#16151F",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{
+                background: PINK_BG,
+                border: `1px solid ${PINK_BORDER}`,
+              }}
+            >
+              <ImageIcon size={16} style={{ color: PINK }} />
+            </div>
+            <div className="min-w-0">
+              <h1
+                className="text-sm font-bold truncate"
+                style={{
+                  color: "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {t.name}
+              </h1>
+              <p className="text-xs truncate" style={{ color: "#8B8794" }}>{t.desc}</p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={resetAll} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={resetAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#C7C3C9",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            >
               <RotateCcw size={13} /> Reset
             </button>
-            <button onClick={exportPNG} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+            <button
+              onClick={exportPNG}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-lg transition-all hover:scale-[1.02]"
+              style={{
+                background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: "0 4px 14px -2px rgba(255,107,90,0.4)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               <Download size={13} /> Export PNG
             </button>
           </div>
@@ -580,14 +722,28 @@ export default function ThumbnailsPage() {
 
         {/* Canvas */}
         <div className="flex-1 flex items-center justify-center p-6 overflow-hidden">
-          <div className="relative shadow-2xl rounded" style={{ maxWidth: "min(640px, 100%)" }}>
+          <div
+            className="relative rounded"
+            style={{
+              maxWidth: "min(640px, 100%)",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
+            }}
+          >
             <canvas
               ref={canvasRef}
               width={1280}
               height={720}
               className="block w-full h-auto rounded"
             />
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full pointer-events-none">
+            <div
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs px-3 py-1 rounded-full pointer-events-none"
+              style={{
+                background: "rgba(15,14,26,0.85)",
+                color: "#C7C3C9",
+                fontFamily: "'JetBrains Mono', monospace",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
               1280 × 720
             </div>
           </div>
@@ -595,79 +751,134 @@ export default function ThumbnailsPage() {
       </main>
 
       {/* ── Controls Panel ── */}
-      <aside className="w-64 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 overflow-y-auto flex flex-col">
+      <aside
+        className="w-64 flex-shrink-0 overflow-y-auto flex flex-col"
+        style={{
+          background: "#16151F",
+          borderLeft: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
 
         {/* Text */}
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
-          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Text</h3>
+        <div className="px-4 py-3 space-y-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="text-xs font-bold uppercase" style={sectionLabelStyle}>Text</h3>
           <div>
-            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t.labels.h1}</label>
+            <label className="block text-xs mb-1" style={{ color: "#8B8794" }}>{t.labels.h1}</label>
             <textarea
               value={form.headline}
               onChange={(e) => setField("headline", e.target.value)}
               rows={2}
               placeholder="Type headline..."
-              className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full px-3 py-2 text-sm rounded-lg resize-none outline-none transition"
+              style={{
+                background: "#0F0E1A",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#F5F2ED",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "rgba(255,107,90,0.5)";
+                e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255,107,90,0.15)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
             />
           </div>
           {t.controls.sub && (
             <div>
-              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t.labels.sub}</label>
+              <label className="block text-xs mb-1" style={{ color: "#8B8794" }}>{t.labels.sub}</label>
               <input
                 type="text"
                 value={form.subline}
                 onChange={(e) => setField("subline", e.target.value)}
                 placeholder="Supporting text..."
-                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full px-3 py-2 text-sm rounded-lg outline-none transition"
+                style={{
+                  background: "#0F0E1A",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#F5F2ED",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,107,90,0.5)";
+                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255,107,90,0.15)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
               />
             </div>
           )}
           {t.controls.num && (
             <div>
-              <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Number</label>
+              <label className="block text-xs mb-1" style={{ color: "#8B8794" }}>Number</label>
               <input
                 type="number"
                 value={form.bigNum}
                 min={1}
                 max={99}
                 onChange={(e) => setField("bigNum", parseInt(e.target.value) || 5)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full px-3 py-2 text-sm rounded-lg outline-none transition"
+                style={{
+                  background: "#0F0E1A",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#F5F2ED",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,107,90,0.5)";
+                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255,107,90,0.15)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
               />
             </div>
           )}
         </div>
 
         {/* Colors */}
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
-          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Colors</h3>
+        <div className="px-4 py-3 space-y-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="text-xs font-bold uppercase" style={sectionLabelStyle}>Colors</h3>
           <div>
-            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">Accent presets</label>
+            <label className="block text-xs mb-1.5" style={{ color: "#8B8794" }}>Accent presets</label>
             <div className="flex gap-2 flex-wrap">
-              {t.presets.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setField("accentColor", c)}
-                  title={c}
-                  className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110"
-                  style={{
-                    background: c,
-                    borderColor: form.accentColor === c ? "#0f172a" : "transparent",
-                  }}
-                />
-              ))}
+              {t.presets.map((c) => {
+                const isSelected = form.accentColor === c;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setField("accentColor", c)}
+                    title={c}
+                    className="w-6 h-6 rounded-full transition-all hover:scale-110"
+                    style={{
+                      background: c,
+                      border: isSelected ? "2px solid #F5F2ED" : "2px solid transparent",
+                      boxShadow: isSelected ? `0 0 0 1px ${c}` : "none",
+                    }}
+                  />
+                );
+              })}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             {(["accentColor", "textColor", "bgColor", "barColor"] as const).map((key) => (
               <div key={key}>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1 capitalize">
+                <label className="block text-xs mb-1 capitalize" style={{ color: "#8B8794" }}>
                   {key === "accentColor" ? "Accent" : key === "textColor" ? "Text" : key === "bgColor" ? "Background" : "Bar / Highlight"}
                 </label>
                 <input
                   type="color"
                   value={form[key] as string}
                   onChange={(e) => setField(key, e.target.value)}
-                  className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-600 cursor-pointer p-0.5"
+                  className="w-full h-8 rounded-lg cursor-pointer p-0.5"
+                  style={{
+                    background: "#0F0E1A",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                  }}
                 />
               </div>
             ))}
@@ -675,8 +886,8 @@ export default function ThumbnailsPage() {
         </div>
 
         {/* Photos */}
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-3">
-          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Photos</h3>
+        <div className="px-4 py-3 space-y-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="text-xs font-bold uppercase" style={sectionLabelStyle}>Photos</h3>
           <UploadBtn
             id="img1"
             label={t.labels.img1}
@@ -692,35 +903,49 @@ export default function ThumbnailsPage() {
         </div>
 
         {/* Font */}
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 space-y-2">
-          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Font style</h3>
+        <div className="px-4 py-3 space-y-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="text-xs font-bold uppercase" style={sectionLabelStyle}>Font style</h3>
           <div className="flex gap-1.5">
             {[
               { label: "Impact", value: "Impact, Arial Black, sans-serif" },
               { label: "Bold", value: "Arial Black, sans-serif" },
               { label: "Serif", value: 'Georgia, "Times New Roman", serif' },
-            ].map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setFontFamily(f.value)}
-                className={`flex-1 py-1.5 text-xs rounded-lg border transition-all ${
-                  fontFamily === f.value
-                    ? "bg-blue-50 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400"
-                    : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+            ].map((f) => {
+              const active = fontFamily === f.value;
+              return (
+                <button
+                  key={f.value}
+                  onClick={() => setFontFamily(f.value)}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all"
+                  style={{
+                    background: active ? "rgba(255,107,90,0.12)" : "rgba(255,255,255,0.03)",
+                    border: active ? "1px solid rgba(255,107,90,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                    color: active ? CORAL_SOFT : "#8B8794",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Overlay */}
         <div className="px-4 py-3 space-y-2">
-          <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Overlay</h3>
+          <h3 className="text-xs font-bold uppercase" style={sectionLabelStyle}>Overlay</h3>
           <div>
-            <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">
-              Darkness: {Math.round(form.overlay * 100)}%
+            <label className="block text-xs mb-1.5" style={{ color: "#8B8794" }}>
+              Darkness:{" "}
+              <span
+                style={{
+                  color: CORAL_SOFT,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {Math.round(form.overlay * 100)}%
+              </span>
             </label>
             <input
               type="range"
@@ -729,6 +954,7 @@ export default function ThumbnailsPage() {
               value={Math.round(form.overlay * 100)}
               onChange={(e) => setField("overlay", parseInt(e.target.value) / 100)}
               className="w-full"
+              style={{ accentColor: CORAL }}
             />
           </div>
         </div>

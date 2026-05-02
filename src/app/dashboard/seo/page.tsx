@@ -1,21 +1,38 @@
-// src/app/dashboard/seo/page.tsx
-"use client";
+// ============================================================
+// FILE: src/app/dashboard/seo/page.tsx
+// ============================================================
+// Ripple — YouTube SEO Generator (PRO ONLY)
+//
+// Brand pass: green pipeline cue in header (matches sidebar),
+// coral CTAs throughout, semantic CTR score badges, all dark-only.
+//
+// Three states preserved:
+//   - userTier === "loading" → minimal loading state
+//   - userTier === "free" → upgrade prompt with feature preview
+//   - Pro user → full generator with all 5 result sections
+//
+// All logic preserved: AI generation via /api/projects/generate-seo,
+// copy-to-clipboard for individual items + copy-all, score-based
+// title ranking, keyword analysis grid.
+//
+// Note: changed "Stripe coming soon" alert to actual link to
+// /dashboard/billing since Stripe is already shipped.
+// ============================================================
 
-/* ============================================================
-   AutoVideo AI Studio — YouTube SEO Generator (PRO ONLY)
-   
-   ✅ 5 title variations ranked by CTR score
-   ✅ Full description with timestamps placeholder
-   ✅ 30 relevant tags (click to copy)
-   ✅ 5 hashtags
-   ✅ Keyword analysis
-   🔒 Gated: Free/Creator users see upgrade prompt
-============================================================ */
+"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserTier } from "@/lib/useUserTier";
+
+/* ── Ripple palette ─────────────────────────────────────────── */
+const CORAL = "#FF6B5A";
+const CORAL_SOFT = "#FF8B7A";
+const AMBER = "#FFA94D";
+const GREEN = "#5DD39E";              // SEO pipeline color
+const GREEN_BG = "rgba(93,211,158,0.12)";
+const GREEN_BORDER = "rgba(93,211,158,0.3)";
 
 type SeoTitle = { text: string; score: number; strategy: string };
 type KeywordAnalysis = {
@@ -33,6 +50,37 @@ type SeoData = {
   keywordAnalysis: KeywordAnalysis;
 };
 
+/* ── Helper: CTR score → semantic color ──────────────────────── */
+function ctrColor(score: number): string {
+  if (score >= 90) return GREEN;       // 90+ = excellent
+  if (score >= 80) return AMBER;       // 80-89 = good
+  return "#8B8794";                    // <80 = muted
+}
+
+function ctrBg(score: number): string {
+  if (score >= 90) return "rgba(93,211,158,0.12)";
+  if (score >= 80) return "rgba(255,169,77,0.12)";
+  return "rgba(139,135,148,0.10)";
+}
+
+function ctrBorder(score: number): string {
+  if (score >= 90) return "rgba(93,211,158,0.3)";
+  if (score >= 80) return "rgba(255,169,77,0.3)";
+  return "rgba(139,135,148,0.25)";
+}
+
+/* ── Helper: difficulty → semantic color ──────────────────────── */
+function difficultyColor(diff: string): { color: string; bg: string; border: string } {
+  const d = diff.toLowerCase();
+  if (d.includes("low") || d.includes("easy")) {
+    return { color: GREEN, bg: "rgba(93,211,158,0.10)", border: "rgba(93,211,158,0.3)" };
+  }
+  if (d.includes("high") || d.includes("hard")) {
+    return { color: "#FF6B6B", bg: "rgba(255,107,107,0.10)", border: "rgba(255,107,107,0.3)" };
+  }
+  return { color: AMBER, bg: "rgba(255,169,77,0.10)", border: "rgba(255,169,77,0.3)" };
+}
+
 export default function SeoGeneratorPage() {
   const router = useRouter();
   const userTier = useUserTier();
@@ -42,6 +90,7 @@ export default function SeoGeneratorPage() {
   const [error, setError] = useState<string | null>(null);
   const [seo, setSeo] = useState<SeoData | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [topicFocused, setTopicFocused] = useState(false);
 
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text);
@@ -84,47 +133,144 @@ export default function SeoGeneratorPage() {
     }
   }
 
+  /* Reusable styles */
+  const sectionLabelStyle: React.CSSProperties = {
+    color: "#8B8794",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "0.05em",
+  };
+
+  const cardStyle: React.CSSProperties = {
+    background: "#16151F",
+    border: "1px solid rgba(255,255,255,0.06)",
+  };
+
+  const headingStyle: React.CSSProperties = {
+    color: "#F5F2ED",
+    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+    letterSpacing: "-0.01em",
+  };
+
   /* ── Loading ──────────────────────────────────────────── */
   if (userTier === "loading") {
-    return <div className="max-w-4xl mx-auto p-6 text-sm text-gray-400">Loading...</div>;
+    return (
+      <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
+        <div className="max-w-4xl mx-auto p-6">
+          <div className="flex items-center gap-2" style={{ color: "#8B8794" }}>
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>Loading...</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   /* ── Free user: Upgrade prompt ──────────────────────── */
   if (userTier === "free") {
     return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">SEO Generator</h1>
-            <p className="text-sm text-gray-500 mt-1">Generate optimized YouTube titles, descriptions, tags & hashtags</p>
+      <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
+        <div className="max-w-4xl mx-auto p-6">
+
+          {/* Header (green pipeline cue) */}
+          <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
+            <div className="flex items-center gap-4">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: GREEN_BG, border: `1px solid ${GREEN_BORDER}` }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold" style={headingStyle}>SEO Generator</h1>
+                <p className="text-sm mt-0.5" style={{ color: "#8B8794" }}>
+                  AI-optimized YouTube titles, descriptions, tags &amp; hashtags
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#F5F2ED",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            >
+              ← Back
+            </button>
           </div>
-          <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2 text-sm">Back</button>
-        </div>
 
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
-          <div className="text-4xl mb-4">🔒</div>
-          <h2 className="text-xl font-bold mb-2">Pro Feature</h2>
-          <p className="text-gray-600 mb-4 max-w-md mx-auto">
-            The SEO Generator is a Pro feature. Get AI-optimized titles ranked by CTR potential,
-            full descriptions, 30 tags, and trending hashtags for every video.
-          </p>
-          <button
-            className="bg-black text-white rounded-lg px-6 py-3 font-semibold hover:bg-gray-800"
-            onClick={() => alert("Stripe payment integration coming soon!")}
+          {/* Pro Lock card */}
+          <div
+            className="rounded-2xl p-10 text-center"
+            style={{
+              background: "#16151F",
+              border: `2px dashed ${GREEN_BORDER}`,
+            }}
           >
-            Upgrade to Pro
-          </button>
-        </div>
+            <div
+              className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
+              style={{ background: GREEN_BG, border: `1px solid ${GREEN_BORDER}` }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold mb-2" style={headingStyle}>Pro Feature</h2>
+            <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: "#8B8794" }}>
+              The SEO Generator is a Pro feature. Get AI-optimized titles ranked by CTR potential,
+              full descriptions, 30 tags, and trending hashtags for every video.
+            </p>
+            <button
+              onClick={() => router.push("/dashboard/billing")}
+              className="px-6 py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.02]"
+              style={{
+                background: `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: "0 8px 30px -8px rgba(255,107,90,0.5)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
+              Upgrade to Pro
+            </button>
+          </div>
 
-        <div className="mt-8 border rounded-xl p-5 bg-gray-50">
-          <h3 className="font-semibold mb-3">What Pro SEO Generator Includes:</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>5 title variations ranked by CTR score</span></div>
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>Full 2000+ character description</span></div>
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>30 optimized tags (broad + long-tail)</span></div>
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>5 trending hashtags</span></div>
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>Keyword difficulty analysis</span></div>
-            <div className="flex items-start gap-2"><span className="text-green-500 mt-0.5">✓</span><span>One-click copy all to YouTube Studio</span></div>
+          {/* What Pro Includes */}
+          <div className="mt-8 rounded-2xl p-6" style={cardStyle}>
+            <h3
+              className="font-bold mb-4"
+              style={{
+                color: GREEN,
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              What Pro SEO Generator Includes
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {[
+                "5 title variations ranked by CTR score",
+                "Full 2000+ character description",
+                "30 optimized tags (broad + long-tail)",
+                "5 trending hashtags",
+                "Keyword difficulty analysis",
+                "One-click copy all to YouTube Studio",
+              ].map((feat, i) => (
+                <div key={i} className="flex items-start gap-2" style={{ color: "#C7C3C9" }}>
+                  <span className="mt-0.5 flex-shrink-0" style={{ color: GREEN }}>✓</span>
+                  <span style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>{feat}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -133,221 +279,501 @@ export default function SeoGeneratorPage() {
 
   /* ── Pro user: Full SEO Generator ───────────────────── */
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">SEO Generator</h1>
-          <p className="text-sm text-gray-500 mt-1">Generate optimized YouTube titles, descriptions, tags & hashtags</p>
-        </div>
-        <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2 text-sm">Back</button>
-      </div>
+    <div className="min-h-screen" style={{ background: "#0F0E1A" }}>
+      <div className="max-w-4xl mx-auto p-6">
 
-      {/* Input */}
-      <div className="border rounded-xl p-5 bg-white mb-6">
-        <label className="font-medium block mb-2">Video Topic</label>
-        <input
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          className="w-full border rounded px-3 py-2.5 mb-3"
-          placeholder="e.g. 5 Morning Habits All Billionaires Do"
-          onKeyDown={(e) => e.key === "Enter" && generateSeo()}
-        />
-        <div className="flex items-center gap-3">
+        {/* Header (green pipeline cue) */}
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: GREEN_BG, border: `1px solid ${GREEN_BORDER}` }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold" style={headingStyle}>SEO Generator</h1>
+              <p className="text-sm mt-0.5" style={{ color: "#8B8794" }}>
+                AI-optimized YouTube titles, descriptions, tags &amp; hashtags
+              </p>
+            </div>
+          </div>
           <button
-            onClick={generateSeo}
-            disabled={busy}
-            className="bg-black text-white rounded px-5 py-2.5 font-semibold disabled:opacity-50"
+            onClick={() => router.push("/dashboard")}
+            className="px-4 py-2 rounded-lg text-sm font-semibold transition"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "#F5F2ED",
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
           >
-            {busy ? "Analyzing & Generating..." : seo ? "Regenerate SEO" : "Generate SEO"}
+            ← Back
           </button>
-          {seo && (
-            <button onClick={copyAll} className="border-2 border-gray-300 rounded px-4 py-2 font-medium hover:border-gray-400 text-sm">
-              {copied === "all" ? "Copied All ✅" : "Copy All to Clipboard"}
+        </div>
+
+        {/* Input card */}
+        <div className="rounded-2xl p-6 mb-6" style={cardStyle}>
+          <label
+            className="block text-xs font-semibold uppercase tracking-wider mb-2"
+            style={sectionLabelStyle}
+          >
+            Video Topic
+          </label>
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            onFocus={() => setTopicFocused(true)}
+            onBlur={() => setTopicFocused(false)}
+            className="w-full px-4 py-3 rounded-xl text-sm outline-none transition mb-4"
+            placeholder="e.g. 5 Morning Habits All Billionaires Do"
+            onKeyDown={(e) => e.key === "Enter" && generateSeo()}
+            style={{
+              background: "#0F0E1A",
+              border: topicFocused
+                ? "1px solid rgba(255,107,90,0.5)"
+                : "1px solid rgba(255,255,255,0.1)",
+              color: "#F5F2ED",
+              boxShadow: topicFocused ? "0 0 0 3px rgba(255,107,90,0.15)" : "none",
+            }}
+          />
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={generateSeo}
+              disabled={busy || !topic.trim()}
+              className="px-6 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                background: busy || !topic.trim()
+                  ? "rgba(255,107,90,0.3)"
+                  : `linear-gradient(135deg, ${CORAL} 0%, ${CORAL_SOFT} 100%)`,
+                color: "#0F0E1A",
+                boxShadow: busy || !topic.trim() ? "none" : "0 4px 14px -2px rgba(255,107,90,0.4)",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
+              {busy ? "Analyzing & Generating..." : seo ? "Regenerate SEO" : "Generate SEO"}
             </button>
+            {seo && (
+              <button
+                onClick={copyAll}
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold transition"
+                style={{
+                  background: copied === "all" ? "rgba(93,211,158,0.10)" : "rgba(255,255,255,0.04)",
+                  border: copied === "all" ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                  color: copied === "all" ? GREEN : "#F5F2ED",
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                }}
+              >
+                {copied === "all" ? "Copied All ✓" : "Copy All to Clipboard"}
+              </button>
+            )}
+          </div>
+
+          {error && (
+            <div
+              className="mt-3 p-3 rounded-lg text-sm"
+              style={{
+                background: "rgba(255,107,107,0.10)",
+                border: "1px solid rgba(255,107,107,0.3)",
+                color: "#FF6B6B",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {busy && (
+            <div
+              className="flex items-center gap-2 text-sm mt-3"
+              style={{ color: CORAL_SOFT, fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+            >
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Analyzing keywords &amp; generating optimized metadata...
+            </div>
           )}
         </div>
-        {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
-        {busy && (
-          <div className="flex items-center gap-2 text-sm text-blue-600 mt-2">
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Analyzing keywords & generating optimized metadata...
+
+        {/* Results */}
+        {seo && (
+          <div className="space-y-5">
+
+            {/* ── Titles (ranked by CTR) ──────────────────── */}
+            <div className="rounded-2xl p-6" style={cardStyle}>
+              <h3 className="font-bold mb-4" style={headingStyle}>
+                Title Variations <span style={{ color: "#8B8794", fontWeight: 400 }}>(ranked by CTR)</span>
+              </h3>
+              <div className="space-y-2">
+                {seo.titles.map((t, i) => {
+                  const isTop = i === 0;
+                  const isCopied = copied === "title-" + i;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: isTop ? "rgba(93,211,158,0.06)" : "rgba(255,255,255,0.02)",
+                        border: isTop ? `1px solid ${GREEN_BORDER}` : "1px solid rgba(255,255,255,0.06)",
+                      }}
+                      onClick={() => copy(t.text, "title-" + i)}
+                      onMouseEnter={(e) => {
+                        if (!isTop) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isTop) e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                      }}
+                    >
+                      {/* Score badge */}
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                          style={{
+                            background: ctrBg(t.score),
+                            color: ctrColor(t.score),
+                            border: `1px solid ${ctrBorder(t.score)}`,
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {t.score}
+                        </div>
+                      </div>
+
+                      {/* Title content */}
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="font-semibold"
+                          style={{
+                            color: "#F5F2ED",
+                            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                          }}
+                        >
+                          {t.text}
+                        </div>
+                        <div className="text-xs mt-0.5" style={{ color: "#8B8794" }}>
+                          {t.strategy}
+                        </div>
+                        <div
+                          className="text-[10px] mt-1"
+                          style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}
+                        >
+                          {t.text.length} chars
+                        </div>
+                      </div>
+
+                      {/* Copy indicator */}
+                      <div
+                        className="flex-shrink-0 text-xs"
+                        style={{
+                          color: isCopied ? GREEN : "#5A5762",
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                      >
+                        {isCopied ? "Copied ✓" : "Click to copy"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── Description ───────────────────────────────── */}
+            <div className="rounded-2xl p-6" style={cardStyle}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h3 className="font-bold" style={headingStyle}>Description</h3>
+                <button
+                  onClick={() => copy(seo.description, "desc")}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                  style={{
+                    background: copied === "desc" ? "rgba(93,211,158,0.10)" : "rgba(255,255,255,0.04)",
+                    border: copied === "desc" ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                    color: copied === "desc" ? GREEN : "#C7C3C9",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {copied === "desc" ? "Copied ✓" : "Copy Description"}
+                </button>
+              </div>
+              <div
+                className="text-sm leading-relaxed whitespace-pre-wrap rounded-lg p-4 max-h-[400px] overflow-y-auto"
+                style={{
+                  background: "#0F0E1A",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  color: "#C7C3C9",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                {seo.description}
+              </div>
+              <div
+                className="text-[10px] mt-2"
+                style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                {seo.description.length} characters
+              </div>
+            </div>
+
+            {/* ── Tags ──────────────────────────────────────── */}
+            <div className="rounded-2xl p-6" style={cardStyle}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h3 className="font-bold" style={headingStyle}>
+                  Tags{" "}
+                  <span style={{ color: "#8B8794", fontFamily: "'JetBrains Mono', monospace", fontWeight: 400 }}>
+                    ({seo.tags.length})
+                  </span>
+                </h3>
+                <button
+                  onClick={() => copy(seo.tags.join(", "), "tags")}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                  style={{
+                    background: copied === "tags" ? "rgba(93,211,158,0.10)" : "rgba(255,255,255,0.04)",
+                    border: copied === "tags" ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                    color: copied === "tags" ? GREEN : "#C7C3C9",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {copied === "tags" ? "Copied ✓" : "Copy All Tags"}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {seo.tags.map((tag, i) => {
+                  const isCopied = copied === "tag-" + i;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => copy(tag, "tag-" + i)}
+                      className="px-2.5 py-1 rounded-full text-xs transition"
+                      style={{
+                        background: isCopied ? "rgba(93,211,158,0.10)" : "rgba(255,107,90,0.08)",
+                        border: isCopied ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,107,90,0.2)",
+                        color: isCopied ? GREEN : CORAL_SOFT,
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+              <div
+                className="text-[10px] mt-2"
+                style={{ color: "#5A5762", fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                Total: {seo.tags.join(", ").length} chars (YouTube max: 500)
+              </div>
+            </div>
+
+            {/* ── Hashtags ──────────────────────────────────── */}
+            <div className="rounded-2xl p-6" style={cardStyle}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h3 className="font-bold" style={headingStyle}>Hashtags</h3>
+                <button
+                  onClick={() => copy(seo.hashtags.join(" "), "hashtags")}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                  style={{
+                    background: copied === "hashtags" ? "rgba(93,211,158,0.10)" : "rgba(255,255,255,0.04)",
+                    border: copied === "hashtags" ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                    color: copied === "hashtags" ? GREEN : "#C7C3C9",
+                    fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  }}
+                >
+                  {copied === "hashtags" ? "Copied ✓" : "Copy Hashtags"}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {seo.hashtags.map((h, i) => {
+                  const isCopied = copied === "ht-" + i;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => copy(h, "ht-" + i)}
+                      className="px-3 py-1.5 rounded-lg text-sm font-semibold transition"
+                      style={{
+                        background: isCopied ? "rgba(93,211,158,0.10)" : "rgba(255,107,90,0.10)",
+                        border: isCopied ? "1px solid rgba(93,211,158,0.3)" : "1px solid rgba(255,107,90,0.25)",
+                        color: isCopied ? GREEN : CORAL_SOFT,
+                        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      }}
+                    >
+                      {h}
+                    </button>
+                  );
+                })}
+              </div>
+              <div
+                className="text-[10px] mt-2"
+                style={{ color: "#5A5762", fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+              >
+                YouTube shows first 3 hashtags above your video title
+              </div>
+            </div>
+
+            {/* ── Keyword Analysis ──────────────────────────── */}
+            {seo.keywordAnalysis && (() => {
+              const diffStyle = difficultyColor(seo.keywordAnalysis.difficulty);
+              return (
+                <div className="rounded-2xl p-6" style={cardStyle}>
+                  <h3 className="font-bold mb-4" style={headingStyle}>Keyword Analysis</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    {/* Primary Keyword */}
+                    <div>
+                      <div
+                        className="text-xs mb-1 uppercase tracking-wider font-semibold"
+                        style={sectionLabelStyle}
+                      >
+                        Primary Keyword
+                      </div>
+                      <div
+                        className="text-lg font-semibold"
+                        style={{ color: GREEN, fontFamily: "'Space Grotesk', system-ui, sans-serif" }}
+                      >
+                        {seo.keywordAnalysis.primary}
+                      </div>
+                    </div>
+
+                    {/* Difficulty */}
+                    <div>
+                      <div
+                        className="text-xs mb-1 uppercase tracking-wider font-semibold"
+                        style={sectionLabelStyle}
+                      >
+                        Difficulty
+                      </div>
+                      <span
+                        className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold"
+                        style={{
+                          background: diffStyle.bg,
+                          color: diffStyle.color,
+                          border: `1px solid ${diffStyle.border}`,
+                          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                        }}
+                      >
+                        {seo.keywordAnalysis.difficulty}
+                      </span>
+                    </div>
+
+                    {/* Search Volume */}
+                    <div>
+                      <div
+                        className="text-xs mb-1 uppercase tracking-wider font-semibold"
+                        style={sectionLabelStyle}
+                      >
+                        Est. Search Volume
+                      </div>
+                      <div
+                        className="font-semibold"
+                        style={{
+                          color: "#F5F2ED",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {seo.keywordAnalysis.searchVolume}
+                      </div>
+                    </div>
+
+                    {/* Secondary Keywords */}
+                    <div>
+                      <div
+                        className="text-xs mb-1 uppercase tracking-wider font-semibold"
+                        style={sectionLabelStyle}
+                      >
+                        Secondary Keywords
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {seo.keywordAnalysis.secondary.map((k, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 rounded text-xs"
+                            style={{
+                              background: "rgba(255,255,255,0.04)",
+                              color: "#C7C3C9",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                            }}
+                          >
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Long-Tail Keywords (full width) */}
+                    <div className="sm:col-span-2">
+                      <div
+                        className="text-xs mb-1 uppercase tracking-wider font-semibold"
+                        style={sectionLabelStyle}
+                      >
+                        Long-Tail Keywords
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {seo.keywordAnalysis.longTail.map((k, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 rounded text-xs"
+                            style={{
+                              background: "rgba(255,107,90,0.08)",
+                              color: CORAL_SOFT,
+                              border: "1px solid rgba(255,107,90,0.20)",
+                              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                            }}
+                          >
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Tips when no results */}
+        {!seo && !busy && (
+          <div className="rounded-2xl p-6" style={cardStyle}>
+            <h3
+              className="font-bold mb-3 flex items-center gap-2"
+              style={{
+                color: GREEN,
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              <span>🎯</span> How It Works
+            </h3>
+            <div className="text-sm space-y-1.5" style={{ color: "#C7C3C9" }}>
+              <p style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                <span style={{ color: GREEN, fontFamily: "'JetBrains Mono', monospace" }}>1.</span>{" "}
+                Enter your video topic — AI analyzes keywords and competition
+              </p>
+              <p style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                <span style={{ color: GREEN, fontFamily: "'JetBrains Mono', monospace" }}>2.</span>{" "}
+                Get 5 title options ranked by click-through potential (CTR score)
+              </p>
+              <p style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                <span style={{ color: GREEN, fontFamily: "'JetBrains Mono', monospace" }}>3.</span>{" "}
+                Full description optimized for YouTube search with timestamps template
+              </p>
+              <p style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                <span style={{ color: GREEN, fontFamily: "'JetBrains Mono', monospace" }}>4.</span>{" "}
+                30 tags mixing broad, specific, and long-tail keywords
+              </p>
+              <p style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+                <span style={{ color: GREEN, fontFamily: "'JetBrains Mono', monospace" }}>5.</span>{" "}
+                Copy everything to YouTube Studio with one click
+              </p>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Results */}
-      {seo && (
-        <div className="space-y-5">
-
-          {/* ── Titles ────────────────────────────────────── */}
-          <div className="border rounded-xl p-5 bg-white">
-            <h3 className="font-semibold mb-3">Title Variations (ranked by CTR)</h3>
-            <div className="space-y-2">
-              {seo.titles.map((t, i) => (
-                <div
-                  key={i}
-                  className={"flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50 transition-colors " + (i === 0 ? "border-green-300 bg-green-50/50" : "border-gray-200")}
-                  onClick={() => copy(t.text, "title-" + i)}
-                >
-                  <div className="flex-shrink-0 mt-0.5">
-                    <div className={
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold " +
-                      (t.score >= 90 ? "bg-green-100 text-green-700" :
-                       t.score >= 80 ? "bg-yellow-100 text-yellow-700" :
-                       "bg-gray-100 text-gray-600")
-                    }>
-                      {t.score}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium">{t.text}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{t.strategy}</div>
-                    <div className="text-[10px] text-gray-400 mt-1">{t.text.length} chars</div>
-                  </div>
-                  <div className="flex-shrink-0 text-xs text-gray-400">
-                    {copied === "title-" + i ? "Copied ✅" : "Click to copy"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Description ───────────────────────────────── */}
-          <div className="border rounded-xl p-5 bg-white">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Description</h3>
-              <button
-                onClick={() => copy(seo.description, "desc")}
-                className="border rounded px-3 py-1 text-xs font-medium hover:bg-gray-50"
-              >
-                {copied === "desc" ? "Copied ✅" : "Copy Description"}
-              </button>
-            </div>
-            <div
-              className="text-sm leading-relaxed whitespace-pre-wrap bg-gray-50 border rounded-lg p-4 max-h-[400px] overflow-y-auto"
-              style={{ fontFamily: "monospace, 'Courier New'" }}
-            >
-              {seo.description}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-2">{seo.description.length} characters</div>
-          </div>
-
-          {/* ── Tags ──────────────────────────────────────── */}
-          <div className="border rounded-xl p-5 bg-white">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Tags ({seo.tags.length})</h3>
-              <button
-                onClick={() => copy(seo.tags.join(", "), "tags")}
-                className="border rounded px-3 py-1 text-xs font-medium hover:bg-gray-50"
-              >
-                {copied === "tags" ? "Copied ✅" : "Copy All Tags"}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {seo.tags.map((tag, i) => (
-                <button
-                  key={i}
-                  onClick={() => copy(tag, "tag-" + i)}
-                  className={"px-2.5 py-1 rounded-full text-xs border transition-colors " + (copied === "tag-" + i ? "bg-green-50 border-green-300 text-green-700" : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100")}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-2">
-              Total: {seo.tags.join(", ").length} chars (YouTube max: 500)
-            </div>
-          </div>
-
-          {/* ── Hashtags ──────────────────────────────────── */}
-          <div className="border rounded-xl p-5 bg-white">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Hashtags</h3>
-              <button
-                onClick={() => copy(seo.hashtags.join(" "), "hashtags")}
-                className="border rounded px-3 py-1 text-xs font-medium hover:bg-gray-50"
-              >
-                {copied === "hashtags" ? "Copied ✅" : "Copy Hashtags"}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {seo.hashtags.map((h, i) => (
-                <button
-                  key={i}
-                  onClick={() => copy(h, "ht-" + i)}
-                  className={"px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors " + (copied === "ht-" + i ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-blue-50/50 border-blue-200 text-blue-700 hover:bg-blue-100")}
-                >
-                  {h}
-                </button>
-              ))}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-2">YouTube shows first 3 hashtags above your video title</div>
-          </div>
-
-          {/* ── Keyword Analysis ──────────────────────────── */}
-          {seo.keywordAnalysis && (
-            <div className="border rounded-xl p-5 bg-white">
-              <h3 className="font-semibold mb-3">Keyword Analysis</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-500 text-xs mb-1">Primary Keyword</div>
-                  <div className="font-medium text-lg">{seo.keywordAnalysis.primary}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500 text-xs mb-1">Difficulty</div>
-                  <div className="font-medium">
-                    <span className={
-                      "inline-block px-2 py-0.5 rounded-full text-xs font-semibold " +
-                      (seo.keywordAnalysis.difficulty.toLowerCase().includes("low") ? "bg-green-100 text-green-700" :
-                       seo.keywordAnalysis.difficulty.toLowerCase().includes("high") ? "bg-red-100 text-red-700" :
-                       "bg-yellow-100 text-yellow-700")
-                    }>
-                      {seo.keywordAnalysis.difficulty}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500 text-xs mb-1">Est. Search Volume</div>
-                  <div className="font-medium">{seo.keywordAnalysis.searchVolume}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500 text-xs mb-1">Secondary Keywords</div>
-                  <div className="flex flex-wrap gap-1">
-                    {seo.keywordAnalysis.secondary.map((k, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-gray-100 rounded text-xs">{k}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="sm:col-span-2">
-                  <div className="text-gray-500 text-xs mb-1">Long-Tail Keywords</div>
-                  <div className="flex flex-wrap gap-1">
-                    {seo.keywordAnalysis.longTail.map((k, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-purple-50 border border-purple-200 rounded text-xs text-purple-700">{k}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tips when no results */}
-      {!seo && !busy && (
-        <div className="border rounded-xl p-5 bg-gray-50">
-          <h3 className="font-semibold mb-2">How It Works</h3>
-          <div className="text-sm text-gray-600 space-y-1">
-            <p>1. Enter your video topic — AI analyzes keywords and competition</p>
-            <p>2. Get 5 title options ranked by click-through potential (CTR score)</p>
-            <p>3. Full description optimized for YouTube search with timestamps template</p>
-            <p>4. 30 tags mixing broad, specific, and long-tail keywords</p>
-            <p>5. Copy everything to YouTube Studio with one click</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

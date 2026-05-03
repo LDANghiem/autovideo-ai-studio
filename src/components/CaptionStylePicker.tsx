@@ -3,7 +3,6 @@
 // Shared caption style + position picker used by:
 //   - AI Shorts  (shorts/page.tsx)
 //   - Dub Video  (dub-video/new/page.tsx)
-//   - ReCreate   (recreate/page.tsx)
 //   - Create Video (create/page.tsx)
 // ============================================================
 
@@ -30,7 +29,7 @@ interface Props {
   disabled?: boolean;
   /** Hide position picker for vertical (9:16) pipelines like AI Shorts */
   hidePosition?: boolean;
-  /** Color theme: purple (shorts), blue (dub), cyan (recreate) */
+  /** Color theme — Ripple coral by default */
   accent?: string;
 }
 
@@ -108,7 +107,7 @@ const POSITIONS: { id: CaptionPosition; label: string; icon: string }[] = [
 ];
 
 export default function CaptionStylePicker({
-  value, onChange, disabled = false, hidePosition = false, accent = "#a78bfa",
+  value, onChange, disabled = false, hidePosition = false, accent = "#FF6B5A",
 }: Props) {
   const accentRgb = accent;
 

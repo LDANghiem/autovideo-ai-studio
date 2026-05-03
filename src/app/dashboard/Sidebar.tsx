@@ -1,12 +1,16 @@
 // ============================================================
 // FILE: src/app/dashboard/Sidebar.tsx
 // ============================================================
-// Ripple — Dashboard Sidebar
-// Brand pass: Ripple logo + wordmark, coral/amber pipeline colors,
-// reduced badge noise, all routes and gating logic preserved.
+// Ripple — Dashboard Sidebar (post-demolition)
 //
-// SECTIONS:
-//   CREATE:    Create Video, ReCreate, Channel Cloner, Bulk Factory, Article
+// Removed: Channel Cloner, ReCreate, Article → Video, Bulk Factory
+// Reason: Off-strategy for Ripple's "Reach Multiplier" positioning.
+// These features attract slop-risk customers (per YouTube's 2026
+// Inauthentic Content Policy) and don't serve Type 1 creators
+// who already have expertise to share.
+//
+// REMAINING SECTIONS:
+//   CREATE:    Create Video, Dub Video (HERO)
 //   REPURPOSE: AI Shorts
 //   OPTIMIZE:  Thumbnails, SEO Generator
 //   MANAGE:    My Projects, Library, Settings
@@ -42,36 +46,6 @@ function IconCreate() {
   );
 }
 
-function IconReCreate() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-    </svg>
-  );
-}
-
-function IconBulk() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="4" rx="1" />
-      <rect x="2" y="10" width="20" height="4" rx="1" />
-      <rect x="2" y="17" width="20" height="4" rx="1" />
-    </svg>
-  );
-}
-
-function IconChannelCloner() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 12a10 10 0 1 0 20 0 10 10 0 1 0-20 0z" />
-      <path d="M10 8l6 4-6 4V8z" fill="currentColor" />
-    </svg>
-  );
-}
-
 function IconDub() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -79,18 +53,6 @@ function IconDub() {
       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <line x1="12" y1="19" x2="12" y2="23" />
       <line x1="8" y1="23" x2="16" y2="23" />
-    </svg>
-  );
-}
-
-function IconArticle() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-      <polyline points="10 9 9 9 8 9"/>
     </svg>
   );
 }
@@ -177,51 +139,7 @@ const THEMES: Record<string, {
     badgeBorder: "rgba(255,107,90,0.35)",
     badgeColor: "#FF8B7A",
   },
-  // ReCreate — cyan (preserved)
-  "/dashboard/recreate": {
-    gradient: "linear-gradient(135deg, rgba(93,211,224,0.10) 0%, rgba(93,211,224,0.04) 100%)",
-    glow: "0 0 14px rgba(93,211,224,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(93,211,224,0.18) 0%, rgba(93,211,224,0.10) 100%)",
-    iconColor: "#5DD3E0",
-    badgeText: "",
-    badgeBg: "transparent",
-    badgeBorder: "transparent",
-    badgeColor: "#5DD3E0",
-  },
-  // Channel Cloner — magenta (the actual newest, keeps NEW)
-  "/dashboard/channel-cloner": {
-    gradient: "linear-gradient(135deg, rgba(232,121,166,0.10) 0%, rgba(232,121,166,0.04) 100%)",
-    glow: "0 0 14px rgba(232,121,166,0.18)",
-    hoverBg: "linear-gradient(135deg, rgba(232,121,166,0.20) 0%, rgba(232,121,166,0.10) 100%)",
-    iconColor: "#E879A6",
-    badgeText: "NEW",
-    badgeBg: "rgba(232,121,166,0.15)",
-    badgeBorder: "rgba(232,121,166,0.35)",
-    badgeColor: "#E879A6",
-  },
-  // Bulk Factory — slate (no badge)
-  "/dashboard/bulk": {
-    gradient: "linear-gradient(135deg, rgba(123,122,142,0.08) 0%, rgba(123,122,142,0.03) 100%)",
-    glow: "0 0 12px rgba(123,122,142,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(123,122,142,0.16) 0%, rgba(123,122,142,0.08) 100%)",
-    iconColor: "#A4A3B5",
-    badgeText: "",
-    badgeBg: "transparent",
-    badgeBorder: "transparent",
-    badgeColor: "#A4A3B5",
-  },
-  // Article — soft lavender
-  "/dashboard/article": {
-    gradient: "linear-gradient(135deg, rgba(163,155,217,0.08) 0%, rgba(163,155,217,0.03) 100%)",
-    glow: "0 0 12px rgba(163,155,217,0.15)",
-    hoverBg: "linear-gradient(135deg, rgba(163,155,217,0.16) 0%, rgba(163,155,217,0.08) 100%)",
-    iconColor: "#A39BD9",
-    badgeText: "",
-    badgeBg: "transparent",
-    badgeBorder: "transparent",
-    badgeColor: "#A39BD9",
-  },
-  // AI Shorts — amber (Ripple's secondary brand color)
+  // AI Shorts — amber
   "/dashboard/shorts": {
     gradient: "linear-gradient(135deg, rgba(255,169,77,0.10) 0%, rgba(255,193,116,0.04) 100%)",
     glow: "0 0 14px rgba(255,169,77,0.18)",
@@ -282,11 +200,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "CREATE",
     items: [
       { href: "/dashboard/create", label: "Create Video", Icon: IconCreate },
-      { href: "/dashboard/recreate", label: "ReCreate", Icon: IconReCreate, featured: true },
-      { href: "/dashboard/channel-cloner", label: "Channel Cloner", Icon: IconChannelCloner, featured: true, studioOnly: true },
-      { href: "/dashboard/bulk", label: "Bulk Factory", Icon: IconBulk, featured: true, studioOnly: true },
       { href: "/dashboard/dub-video/new", label: "Dub Video", Icon: IconDub, featured: true },
-      { href: "/dashboard/article", label: "Article → Video", Icon: IconArticle, featured: true },
     ],
   },
   {
@@ -564,7 +478,7 @@ export default function Sidebar() {
               fontFamily: "'JetBrains Mono', monospace",
             }}
           >
-            Ripple v2.1
+            Ripple v3.0
           </span>
         </div>
       </div>

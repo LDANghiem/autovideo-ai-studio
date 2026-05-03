@@ -11,20 +11,18 @@ import { supabase } from "@/lib/supabaseClient";
 import { PLANS, type PlanId } from "@/lib/stripe";
 import Link from "next/link";
 
-type Pipeline = "shorts" | "dub" | "recreate" | "create";
+type Pipeline = "shorts" | "dub" | "create";
 
 const PIPELINE_LABELS: Record<Pipeline, string> = {
-  shorts:   "AI Shorts",
-  dub:      "Dub Video",
-  recreate: "ReCreate",
-  create:   "Create Video",
+  shorts: "AI Shorts",
+  dub:    "Dub Video",
+  create: "Create Video",
 };
 
 const USAGE_COLUMNS: Record<Pipeline, string> = {
-  shorts:   "usage_shorts",
-  dub:      "usage_dub",
-  recreate: "usage_recreate",
-  create:   "usage_create",
+  shorts: "usage_shorts",
+  dub:    "usage_dub",
+  create: "usage_create",
 };
 
 interface UsageData {
@@ -85,11 +83,11 @@ export default function UsageBanner({ pipeline, className = "" }: UsageBannerPro
       className={`rounded-xl px-4 py-3 flex items-center justify-between gap-4 ${className}`}
       style={{
         background: isAtLimit
-          ? "rgba(239,68,68,0.12)"
-          : "rgba(249,115,22,0.10)",
+          ? "rgba(255,107,107,0.10)"
+          : "rgba(255,169,77,0.10)",
         border: isAtLimit
-          ? "1px solid rgba(239,68,68,0.3)"
-          : "1px solid rgba(249,115,22,0.25)",
+          ? "1px solid rgba(255,107,107,0.3)"
+          : "1px solid rgba(255,169,77,0.3)",
       }}
     >
       <div className="flex items-center gap-3">
@@ -99,15 +97,27 @@ export default function UsageBanner({ pipeline, className = "" }: UsageBannerPro
         {/* Message */}
         <div>
           {isAtLimit ? (
-            <p className="text-sm font-semibold" style={{ color: "#fca5a5" }}>
+            <p
+              className="text-sm font-semibold"
+              style={{
+                color: "#FF6B6B",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               {label} limit reached — {data.used}/{data.limit} videos used this month
             </p>
           ) : (
-            <p className="text-sm font-semibold" style={{ color: "#fdba74" }}>
+            <p
+              className="text-sm font-semibold"
+              style={{
+                color: "#FFA94D",
+                fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              }}
+            >
               {remaining} {label} video{remaining === 1 ? "" : "s"} remaining this month ({data.used}/{data.limit} used)
             </p>
           )}
-          <p className="text-xs mt-0.5" style={{ color: "#9ca3af" }}>
+          <p className="text-xs mt-0.5" style={{ color: "#8B8794" }}>
             Resets on the 1st · Upgrade for more videos
           </p>
         </div>
@@ -116,10 +126,13 @@ export default function UsageBanner({ pipeline, className = "" }: UsageBannerPro
       {/* Upgrade CTA */}
       <Link
         href="/dashboard/billing"
-        className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-90"
+        className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:scale-[1.02]"
         style={{
-          background: isAtLimit ? "#ef4444" : "#f97316",
-          color: "#fff",
+          background: isAtLimit
+            ? "linear-gradient(135deg, #FF6B5A 0%, #FF8B7A 100%)"
+            : "linear-gradient(135deg, #FFA94D 0%, #FFC174 100%)",
+          color: "#0F0E1A",
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
         }}
       >
         Upgrade

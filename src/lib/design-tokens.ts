@@ -1,4 +1,7 @@
 /**
+// ============================================================
+// FILE: src/lib/design-tokens.ts
+// ============================================================
  * Ripple Design Tokens
  * ─────────────────────
  * Single source of truth for the Ripple brand. Import these constants
@@ -71,6 +74,14 @@ export const TEXT = {
 // - Pipeline badges
 // - Sidebar nav themes
 // - Hover glows
+//
+// Active pipelines after the strategic pivot (Reach Multiplier focus):
+//   dub      — HERO (coral)
+//   shorts   — secondary (amber)
+//   create   — Script to Video (slate, will be reworked)
+//
+// Removed: recreate, channel_cloner, article, repurpose
+// (off-strategy per YouTube 2026 Inauthentic Content Policy)
 export const PIPELINE = {
   dub: {
     name: "Dub",
@@ -84,35 +95,11 @@ export const PIPELINE = {
     glow: BRAND.amberGlow,
     description: "Cut viral clips from long-form",
   },
-  recreate: {
-    name: "ReCreate",
-    hex: "#5DD3E0",
-    glow: "rgba(93,211,224,0.3)",
-    description: "Reimagine any video",
-  },
-  channel_cloner: {
-    name: "Channel Cloner",
-    hex: "#E879A6",
-    glow: "rgba(232,121,166,0.3)",
-    description: "Bulk reimagine a channel",
-  },
-  article: {
-    name: "Article → Video",
-    hex: "#A39BD9",
-    glow: "rgba(163,155,217,0.3)",
-    description: "Turn writing into video",
-  },
   create: {
     name: "Create",
     hex: "#7B7A8E",
     glow: "rgba(123,122,142,0.2)",
-    description: "Generate from a topic",
-  },
-  repurpose: {
-    name: "Repurpose",
-    hex: "#FF8C66",
-    glow: "rgba(255,140,102,0.3)",
-    description: "Auto-clip long videos",
+    description: "Script to Video",
   },
 } as const;
 
@@ -220,8 +207,8 @@ export const Z = {
 export const BRAND_STRINGS = {
   name: "Ripple",
   tagline: "One video. Infinite reach.",
-  taglineAlt: "Your content, multiplied.",
+  taglineAlt: "For creators who know things.",
   description:
-    "Ripple turns one video into many. Dub into 18 languages, cut viral shorts, repurpose long-form into formats that fit every platform. Built for creators who want to grow without grinding.",
+    "Ripple amplifies what you already made. Dub your video into 18 languages, cut the best moments into vertical Shorts, and reach audiences you couldn't before. Built for creators with real expertise — no slop, no shortcuts.",
   taglineVi: "Một video. Tiếng vọng vô tận.",
 } as const;

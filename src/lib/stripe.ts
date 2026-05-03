@@ -7,7 +7,6 @@
 export interface PlanLimits {
   shorts: number;
   dub: number;
-  recreate: number;
   create: number;
   maxVideoLengthSec: number;
   resolution: string;
@@ -33,7 +32,6 @@ export const PLANS: Record<string, PlanDef> = {
     limits: {
       shorts: 3,
       dub: 2,
-      recreate: 2,
       create: 2,
       maxVideoLengthSec: 60,
       resolution: "720p",
@@ -49,7 +47,6 @@ export const PLANS: Record<string, PlanDef> = {
     limits: {
       shorts: 30,
       dub: 20,
-      recreate: 20,
       create: 15,
       maxVideoLengthSec: 180,
       resolution: "1080p",
@@ -65,7 +62,6 @@ export const PLANS: Record<string, PlanDef> = {
     limits: {
       shorts: 999999,
       dub: 999999,
-      recreate: 999999,
       create: 999999,
       maxVideoLengthSec: 99999,
       resolution: "1080p",

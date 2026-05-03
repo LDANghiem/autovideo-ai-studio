@@ -18,12 +18,11 @@ function getAdmin() {
   return _supabaseAdmin;
 }
 
-export type Pipeline = "shorts" | "dub" | "recreate" | "create";
+export type Pipeline = "shorts" | "dub" | "create";
 
 const USAGE_COLUMN: Record<Pipeline, string> = {
   shorts:   "usage_shorts",
   dub:      "usage_dub",
-  recreate: "usage_recreate",
   create:   "usage_create",
 };
 
@@ -39,7 +38,6 @@ interface UserProfileRow {
   plan?: string;
   usage_shorts?: number;
   usage_dub?: number;
-  usage_recreate?: number;
   usage_create?: number;
 }
 

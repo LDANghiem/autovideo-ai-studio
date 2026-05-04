@@ -11,9 +11,6 @@ const supabase = createClient(
 
 const PIPELINE_COLORS = {
   create: { hex: "#7F77DD", name: "Create", glow: "rgba(127,119,221,0.35)" },
-  recreate: { hex: "#22d3ee", name: "ReCreate", glow: "rgba(34,211,238,0.35)" },
-  channel_cloner: { hex: "#fb7185", name: "Channel Cloner", glow: "rgba(251,113,133,0.35)" },
-  article: { hex: "#a78bfa", name: "Article", glow: "rgba(167,139,250,0.35)" },
   shorts: { hex: "#fbbf24", name: "Shorts", glow: "rgba(251,191,36,0.35)" },
   repurpose: { hex: "#fb923c", name: "Repurpose", glow: "rgba(251,146,60,0.35)" },
   dub: { hex: "#60a5fa", name: "Dub", glow: "rgba(96,165,250,0.35)" },
@@ -86,16 +83,10 @@ export default function LibraryPage() {
         return;
       }
 
-      const [createRes, recreateRes, shortsRes, dubRes] = await Promise.all([
+      const [createRes, shortsRes, dubRes] = await Promise.all([
         supabase
           .from("projects")
           .select("id, topic, status, video_url, thumbnail_url, created_at, language, video_type, length")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(100),
-        supabase
-          .from("recreate_projects")
-          .select("id, source_title, source_video_title, source_channel_handle, source_channel_title, status, progress_pct, progress_stage, final_video_url, thumbnail_url, created_at, target_language, orientation, target_length, article_text")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(100),
@@ -129,34 +120,6 @@ export default function LibraryPage() {
           language: p.language || null,
           orientation: p.video_type === "youtube_shorts" || p.video_type === "tiktok" ? "portrait" : "landscape",
           target_length: null,
-        });
-      });
-
-      (recreateRes.data || []).forEach((p: any) => {
-        const isChannelClone = !!p.source_channel_handle;
-        const isArticle = !!p.article_text;
-        const pipeline: keyof typeof PIPELINE_COLORS = isChannelClone
-          ? "channel_cloner"
-          : isArticle
-          ? "article"
-          : "recreate";
-        const title = p.source_video_title || p.source_title || "Untitled";
-
-        allVideos.push({
-          id: p.id,
-          pipeline,
-          title,
-          status: p.status || "unknown",
-          progress_pct: p.progress_pct || null,
-          progress_stage: p.progress_stage || null,
-          video_url: p.final_video_url || null,
-          thumbnail_url: p.thumbnail_url || null,
-          created_at: p.created_at,
-          language: p.target_language || null,
-          orientation: p.orientation || "landscape",
-          target_length: p.target_length || null,
-          source_channel_handle: p.source_channel_handle || null,
-          source_channel_title: p.source_channel_title || null,
         });
       });
 
@@ -234,9 +197,6 @@ export default function LibraryPage() {
     try {
       const tableMap: Record<string, string> = {
         create: "projects",
-        recreate: "recreate_projects",
-        channel_cloner: "recreate_projects",
-        article: "recreate_projects",
         shorts: "shorts_projects",
         dub: "dub_projects",
       };
@@ -295,9 +255,6 @@ export default function LibraryPage() {
             {[
               { id: "all", label: "All", color: "#a78bfa" },
               { id: "create", label: "Create", color: PIPELINE_COLORS.create.hex },
-              { id: "recreate", label: "ReCreate", color: PIPELINE_COLORS.recreate.hex },
-              { id: "channel_cloner", label: "Channel Cloner", color: PIPELINE_COLORS.channel_cloner.hex },
-              { id: "article", label: "Article", color: PIPELINE_COLORS.article.hex },
               { id: "shorts", label: "Shorts", color: PIPELINE_COLORS.shorts.hex },
               { id: "dub", label: "Dub", color: PIPELINE_COLORS.dub.hex },
             ].filter((c) => c.id === "all" || (counts[c.id] || 0) > 0).map((chip) => {

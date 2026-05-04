@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
-    "@imgly/background-removal-node": "^1.4.5",
     "@remotion/bundler": "^4.0.419",
     "@remotion/renderer": "^4.0.419",
     "@stripe/stripe-js": "^9.1.0",

@@ -29,7 +29,6 @@ const PLANS_UI = [
     features: [
       "AI Shorts — 3/month",
       "Dub Video — 2/month",
-      "ReCreate — 2/month",
       "Create Video — 2/month",
       "Thumbnail creator",
       "5 caption styles",
@@ -40,7 +39,6 @@ const PLANS_UI = [
       "No watermark",
       "Voice cloning",
       "YouTube auto-publish",
-      "Article → Video",
       "Batch scheduler",
     ],
   },
@@ -56,13 +54,11 @@ const PLANS_UI = [
     features: [
       "AI Shorts — 30/month",
       "Dub Video — 20/month",
-      "ReCreate — 20/month",
       "Create Video — 15/month",
       "No watermark",
       "1080p export",
       "Up to 3min videos",
       "YouTube auto-publish",
-      "Article → Video",
       "Custom intro/outro",
       "Vietnamese SEO generator",
       "Unified video library",
@@ -154,7 +150,6 @@ export default function BillingPage() {
   const pipelines = [
     { key: "shorts", label: "AI Shorts" },
     { key: "dub", label: "Dub Video" },
-    { key: "recreate", label: "ReCreate" },
     { key: "create", label: "Create Video" },
   ] as const;
 
@@ -275,7 +270,7 @@ export default function BillingPage() {
             >
               This month's usage
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {pipelines.map(({ key, label }) => {
                 const used = usage[key];
                 const lim = limits[key] as number;

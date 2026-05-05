@@ -593,7 +593,7 @@ const TOKENS = {
   accentBorder: "rgba(167,139,250,0.45)",
   containerMax: 1080,
   containerPad: 24,
-  fontDisplay: '"Fraunces", "Times New Roman", Georgia, serif',
+  fontDisplay: 'var(--font-fraunces), "Times New Roman", Georgia, serif',
   fontBody: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 

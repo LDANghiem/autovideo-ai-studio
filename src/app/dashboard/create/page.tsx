@@ -1,10 +1,21 @@
 // ============================================================
 // FILE: src/app/dashboard/create/page.tsx
 // ============================================================
-// ALL PATCHES APPLIED:
-//   🆕 VOICE PICKER: Language-aware voice selector
-//   🆕 12 Native Vietnamese voices from ElevenLabs Voice Library
-//   🆕 Language flags and ElevenLabs indicator
+// COMMIT 9 — Script Mode toggle
+//
+// CHANGES vs previous version:
+//   1. Mode toggle at top: Topic Mode (existing) ↔ Script Mode (new)
+//   2. Script Mode hides: topic_instructions, length picker, tone
+//   3. Script Mode shows: large script textarea + live word counter
+//   4. "Show advanced" toggle reveals music, resolution, language overrides
+//   5. Video Type, Voice, Style, Captions stay visible in both modes
+//   6. Submit payload includes either `topic` OR `script` based on mode
+//
+// PRESERVED:
+//   - All 12 native Vietnamese ElevenLabs voices
+//   - Language-aware voice picker (OpenAI for English, ElevenLabs for non-English)
+//   - Image source toggle, video type selector, caption style picker
+//   - Project Summary preview (now mode-aware)
 // ============================================================
 
 "use client";
@@ -22,26 +33,33 @@ import ImageSourceToggle from "@/components/ImageSourceToggle";
    [S1] Types
 ============================================================ */
 type CreatePayload = {
-  topic: string;
-  topic_instructions: string;
+  topic?: string;
+  topic_instructions?: string | null;
+  script?: string;            // 🆕 Script Mode
   video_type: string;
   style: string;
   voice: string;
-  length: string;
+  length?: string;
   resolution: string;
   language: string;
-  tone: string;
+  tone?: string;
   music: string;
-  caption_style: string;         // "none" | "block" | "karaoke" | "centered"
+  caption_style: string;
   image_source: string;
   elevenlabs_voice_id?: string;
   elevenlabs_voice_name?: string;
 };
 
+type Mode = "topic" | "script";
+
 /* ============================================================
    [S2] Constants
 ============================================================ */
 const TOPIC_MAX_CHARS = 300;
+const SCRIPT_HARD_LIMIT = 6000;     // hard reject above this
+const SCRIPT_SOFT_LIMIT = 4500;     // warn above this
+const SCRIPT_MIN_WORDS = 20;
+const WPM = 140;                    // narration words-per-minute estimate
 
 type VideoTypeConfig = {
   label: string;
@@ -87,9 +105,7 @@ const VIDEO_TYPES: Record<string, VideoTypeConfig> = {
   },
 };
 
-// ──────────────────────────────────────────────
-// Voice options per TTS provider
-// ──────────────────────────────────────────────
+// ─── Voice picker types ───────────────────────────────────────
 type VoiceOption = {
   id: string;
   label: string;
@@ -99,42 +115,25 @@ type VoiceOption = {
   voiceId: string;
 };
 
-// OpenAI voices — best for English
-const OPENAI_VOICES: VoiceOption[] = [
-  { id: "coral",   label: "Coral",   description: "Warm female",     gender: "Female", provider: "openai", voiceId: "coral" },
-  { id: "nova",    label: "Nova",    description: "Bright female",   gender: "Female", provider: "openai", voiceId: "nova" },
-  { id: "sage",    label: "Sage",    description: "Calm male",       gender: "Male",   provider: "openai", voiceId: "sage" },
-  { id: "ash",     label: "Ash",     description: "Deep male",       gender: "Male",   provider: "openai", voiceId: "ash" },
-  { id: "alloy",   label: "Alloy",   description: "Neutral",         gender: "Neutral",provider: "openai", voiceId: "alloy" },
-  { id: "echo",    label: "Echo",    description: "Soft male",       gender: "Male",   provider: "openai", voiceId: "echo" },
-  { id: "onyx",    label: "Onyx",    description: "Deep narrator",   gender: "Male",   provider: "openai", voiceId: "onyx" },
-  { id: "shimmer", label: "Shimmer", description: "Gentle female",   gender: "Female", provider: "openai", voiceId: "shimmer" },
-  { id: "fable",   label: "Fable",   description: "Storyteller",     gender: "Neutral",provider: "openai", voiceId: "fable" },
-  { id: "ballad",  label: "Ballad",  description: "Expressive",      gender: "Neutral",provider: "openai", voiceId: "ballad" },
-  { id: "verse",   label: "Verse",   description: "Clear",           gender: "Neutral",provider: "openai", voiceId: "verse" },
-  { id: "marin",   label: "Marin",   description: "Crisp female",    gender: "Female", provider: "openai", voiceId: "marin" },
-  { id: "cedar",   label: "Cedar",   description: "Smooth male",     gender: "Male",   provider: "openai", voiceId: "cedar" },
-];
-
-// 🆕 12 Native Vietnamese voices from ElevenLabs Voice Library
+// 12 native Vietnamese ElevenLabs voices
 const ELEVENLABS_VIETNAMESE_VOICES: VoiceOption[] = [
-  // Female voices
-  { id: "el-tham",        label: "Tham",        description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "0ggMuQ1r9f9jqBu50nJn" },
-  { id: "el-thanh-f",     label: "Thanh",        description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "N0Z0aL8qHhzwUHwRBcVo" },
-  { id: "el-duyen",       label: "Duyên",        description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "DVQIYWzpAqd5qcoIlirg" },
-  { id: "el-ngan",        label: "Ngân Nguyễn",  description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "DvG3I1kDzdBY3u4EzYh6" },
-  { id: "el-hien",        label: "Hiền",         description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "jdlxsPOZOHdGEfcItXVu" },
-  { id: "el-trang",       label: "Trang",        description: "Native Vietnamese female",      gender: "Female", provider: "elevenlabs", voiceId: "ArosID24mP18TEiQpNhs" },
-  // Male voices
-  { id: "el-tranthanh",   label: "Trấn Thành",   description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "kPNz4WRTiKDplS7jAwHu" },
-  { id: "el-anh",         label: "Anh",          description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "ywBZEqUhld86Jeajq94o" },
-  { id: "el-trieuduong",  label: "Triệu Dương",  description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "UsgbMVmY3U59ijwK5mdh" },
-  { id: "el-hoangdang",   label: "Hoàng Đăng",   description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "ipTvfDXAg1zowfF1rv9w" },
-  { id: "el-nhat",        label: "Nhật",         description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "6adFm46eyy74snVn6YrT" },
-  { id: "el-tung",        label: "Tùng",         description: "Native Vietnamese male",        gender: "Male",   provider: "elevenlabs", voiceId: "3VnrjnYrskPMDsapTr8X" },
+  // Female
+  { id: "el-tham",       label: "Tham",          description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "0ggMuQ1r9f9jqBu50nJn" },
+  { id: "el-thanh-f",    label: "Thanh",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "N0Z0aL8qHhzwUHwRBcVo" },
+  { id: "el-duyen",      label: "Duyên",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "DVQIYWzpAqd5qcoIlirg" },
+  { id: "el-ngan",       label: "Ngân Nguyễn",   description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "DvG3I1kDzdBY3u4EzYh6" },
+  { id: "el-hien",       label: "Hiền",          description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "jdlxsPOZOHdGEfcItXVu" },
+  { id: "el-trang",      label: "Trang",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "ArosID24mP18TEiQpNhs" },
+  // Male
+  { id: "el-tranthanh",  label: "Trấn Thành",    description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "kPNz4WRTiKDplS7jAwHu" },
+  { id: "el-anh",        label: "Anh",           description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "ywBZEqUhld86Jeajq94o" },
+  { id: "el-trieuduong", label: "Triệu Dương",   description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "UsgbMVmY3U59ijwK5mdh" },
+  { id: "el-hoangdang",  label: "Hoàng Đăng",    description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "ipTvfDXAg1zowfF1rv9w" },
+  { id: "el-nhat",       label: "Nhật",          description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "6adFm46eyy74snVn6YrT" },
+  { id: "el-tung",       label: "Tùng",          description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "3VnrjnYrskPMDsapTr8X" },
 ];
 
-// ElevenLabs voices for other non-English languages (default voices)
+// Default ElevenLabs voices for other non-English languages
 const ELEVENLABS_OTHER_VOICES: VoiceOption[] = [
   { id: "el-george",  label: "George",  description: "Warm male narrator",         gender: "Male",   provider: "elevenlabs", voiceId: "JBFqnCBsd6RMkjVDRZzb" },
   { id: "el-roger",   label: "Roger",   description: "Confident, persuasive male", gender: "Male",   provider: "elevenlabs", voiceId: "CwhRBWXzGAHq8TQ4Fs17" },
@@ -144,22 +143,35 @@ const ELEVENLABS_OTHER_VOICES: VoiceOption[] = [
   { id: "el-sarah",   label: "Sarah",   description: "Soft, young female",         gender: "Female", provider: "elevenlabs", voiceId: "EXAVITQu4vr4xnSDxMaL" },
 ];
 
-// Map language display names to codes
 const LANGUAGE_OPTIONS: { value: string; label: string; flag: string; code: string; useElevenLabs: boolean }[] = [
-  { value: "English",    label: "English",           flag: "🇺🇸", code: "en", useElevenLabs: false },
-  { value: "Vietnamese", label: "Vietnamese",        flag: "🇻🇳", code: "vi", useElevenLabs: true },
-  { value: "Spanish",    label: "Spanish",           flag: "🇪🇸", code: "es", useElevenLabs: true },
-  { value: "Portuguese", label: "Portuguese",        flag: "🇧🇷", code: "pt", useElevenLabs: true },
-  { value: "French",     label: "French",            flag: "🇫🇷", code: "fr", useElevenLabs: true },
-  { value: "German",     label: "German",            flag: "🇩🇪", code: "de", useElevenLabs: true },
-  { value: "Hindi",      label: "Hindi",             flag: "🇮🇳", code: "hi", useElevenLabs: true },
-  { value: "Japanese",   label: "Japanese",          flag: "🇯🇵", code: "ja", useElevenLabs: true },
-  { value: "Korean",     label: "Korean",            flag: "🇰🇷", code: "ko", useElevenLabs: true },
-  { value: "Chinese",    label: "Chinese (Mandarin)",flag: "🇨🇳", code: "zh", useElevenLabs: true },
-  { value: "Arabic",     label: "Arabic",            flag: "🇸🇦", code: "ar", useElevenLabs: true },
-  { value: "Indonesian", label: "Indonesian",        flag: "🇮🇩", code: "id", useElevenLabs: true },
-  { value: "Thai",       label: "Thai",              flag: "🇹🇭", code: "th", useElevenLabs: true },
+  { value: "English",    label: "English",            flag: "🇺🇸", code: "en", useElevenLabs: false },
+  { value: "Vietnamese", label: "Vietnamese",         flag: "🇻🇳", code: "vi", useElevenLabs: true },
+  { value: "Spanish",    label: "Spanish",            flag: "🇪🇸", code: "es", useElevenLabs: true },
+  { value: "Portuguese", label: "Portuguese",         flag: "🇧🇷", code: "pt", useElevenLabs: true },
+  { value: "French",     label: "French",             flag: "🇫🇷", code: "fr", useElevenLabs: true },
+  { value: "German",     label: "German",             flag: "🇩🇪", code: "de", useElevenLabs: true },
+  { value: "Hindi",      label: "Hindi",              flag: "🇮🇳", code: "hi", useElevenLabs: true },
+  { value: "Japanese",   label: "Japanese",           flag: "🇯🇵", code: "ja", useElevenLabs: true },
+  { value: "Korean",     label: "Korean",             flag: "🇰🇷", code: "ko", useElevenLabs: true },
+  { value: "Chinese",    label: "Chinese (Mandarin)", flag: "🇨🇳", code: "zh", useElevenLabs: true },
+  { value: "Arabic",     label: "Arabic",             flag: "🇸🇦", code: "ar", useElevenLabs: true },
+  { value: "Indonesian", label: "Indonesian",         flag: "🇮🇩", code: "id", useElevenLabs: true },
+  { value: "Thai",       label: "Thai",               flag: "🇹🇭", code: "th", useElevenLabs: true },
 ];
+
+/* ============================================================
+   Helpers
+============================================================ */
+
+function countWords(text: string): number {
+  return (text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `~${seconds} sec`;
+  const min = Math.round(seconds / 60);
+  return `~${min} min`;
+}
 
 /* ============================================================
    [S3] Page Component
@@ -167,46 +179,52 @@ const LANGUAGE_OPTIONS: { value: string; label: string; flag: string; code: stri
 export default function CreateProjectPage() {
   const router = useRouter();
 
-  const [videoType, setVideoType] = useState("conventional");
+  // 🆕 Mode toggle
+  const [mode, setMode] = useState<Mode>("topic");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Topic Mode fields
   const [topic, setTopic] = useState("");
   const [topicInstructions, setTopicInstructions] = useState("");
+  const [length, setLength] = useState("5 minutes");
+  const [tone, setTone] = useState("friendly");
+
+  // 🆕 Script Mode field
+  const [script, setScript] = useState("");
+
+  // Shared fields (both modes)
+  const [videoType, setVideoType] = useState("conventional");
   const [style, setStyle] = useState("modern");
   const [voice, setVoice] = useState("Coral (warm female)");
-  const [length, setLength] = useState("5 minutes");
   const [resolution, setResolution] = useState("1080p");
   const [language, setLanguage] = useState("English");
-  const [tone, setTone] = useState("friendly");
   const [music, setMusic] = useState("ambient");
-  const [captionStyle, setCaptionStyle] = useState("karaoke"); // default to karaoke
+  const [captionStyle, setCaptionStyle] = useState("karaoke");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { imageSource, setImageSource } = useImageSource("ai-art");
 
-  // Track selected ElevenLabs voice separately
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<VoiceOption>(ELEVENLABS_VIETNAMESE_VOICES[0]);
 
-  // Determine which voice set to show
   const currentLangConfig = LANGUAGE_OPTIONS.find((l) => l.value === language);
   const isElevenLabsLanguage = currentLangConfig?.useElevenLabs ?? false;
   const isVietnamese = language === "Vietnamese";
-
-  // Vietnamese gets 12 native voices; other non-English gets default ElevenLabs voices
   const elevenLabsVoices = isVietnamese ? ELEVENLABS_VIETNAMESE_VOICES : ELEVENLABS_OTHER_VOICES;
 
-  /* ----------------------------------------------------------
-     Auto-adjust settings when video type changes
-  ---------------------------------------------------------- */
+  // Auto-adjust on video type change (Topic Mode only — Script Mode derives length from words)
   useEffect(() => {
     const config = VIDEO_TYPES[videoType];
     if (!config) return;
-    setLength(config.defaultLength);
+    if (mode === "topic") {
+      setLength(config.defaultLength);
+    }
     setResolution(config.defaultResolution);
     if (videoType === "tiktok") { setStyle("energetic"); setTone("excited"); }
     else if (videoType === "youtube_shorts") { setStyle("modern"); setTone("friendly"); }
     else { setStyle("modern"); setTone("friendly"); }
-  }, [videoType]);
+  }, [videoType, mode]);
 
   // Auto-switch voice when language changes
   useEffect(() => {
@@ -221,24 +239,38 @@ export default function CreateProjectPage() {
 
   const activeConfig = VIDEO_TYPES[videoType];
 
+  // 🆕 Live word count + duration estimate (Script Mode)
+  const scriptWordCount = useMemo(() => countWords(script), [script]);
+  const estimatedSeconds = useMemo(() => Math.ceil(scriptWordCount / (WPM / 60)), [scriptWordCount]);
+  const scriptOverHard = scriptWordCount > SCRIPT_HARD_LIMIT;
+  const scriptOverSoft = scriptWordCount > SCRIPT_SOFT_LIMIT && !scriptOverHard;
+  const scriptUnderMin = script.length > 0 && scriptWordCount < SCRIPT_MIN_WORDS;
+
   /* ----------------------------------------------------------
      Payload
   ---------------------------------------------------------- */
   const payload: CreatePayload = useMemo(() => {
     const base: CreatePayload = {
-      topic,
-      topic_instructions: topicInstructions,
       video_type: videoType,
       style,
       voice: isElevenLabsLanguage ? selectedElevenLabsVoice.label : voice,
-      length,
       resolution,
       language,
-      tone,
       music,
       caption_style: captionStyle,
       image_source: imageSource,
     };
+
+    if (mode === "topic") {
+      base.topic = topic;
+      base.topic_instructions = topicInstructions || null;
+      base.length = length;
+      base.tone = tone;
+    } else {
+      base.script = script;
+      // No topic, topic_instructions, length, or tone in Script Mode —
+      // backend handles derivation
+    }
 
     if (isElevenLabsLanguage) {
       base.elevenlabs_voice_id = selectedElevenLabsVoice.voiceId;
@@ -246,7 +278,7 @@ export default function CreateProjectPage() {
     }
 
     return base;
-  }, [topic, topicInstructions, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
+  }, [mode, topic, topicInstructions, script, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
 
   /* ----------------------------------------------------------
      Submit
@@ -254,6 +286,23 @@ export default function CreateProjectPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // Client-side validation
+    if (mode === "topic" && !topic.trim()) {
+      setError("Topic is required.");
+      return;
+    }
+    if (mode === "script") {
+      if (scriptUnderMin) {
+        setError(`Script too short: ${scriptWordCount} words (min ${SCRIPT_MIN_WORDS}).`);
+        return;
+      }
+      if (scriptOverHard) {
+        setError(`Script too long: ${scriptWordCount} words (max ${SCRIPT_HARD_LIMIT}).`);
+        return;
+      }
+    }
+
     setBusy(true);
 
     try {
@@ -291,6 +340,26 @@ export default function CreateProjectPage() {
     }
   }
 
+  function handleReset() {
+    setMode("topic");
+    setShowAdvanced(false);
+    setVideoType("conventional");
+    setTopic("");
+    setTopicInstructions("");
+    setScript("");
+    setStyle("modern");
+    setVoice("Coral (warm female)");
+    setLength("5 minutes");
+    setResolution("1080p");
+    setLanguage("English");
+    setTone("friendly");
+    setMusic("ambient");
+    setImageSource("ai-art");
+    setError(null);
+    setCaptionStyle("karaoke");
+    setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
+  }
+
   /* ============================================================
      [S4] Render
   ============================================================ */
@@ -311,8 +380,43 @@ export default function CreateProjectPage() {
         <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">{error}</div>
       )}
 
+      {/* 🆕 MODE TOGGLE */}
+      <div className="mb-6">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+          <button
+            type="button"
+            onClick={() => setMode("topic")}
+            className={
+              "px-4 py-2 rounded-md text-sm font-medium transition-all " +
+              (mode === "topic"
+                ? "bg-white shadow-sm text-gray-900 border border-gray-200"
+                : "text-gray-500 hover:text-gray-700")
+            }
+          >
+            ✨ Topic Mode
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("script")}
+            className={
+              "px-4 py-2 rounded-md text-sm font-medium transition-all " +
+              (mode === "script"
+                ? "bg-white shadow-sm text-gray-900 border border-gray-200"
+                : "text-gray-500 hover:text-gray-700")
+            }
+          >
+            📝 Script Mode
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-gray-500">
+          {mode === "topic"
+            ? "Give us a topic. We'll write the script and produce the video."
+            : "Paste your own script. We'll produce the video — your words, untouched."}
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Video Type Selector */}
+        {/* Video Type Selector — both modes */}
         <div className="space-y-2">
           <label className="font-medium">Video Type</label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -332,30 +436,81 @@ export default function CreateProjectPage() {
           </div>
         </div>
 
-        {/* Topic */}
-        <div className="space-y-2">
-          <div className="flex items-end justify-between gap-3">
-            <label className="font-medium">Topic</label>
-            <div className="text-xs text-gray-500">{topic.length}/{TOPIC_MAX_CHARS}</div>
+        {/* ─── TOPIC MODE FIELDS ─────────────────────────────── */}
+        {mode === "topic" && (
+          <>
+            {/* Topic */}
+            <div className="space-y-2">
+              <div className="flex items-end justify-between gap-3">
+                <label className="font-medium">Topic</label>
+                <div className="text-xs text-gray-500">{topic.length}/{TOPIC_MAX_CHARS}</div>
+              </div>
+              <input value={topic} onChange={(e) => setTopic(e.target.value.slice(0, TOPIC_MAX_CHARS))}
+                className="w-full border rounded px-3 py-2" placeholder="e.g. 5 most beautiful places on Earth" maxLength={TOPIC_MAX_CHARS} required={mode === "topic"} />
+              <div className="text-xs text-gray-500">Tip: keep Topic short. Put detailed instructions below.</div>
+            </div>
+
+            {/* Topic Instructions */}
+            <div className="space-y-2">
+              <label className="font-medium">Topic Instructions <span className="text-gray-400 font-normal">(optional)</span></label>
+              <textarea value={topicInstructions} onChange={(e) => setTopicInstructions(e.target.value)}
+                className="w-full border rounded px-3 py-2 min-h-[100px]"
+                placeholder={"Add extra instructions here, e.g.\n- Target audience\n- Key points to cover\n- What to avoid\n- Structure preferences"} />
+              <div className="text-xs text-gray-500">Optional instructions to shape the script and video content.</div>
+            </div>
+          </>
+        )}
+
+        {/* ─── 🆕 SCRIPT MODE FIELD ──────────────────────────── */}
+        {mode === "script" && (
+          <div className="space-y-2">
+            <div className="flex items-end justify-between gap-3">
+              <label className="font-medium">Your Script</label>
+              <div className={
+                "text-xs " +
+                (scriptOverHard ? "text-red-600 font-medium" :
+                 scriptOverSoft ? "text-amber-600 font-medium" :
+                 scriptUnderMin ? "text-amber-600" :
+                 scriptWordCount > 0 ? "text-gray-600" : "text-gray-400")
+              }>
+                {scriptWordCount} {scriptWordCount === 1 ? "word" : "words"}
+                {scriptWordCount >= SCRIPT_MIN_WORDS && (
+                  <span className="ml-2 text-gray-500">· estimated {formatDuration(estimatedSeconds)} video</span>
+                )}
+              </div>
+            </div>
+            <textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              className="w-full border rounded px-3 py-2 font-mono text-sm leading-relaxed min-h-[300px]"
+              placeholder={"Paste your script here.\n\nWrite in natural paragraphs. Ripple will narrate it word-for-word in the voice you pick — your script, untouched.\n\nMinimum 20 words. Soft warning above 4,500 words. Hard limit at 6,000 words."}
+              required={mode === "script"}
+            />
+            {scriptUnderMin && (
+              <div className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 border border-amber-200">
+                Script too short — at least {SCRIPT_MIN_WORDS} words needed.
+              </div>
+            )}
+            {scriptOverSoft && (
+              <div className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 border border-amber-200">
+                Heads up: scripts over {SCRIPT_SOFT_LIMIT.toLocaleString()} words may take longer to render and may exceed your tier&rsquo;s limits.
+              </div>
+            )}
+            {scriptOverHard && (
+              <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1.5 border border-red-200">
+                Script exceeds the {SCRIPT_HARD_LIMIT.toLocaleString()}-word limit. Trim it down or split into multiple videos.
+              </div>
+            )}
+            <div className="text-xs text-gray-500">
+              Your script is never rewritten. Ripple narrates it verbatim and produces visuals to match.
+            </div>
           </div>
-          <input value={topic} onChange={(e) => setTopic(e.target.value.slice(0, TOPIC_MAX_CHARS))}
-            className="w-full border rounded px-3 py-2" placeholder="e.g. 5 most beautiful places on Earth" maxLength={TOPIC_MAX_CHARS} required />
-          <div className="text-xs text-gray-500">Tip: keep Topic short. Put detailed instructions below.</div>
-        </div>
+        )}
 
-        {/* Topic Instructions */}
-        <div className="space-y-2">
-          <label className="font-medium">Topic Instructions <span className="text-gray-400 font-normal">(optional)</span></label>
-          <textarea value={topicInstructions} onChange={(e) => setTopicInstructions(e.target.value)}
-            className="w-full border rounded px-3 py-2 min-h-[100px]"
-            placeholder={"Add extra instructions here, e.g.\n- Target audience\n- Key points to cover\n- What to avoid\n- Structure preferences"} />
-          <div className="text-xs text-gray-500">Optional instructions to shape the script and video content.</div>
-        </div>
-
-        {/* Image Source Toggle */}
+        {/* Image Source Toggle — both modes */}
         <ImageSourceToggle imageSource={imageSource} onChange={setImageSource} disabled={busy} />
 
-        {/* Settings Grid */}
+        {/* ─── CORE SETTINGS GRID (both modes) ───────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Style */}
           <div className="space-y-2">
@@ -368,9 +523,7 @@ export default function CreateProjectPage() {
             </select>
           </div>
 
-          {/* ══════════════════════════════════════════
-              Voice selector — language-aware
-          ══════════════════════════════════════════ */}
+          {/* Voice */}
           <div className="space-y-2">
             <label className="font-medium">
               Voice
@@ -385,7 +538,6 @@ export default function CreateProjectPage() {
             </label>
 
             {isElevenLabsLanguage ? (
-              /* ElevenLabs voice picker for non-English */
               <div className="space-y-2">
                 <select
                   value={selectedElevenLabsVoice.id}
@@ -414,7 +566,6 @@ export default function CreateProjectPage() {
                 </div>
               </div>
             ) : (
-              /* OpenAI voice picker for English */
               <select value={voice} onChange={(e) => setVoice(e.target.value)} className="w-full border rounded px-3 py-2">
                 <optgroup label="Recommended">
                   <option value="Coral (warm female)">Coral — warm female</option>
@@ -437,67 +588,29 @@ export default function CreateProjectPage() {
             )}
           </div>
 
-          {/* Video Length */}
-          <div className="space-y-2">
-            <label className="font-medium">Video Length</label>
-            <select value={length} onChange={(e) => setLength(e.target.value)} className="w-full border rounded px-3 py-2">
-              {activeConfig.lengthOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
-            </select>
-          </div>
-
-          {/* Resolution */}
-          <div className="space-y-2">
-            <label className="font-medium">Resolution</label>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="w-full border rounded px-3 py-2">
-              {activeConfig.resolutionOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
-            </select>
-          </div>
-
-          {/* Language */}
-          <div className="space-y-2">
-            <label className="font-medium">Language</label>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            >
-              {LANGUAGE_OPTIONS.map((lang) => (
-                <option key={lang.value} value={lang.value}>
-                  {lang.flag} {lang.label}
-                  {lang.value === "Vietnamese" ? " (12 native voices)" : lang.useElevenLabs ? " (ElevenLabs)" : ""}
-                </option>
-              ))}
-            </select>
-            {isVietnamese && (
-              <div className="text-xs text-gray-500">
-                Script in Vietnamese + native voice + Vietnamese captions.
+          {/* ─── Topic-Mode-only fields: Length, Tone ──────────── */}
+          {mode === "topic" && (
+            <>
+              <div className="space-y-2">
+                <label className="font-medium">Video Length</label>
+                <select value={length} onChange={(e) => setLength(e.target.value)} className="w-full border rounded px-3 py-2">
+                  {activeConfig.lengthOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+                </select>
               </div>
-            )}
-          </div>
 
-          {/* Tone */}
-          <div className="space-y-2">
-            <label className="font-medium">Tone</label>
-            <select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full border rounded px-3 py-2">
-              <option value="friendly">friendly</option>
-              <option value="professional">professional</option>
-              <option value="excited">excited</option>
-              <option value="calm">calm</option>
-            </select>
-          </div>
+              <div className="space-y-2">
+                <label className="font-medium">Tone</label>
+                <select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full border rounded px-3 py-2">
+                  <option value="friendly">friendly</option>
+                  <option value="professional">professional</option>
+                  <option value="excited">excited</option>
+                  <option value="calm">calm</option>
+                </select>
+              </div>
+            </>
+          )}
 
-          {/* Music */}
-          <div className="space-y-2">
-            <label className="font-medium">Music</label>
-            <select value={music} onChange={(e) => setMusic(e.target.value)} className="w-full border rounded px-3 py-2">
-              <option value="ambient">ambient</option>
-              <option value="uplifting">uplifting</option>
-              <option value="dramatic">dramatic</option>
-              <option value="none">none</option>
-            </select>
-          </div>
-
-          {/* 🆕 Caption Style — burned-in subtitle style */}
+          {/* Caption Style — both modes */}
           <div className="space-y-2">
             <label className="font-medium">Caption Style</label>
             <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value)} className="w-full border rounded px-3 py-2">
@@ -516,32 +629,105 @@ export default function CreateProjectPage() {
           </div>
         </div>
 
+        {/* ─── 🆕 ADVANCED OPTIONS (collapsed by default) ────── */}
+        <div className="border-t pt-4">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            <span className={"transition-transform inline-block " + (showAdvanced ? "rotate-90" : "")}>▶</span>
+            {showAdvanced ? "Hide advanced options" : "Show advanced options"}
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Music */}
+              <div className="space-y-2">
+                <label className="font-medium">Music</label>
+                <select value={music} onChange={(e) => setMusic(e.target.value)} className="w-full border rounded px-3 py-2">
+                  <option value="ambient">ambient</option>
+                  <option value="uplifting">uplifting</option>
+                  <option value="dramatic">dramatic</option>
+                  <option value="none">none</option>
+                </select>
+              </div>
+
+              {/* Resolution */}
+              <div className="space-y-2">
+                <label className="font-medium">Resolution</label>
+                <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="w-full border rounded px-3 py-2">
+                  {activeConfig.resolutionOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+                </select>
+              </div>
+
+              {/* Language */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="font-medium">Language</label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  {LANGUAGE_OPTIONS.map((lang) => (
+                    <option key={lang.value} value={lang.value}>
+                      {lang.flag} {lang.label}
+                      {lang.value === "Vietnamese" ? " (12 native voices)" : lang.useElevenLabs ? " (ElevenLabs)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {isVietnamese && (
+                  <div className="text-xs text-gray-500">
+                    Script in Vietnamese + native voice + Vietnamese captions.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Actions */}
         <div className="pt-2 flex items-center gap-3">
-          <button type="submit" disabled={busy} className="bg-black text-white rounded px-4 py-2 disabled:opacity-60">
+          <button
+            type="submit"
+            disabled={busy || (mode === "script" && (scriptUnderMin || scriptOverHard))}
+            className="bg-black text-white rounded px-4 py-2 disabled:opacity-60"
+          >
             {busy ? "Creating..." : "Create Project"}
           </button>
-          <button type="button" onClick={() => {
-            setVideoType("conventional"); setTopic(""); setTopicInstructions("");
-            setStyle("modern"); setVoice("Coral (warm female)"); setLength("5 minutes");
-            setResolution("1080p"); setLanguage("English"); setTone("friendly");
-            setMusic("ambient"); setImageSource("ai-art"); setError(null);
-            setCaptionStyle("karaoke");
-            setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
-          }} className="border rounded px-4 py-2" disabled={busy}>
+          <button type="button" onClick={handleReset} className="border rounded px-4 py-2" disabled={busy}>
             Reset
           </button>
         </div>
       </form>
 
-      {/* Summary */}
+      {/* Project Summary — mode-aware */}
       <div className="mt-8 rounded border p-4 bg-gray-50">
         <h2 className="font-semibold mb-2">Project Summary</h2>
         <div className="text-sm space-y-1">
+          <div><b>Mode:</b> {mode === "topic" ? "✨ Topic Mode (AI writes script)" : "📝 Script Mode (your script)"}</div>
           <div><b>Video Type:</b> {activeConfig.icon} {activeConfig.label} ({activeConfig.aspectRatio})</div>
-          <div><b>Topic:</b> {topic || "(not set)"}</div>
-          {topicInstructions && <div><b>Instructions:</b> <span className="whitespace-pre-wrap text-gray-600">{topicInstructions}</span></div>}
-          <div><b>Style:</b> {style} • <b>Tone:</b> {tone}</div>
+
+          {mode === "topic" ? (
+            <>
+              <div><b>Topic:</b> {topic || "(not set)"}</div>
+              {topicInstructions && (
+                <div><b>Instructions:</b> <span className="whitespace-pre-wrap text-gray-600">{topicInstructions}</span></div>
+              )}
+              <div><b>Length:</b> {length} · <b>Tone:</b> {tone}</div>
+            </>
+          ) : (
+            <>
+              <div>
+                <b>Script:</b>{" "}
+                {scriptWordCount === 0
+                  ? "(not set)"
+                  : `${scriptWordCount} words · ~${formatDuration(estimatedSeconds)} video`}
+              </div>
+            </>
+          )}
+
+          <div><b>Style:</b> {style}</div>
           <div>
             <b>Voice:</b>{" "}
             {isElevenLabsLanguage
@@ -551,9 +737,9 @@ export default function CreateProjectPage() {
           </div>
           <div>
             <b>Language:</b> {currentLangConfig?.flag} {language}
-            {isVietnamese && " • 12 native Vietnamese voices"}
+            {isVietnamese && " · 12 native Vietnamese voices"}
           </div>
-          <div><b>Length:</b> {length} • <b>Resolution:</b> {resolution}</div>
+          <div><b>Resolution:</b> {resolution}</div>
           <div>
             <b>Images:</b>{" "}
             {imageSource === "real-photos" ? "📸 Real Photos (Pexels — free)" : "🎨 AI Art (DALL-E — $0.08/image)"}

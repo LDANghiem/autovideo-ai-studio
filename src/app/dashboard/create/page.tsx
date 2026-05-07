@@ -1,21 +1,23 @@
 // ============================================================
 // FILE: src/app/dashboard/create/page.tsx
 // ============================================================
-// COMMIT 9 — Script Mode toggle
+// COMMIT 10 — Adds AI script feedback (Script Mode only)
 //
-// CHANGES vs previous version:
-//   1. Mode toggle at top: Topic Mode (existing) ↔ Script Mode (new)
-//   2. Script Mode hides: topic_instructions, length picker, tone
-//   3. Script Mode shows: large script textarea + live word counter
-//   4. "Show advanced" toggle reveals music, resolution, language overrides
-//   5. Video Type, Voice, Style, Captions stay visible in both modes
-//   6. Submit payload includes either `topic` OR `script` based on mode
+// What's new in Commit 10:
+//   - "Get feedback on my script" button below the script textarea
+//   - Loading state while feedback fetches
+//   - Inline expandable panel showing 6-category feedback
+//   - Each category: ✓ pass or ⚠ improve + concrete note
+//   - Brief OVERALL summary at the bottom
+//   - Dismissable / re-runnable
+//   - Suggestions only — never auto-edits the script
 //
-// PRESERVED:
+// Preserved from Commit 9:
+//   - Topic Mode / Script Mode toggle
 //   - All 12 native Vietnamese ElevenLabs voices
-//   - Language-aware voice picker (OpenAI for English, ElevenLabs for non-English)
-//   - Image source toggle, video type selector, caption style picker
-//   - Project Summary preview (now mode-aware)
+//   - Language-aware voice picker
+//   - Word-count limits and live counter
+//   - "Show advanced" collapsible
 // ============================================================
 
 "use client";
@@ -35,7 +37,7 @@ import ImageSourceToggle from "@/components/ImageSourceToggle";
 type CreatePayload = {
   topic?: string;
   topic_instructions?: string | null;
-  script?: string;            // 🆕 Script Mode
+  script?: string;
   video_type: string;
   style: string;
   voice: string;
@@ -52,14 +54,35 @@ type CreatePayload = {
 
 type Mode = "topic" | "script";
 
+// 🆕 Commit 10: Script feedback shape
+type FeedbackCategory = {
+  name: "HOOK" | "PACING" | "SPECIFICITY" | "STRUCTURE" | "CTA" | "LENGTH";
+  status: "pass" | "improve";
+  note: string;
+};
+
+type ScriptFeedback = {
+  categories: FeedbackCategory[];
+  overall: string;
+};
+
+const CATEGORY_LABELS: Record<FeedbackCategory["name"], string> = {
+  HOOK: "Hook",
+  PACING: "Pacing",
+  SPECIFICITY: "Specificity",
+  STRUCTURE: "Structure",
+  CTA: "Call to action",
+  LENGTH: "Length fit",
+};
+
 /* ============================================================
    [S2] Constants
 ============================================================ */
 const TOPIC_MAX_CHARS = 300;
-const SCRIPT_HARD_LIMIT = 6000;     // hard reject above this
-const SCRIPT_SOFT_LIMIT = 4500;     // warn above this
+const SCRIPT_HARD_LIMIT = 6000;
+const SCRIPT_SOFT_LIMIT = 4500;
 const SCRIPT_MIN_WORDS = 20;
-const WPM = 140;                    // narration words-per-minute estimate
+const WPM = 140;
 
 type VideoTypeConfig = {
   label: string;
@@ -115,16 +138,13 @@ type VoiceOption = {
   voiceId: string;
 };
 
-// 12 native Vietnamese ElevenLabs voices
 const ELEVENLABS_VIETNAMESE_VOICES: VoiceOption[] = [
-  // Female
   { id: "el-tham",       label: "Tham",          description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "0ggMuQ1r9f9jqBu50nJn" },
   { id: "el-thanh-f",    label: "Thanh",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "N0Z0aL8qHhzwUHwRBcVo" },
   { id: "el-duyen",      label: "Duyên",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "DVQIYWzpAqd5qcoIlirg" },
   { id: "el-ngan",       label: "Ngân Nguyễn",   description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "DvG3I1kDzdBY3u4EzYh6" },
   { id: "el-hien",       label: "Hiền",          description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "jdlxsPOZOHdGEfcItXVu" },
   { id: "el-trang",      label: "Trang",         description: "Native Vietnamese female", gender: "Female", provider: "elevenlabs", voiceId: "ArosID24mP18TEiQpNhs" },
-  // Male
   { id: "el-tranthanh",  label: "Trấn Thành",    description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "kPNz4WRTiKDplS7jAwHu" },
   { id: "el-anh",        label: "Anh",           description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "ywBZEqUhld86Jeajq94o" },
   { id: "el-trieuduong", label: "Triệu Dương",   description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "UsgbMVmY3U59ijwK5mdh" },
@@ -133,7 +153,6 @@ const ELEVENLABS_VIETNAMESE_VOICES: VoiceOption[] = [
   { id: "el-tung",       label: "Tùng",          description: "Native Vietnamese male",   gender: "Male",   provider: "elevenlabs", voiceId: "3VnrjnYrskPMDsapTr8X" },
 ];
 
-// Default ElevenLabs voices for other non-English languages
 const ELEVENLABS_OTHER_VOICES: VoiceOption[] = [
   { id: "el-george",  label: "George",  description: "Warm male narrator",         gender: "Male",   provider: "elevenlabs", voiceId: "JBFqnCBsd6RMkjVDRZzb" },
   { id: "el-roger",   label: "Roger",   description: "Confident, persuasive male", gender: "Male",   provider: "elevenlabs", voiceId: "CwhRBWXzGAHq8TQ4Fs17" },
@@ -179,20 +198,16 @@ function formatDuration(seconds: number): string {
 export default function CreateProjectPage() {
   const router = useRouter();
 
-  // 🆕 Mode toggle
   const [mode, setMode] = useState<Mode>("topic");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Topic Mode fields
   const [topic, setTopic] = useState("");
   const [topicInstructions, setTopicInstructions] = useState("");
   const [length, setLength] = useState("5 minutes");
   const [tone, setTone] = useState("friendly");
 
-  // 🆕 Script Mode field
   const [script, setScript] = useState("");
 
-  // Shared fields (both modes)
   const [videoType, setVideoType] = useState("conventional");
   const [style, setStyle] = useState("modern");
   const [voice, setVoice] = useState("Coral (warm female)");
@@ -204,6 +219,12 @@ export default function CreateProjectPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 🆕 Commit 10 — feedback state
+  const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(true);
+
   const { imageSource, setImageSource } = useImageSource("ai-art");
 
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<VoiceOption>(ELEVENLABS_VIETNAMESE_VOICES[0]);
@@ -213,7 +234,6 @@ export default function CreateProjectPage() {
   const isVietnamese = language === "Vietnamese";
   const elevenLabsVoices = isVietnamese ? ELEVENLABS_VIETNAMESE_VOICES : ELEVENLABS_OTHER_VOICES;
 
-  // Auto-adjust on video type change (Topic Mode only — Script Mode derives length from words)
   useEffect(() => {
     const config = VIDEO_TYPES[videoType];
     if (!config) return;
@@ -226,7 +246,6 @@ export default function CreateProjectPage() {
     else { setStyle("modern"); setTone("friendly"); }
   }, [videoType, mode]);
 
-  // Auto-switch voice when language changes
   useEffect(() => {
     if (isElevenLabsLanguage) {
       const voices = language === "Vietnamese" ? ELEVENLABS_VIETNAMESE_VOICES : ELEVENLABS_OTHER_VOICES;
@@ -237,9 +256,17 @@ export default function CreateProjectPage() {
     }
   }, [language, isElevenLabsLanguage]);
 
+  // 🆕 Commit 10 — invalidate feedback when the script changes (it's stale now)
+  useEffect(() => {
+    if (feedback) {
+      setFeedback(null);
+      setFeedbackError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script]);
+
   const activeConfig = VIDEO_TYPES[videoType];
 
-  // 🆕 Live word count + duration estimate (Script Mode)
   const scriptWordCount = useMemo(() => countWords(script), [script]);
   const estimatedSeconds = useMemo(() => Math.ceil(scriptWordCount / (WPM / 60)), [scriptWordCount]);
   const scriptOverHard = scriptWordCount > SCRIPT_HARD_LIMIT;
@@ -268,8 +295,6 @@ export default function CreateProjectPage() {
       base.tone = tone;
     } else {
       base.script = script;
-      // No topic, topic_instructions, length, or tone in Script Mode —
-      // backend handles derivation
     }
 
     if (isElevenLabsLanguage) {
@@ -281,13 +306,58 @@ export default function CreateProjectPage() {
   }, [mode, topic, topicInstructions, script, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
 
   /* ----------------------------------------------------------
+     🆕 Commit 10 — Get script feedback
+  ---------------------------------------------------------- */
+  async function handleGetFeedback() {
+    setFeedbackError(null);
+    setFeedback(null);
+    setFeedbackBusy(true);
+    setFeedbackOpen(true);
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) {
+        setFeedbackError("You are not logged in. Please log in again.");
+        setFeedbackBusy(false);
+        return;
+      }
+
+      const res = await fetch("/api/projects/script-feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          script,
+          video_type: videoType,
+          language,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setFeedbackError(json?.error || "Failed to get feedback.");
+        setFeedbackBusy(false);
+        return;
+      }
+
+      setFeedback(json.feedback as ScriptFeedback);
+    } catch (err: any) {
+      setFeedbackError(err?.message || "Something went wrong.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  /* ----------------------------------------------------------
      Submit
   ---------------------------------------------------------- */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    // Client-side validation
     if (mode === "topic" && !topic.trim()) {
       setError("Topic is required.");
       return;
@@ -358,7 +428,16 @@ export default function CreateProjectPage() {
     setError(null);
     setCaptionStyle("karaoke");
     setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
+    setFeedback(null);
+    setFeedbackError(null);
   }
+
+  // Disable feedback button when the script isn't ready
+  const canGetFeedback = mode === "script" &&
+                         !feedbackBusy &&
+                         !scriptUnderMin &&
+                         !scriptOverHard &&
+                         scriptWordCount >= SCRIPT_MIN_WORDS;
 
   /* ============================================================
      [S4] Render
@@ -368,7 +447,6 @@ export default function CreateProjectPage() {
 
       <UsageBanner pipeline="create" className="mb-6" />
 
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Create Project</h1>
         <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2" type="button">
@@ -380,7 +458,7 @@ export default function CreateProjectPage() {
         <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">{error}</div>
       )}
 
-      {/* 🆕 MODE TOGGLE */}
+      {/* MODE TOGGLE */}
       <div className="mb-6">
         <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
           <button
@@ -416,7 +494,7 @@ export default function CreateProjectPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Video Type Selector — both modes */}
+        {/* Video Type Selector */}
         <div className="space-y-2">
           <label className="font-medium">Video Type</label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -436,10 +514,9 @@ export default function CreateProjectPage() {
           </div>
         </div>
 
-        {/* ─── TOPIC MODE FIELDS ─────────────────────────────── */}
+        {/* TOPIC MODE FIELDS */}
         {mode === "topic" && (
           <>
-            {/* Topic */}
             <div className="space-y-2">
               <div className="flex items-end justify-between gap-3">
                 <label className="font-medium">Topic</label>
@@ -450,7 +527,6 @@ export default function CreateProjectPage() {
               <div className="text-xs text-gray-500">Tip: keep Topic short. Put detailed instructions below.</div>
             </div>
 
-            {/* Topic Instructions */}
             <div className="space-y-2">
               <label className="font-medium">Topic Instructions <span className="text-gray-400 font-normal">(optional)</span></label>
               <textarea value={topicInstructions} onChange={(e) => setTopicInstructions(e.target.value)}
@@ -461,7 +537,7 @@ export default function CreateProjectPage() {
           </>
         )}
 
-        {/* ─── 🆕 SCRIPT MODE FIELD ──────────────────────────── */}
+        {/* SCRIPT MODE FIELD */}
         {mode === "script" && (
           <div className="space-y-2">
             <div className="flex items-end justify-between gap-3">
@@ -504,15 +580,63 @@ export default function CreateProjectPage() {
             <div className="text-xs text-gray-500">
               Your script is never rewritten. Ripple narrates it verbatim and produces visuals to match.
             </div>
+
+            {/* 🆕 Commit 10 — Get feedback button + panel */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleGetFeedback}
+                disabled={!canGetFeedback}
+                className={
+                  "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-all " +
+                  (canGetFeedback
+                    ? "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:border-purple-400"
+                    : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed")
+                }
+              >
+                {feedbackBusy ? (
+                  <>
+                    <span className="inline-block w-3 h-3 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
+                    Reading your script…
+                  </>
+                ) : feedback ? (
+                  <>🔁 Refresh feedback</>
+                ) : (
+                  <>📋 Get editor&rsquo;s notes</>
+                )}
+              </button>
+              <span className="ml-3 text-xs text-gray-500">
+                Optional. Suggestions only — your script is never rewritten.
+              </span>
+            </div>
+
+            {feedbackError && (
+              <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                {feedbackError}
+              </div>
+            )}
+
+            {feedback && feedbackOpen && (
+              <FeedbackPanel feedback={feedback} onDismiss={() => setFeedbackOpen(false)} />
+            )}
+
+            {feedback && !feedbackOpen && (
+              <button
+                type="button"
+                onClick={() => setFeedbackOpen(true)}
+                className="text-xs text-purple-600 underline hover:text-purple-800"
+              >
+                Show feedback panel
+              </button>
+            )}
           </div>
         )}
 
-        {/* Image Source Toggle — both modes */}
+        {/* Image Source Toggle */}
         <ImageSourceToggle imageSource={imageSource} onChange={setImageSource} disabled={busy} />
 
-        {/* ─── CORE SETTINGS GRID (both modes) ───────────────── */}
+        {/* CORE SETTINGS GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Style */}
           <div className="space-y-2">
             <label className="font-medium">Style</label>
             <select value={style} onChange={(e) => setStyle(e.target.value)} className="w-full border rounded px-3 py-2">
@@ -523,7 +647,6 @@ export default function CreateProjectPage() {
             </select>
           </div>
 
-          {/* Voice */}
           <div className="space-y-2">
             <label className="font-medium">
               Voice
@@ -588,7 +711,6 @@ export default function CreateProjectPage() {
             )}
           </div>
 
-          {/* ─── Topic-Mode-only fields: Length, Tone ──────────── */}
           {mode === "topic" && (
             <>
               <div className="space-y-2">
@@ -610,7 +732,6 @@ export default function CreateProjectPage() {
             </>
           )}
 
-          {/* Caption Style — both modes */}
           <div className="space-y-2">
             <label className="font-medium">Caption Style</label>
             <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value)} className="w-full border rounded px-3 py-2">
@@ -629,7 +750,7 @@ export default function CreateProjectPage() {
           </div>
         </div>
 
-        {/* ─── 🆕 ADVANCED OPTIONS (collapsed by default) ────── */}
+        {/* ADVANCED OPTIONS */}
         <div className="border-t pt-4">
           <button
             type="button"
@@ -642,7 +763,6 @@ export default function CreateProjectPage() {
 
           {showAdvanced && (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Music */}
               <div className="space-y-2">
                 <label className="font-medium">Music</label>
                 <select value={music} onChange={(e) => setMusic(e.target.value)} className="w-full border rounded px-3 py-2">
@@ -653,7 +773,6 @@ export default function CreateProjectPage() {
                 </select>
               </div>
 
-              {/* Resolution */}
               <div className="space-y-2">
                 <label className="font-medium">Resolution</label>
                 <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="w-full border rounded px-3 py-2">
@@ -661,7 +780,6 @@ export default function CreateProjectPage() {
                 </select>
               </div>
 
-              {/* Language */}
               <div className="space-y-2 md:col-span-2">
                 <label className="font-medium">Language</label>
                 <select
@@ -701,7 +819,7 @@ export default function CreateProjectPage() {
         </div>
       </form>
 
-      {/* Project Summary — mode-aware */}
+      {/* Project Summary */}
       <div className="mt-8 rounded border p-4 bg-gray-50">
         <h2 className="font-semibold mb-2">Project Summary</h2>
         <div className="text-sm space-y-1">
@@ -717,14 +835,12 @@ export default function CreateProjectPage() {
               <div><b>Length:</b> {length} · <b>Tone:</b> {tone}</div>
             </>
           ) : (
-            <>
-              <div>
-                <b>Script:</b>{" "}
-                {scriptWordCount === 0
-                  ? "(not set)"
-                  : `${scriptWordCount} words · ~${formatDuration(estimatedSeconds)} video`}
-              </div>
-            </>
+            <div>
+              <b>Script:</b>{" "}
+              {scriptWordCount === 0
+                ? "(not set)"
+                : `${scriptWordCount} words · ~${formatDuration(estimatedSeconds)} video`}
+            </div>
           )}
 
           <div><b>Style:</b> {style}</div>
@@ -747,6 +863,79 @@ export default function CreateProjectPage() {
           <div><b>Music:</b> {music}</div>
           <div><b>Captions:</b> {captionStyle === "none" ? "None" : captionStyle === "block" ? "📺 Block (Netflix-style)" : captionStyle === "karaoke" ? "🎤 Karaoke (word highlight)" : "📝 Centered"}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   🆕 Commit 10 — FeedbackPanel component
+============================================================ */
+function FeedbackPanel({
+  feedback,
+  onDismiss,
+}: {
+  feedback: ScriptFeedback;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900 p-5 space-y-3.5 shadow-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm text-purple-300 uppercase tracking-wider">Editor&rsquo;s notes</h3>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-xs text-purple-300 hover:text-purple-200 underline"
+        >
+          Hide
+        </button>
+      </div>
+
+      <ul className="space-y-2.5">
+        {feedback.categories.map((cat) => {
+          const isPass = cat.status === "pass";
+          return (
+            <li key={cat.name} className="flex gap-3">
+              <span
+                className={
+                  "flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold mt-0.5 " +
+                  (isPass
+                    ? "bg-green-200 text-green-800 ring-1 ring-green-300"
+                    : "bg-amber-200 text-amber-800 ring-1 ring-amber-300")
+                }
+                title={isPass ? "Solid" : "Could improve"}
+              >
+                {isPass ? "✓" : "⚠"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className={
+                  "text-sm font-bold uppercase tracking-wider " +
+                  (isPass ? "text-green-700" : "text-amber-700")
+                }>
+                  {CATEGORY_LABELS[cat.name]}
+                </div>
+                <div className="text-sm text-slate-200 mt-0.5 leading-relaxed">
+                  {cat.note}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {feedback.overall && (
+        <div className="pt-3 border-t border-slate-700">
+          <div className="text-xs font-extrabold uppercase tracking-wider text-purple-400 mb-1.5">
+            Overall
+          </div>
+          <p className="text-sm text-slate-200 leading-relaxed">
+            {feedback.overall}
+          </p>
+        </div>
+      )}
+
+      <div className="pt-1 text-xs text-slate-500 italic">
+        Suggestions only. Your script is never edited automatically.
       </div>
     </div>
   );

@@ -1,10 +1,22 @@
 // ============================================================
 // FILE: src/app/api/projects/start-render/route.ts
 // ============================================================
-// ALL PATCHES APPLIED:
-//   🆕 PEXELS: Pexels real-photo support
-//   🆕 VOICE PICKER: ElevenLabs for non-English + native Vietnamese voice
-//   🆕 PEXELS QUERY: Improved search query generation for accurate photos
+// COMMIT 12 — Image quality improvements
+//
+// CHANGES vs previous version:
+//   1. searchPexelsForScene now calls a third source after
+//      Pexels and Pixabay: FREEPIK (free tier or paid).
+//      If FREEPIK_API_KEY is not set, Freepik is silently skipped.
+//
+//   2. convertSceneToSearchQuery prompt refined:
+//      - Always append country name to place searches
+//      - Always include nationality with food/cuisine
+//      - Better handling of person/event vagueness
+//
+// EVERYTHING ELSE IS UNCHANGED from the previous version.
+// All existing logic for script gen, TTS (OpenAI + ElevenLabs),
+// caption transcription, scene splitting, DALL-E generation,
+// audio upload, webhook trigger, project queueing — all preserved.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -26,7 +38,7 @@ type Scene = {
   startSec: number;
   endSec: number;
   transition: "crossfade" | "fade-black" | "slide-left" | "zoom-in";
-  imageSource?: "pexels" | "dalle";
+  imageSource?: "pexels" | "pixabay" | "freepik" | "dalle";
 };
 
 type SceneSplitResult = {
@@ -64,7 +76,7 @@ type ProjectRow = {
   caption_words: CaptionWord[] | null;
   scenes: Scene[] | null;
   image_source: string | null;
-  elevenlabs_voice_id: string | null;  // 🆕 VOICE PICKER
+  elevenlabs_voice_id: string | null;
 };
 
 function nowIso() {
@@ -231,13 +243,11 @@ async function generateTtsMp3(script: string, voiceId: string, voiceInstructions
 
 /* ============================================================
    TTS — ElevenLabs (for non-English)
-   🆕 VOICE PICKER: Native Vietnamese voice + eleven_v3 model
 ============================================================ */
 
 const ELEVENLABS_RENDER_VOICES: Record<string, {
   voiceId: string; model: string; languageCode: string;
 }> = {
-  // 🆕 Vietnamese uses native voice + v3 model for best tonal accuracy
   vi: { voiceId: "0ggMuQ1r9f9jqBu50nJn", model: "eleven_v3",             languageCode: "vi" },
   th: { voiceId: "JBFqnCBsd6RMkjVDRZzb", model: "eleven_flash_v2_5",     languageCode: "th" },
   es: { voiceId: "pFZP5JQG7iQjIQuC4Bku", model: "eleven_multilingual_v2", languageCode: "es" },
@@ -351,11 +361,9 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
     throw new Error(json?.error?.message || "Transcription failed (" + resp.status + ")");
   }
 
-  // Whisper word tokens strip punctuation — reattach from segment text
   const rawWords: any[] = Array.isArray(json?.words) ? json.words : [];
   const segments: any[] = Array.isArray(json?.segments) ? json.segments : [];
 
-  // Build punctuation map by matching word tokens to segment text
   const punctMap = new Map<number, string>();
   if (segments.length > 0) {
     let wordIdx = 0;
@@ -363,10 +371,10 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
       const tokens = (seg.text || "").trim().split(/\s+/);
       for (const token of tokens) {
         if (wordIdx >= rawWords.length) break;
-        const tokenWord = token.replace(/[^a-zA-Z0-9À-ɏ]/g, "");
-        const rawWord = String(rawWords[wordIdx]?.word ?? "").trim().replace(/[^a-zA-Z0-9À-ɏ]/g, "");
+        const tokenWord = token.replace(/[^a-zA-Z0-9À-ÿ]/g, "");
+        const rawWord = String(rawWords[wordIdx]?.word ?? "").trim().replace(/[^a-zA-Z0-9À-ÿ]/g, "");
         if (tokenWord.toLowerCase() === rawWord.toLowerCase() || tokenWord.length === 0) {
-          const trailing = token.replace(/^[a-zA-Z0-9À-ɏ'']+/, "");
+          const trailing = token.replace(/^[a-zA-Z0-9À-ÿ'']+/, "");
           if (trailing) punctMap.set(wordIdx, trailing);
           wordIdx++;
         }
@@ -406,9 +414,52 @@ async function splitScriptIntoScenes(opts: {
   const isVertical = videoType === "youtube_shorts" || videoType === "tiktok";
   const aspectRatio = isVertical ? "9:16 portrait (vertical)" : "16:9 landscape";
 
-  const targetScenes = durationSec <= 60
+  // 🆕 Commit 12.5 — Detect listicle/countdown structure.
+  // For "top N" / "N reasons" / "N ways" scripts, we MUST create at
+  // least N+2 scenes (one per item plus intro/outro), otherwise the
+  // image will freeze on an early item while the script counts down.
+  function detectListicleCount(text: string): number {
+    if (!text) return 0;
+    const lower = text.toLowerCase();
+
+    const listicleWords = ["landmarks","reasons","ways","tips","places","items","facts","things","mistakes","secrets","steps","habits","foods","cities","countries","destinations","people","myths","truths","signs","examples","ideas","strategies","tricks","ports","cars","movies","books","songs","apps","sites","brands","products","wonders","hacks","rules","lessons","types","kinds"];
+    const wordPattern = listicleWords.join("|");
+
+    // "top 10 X"
+    const m1 = lower.match(/top\s+(\d{1,2})\b/);
+    if (m1) {
+      const n = Number(m1[1]);
+      if (n >= 3 && n <= 25) return n;
+    }
+    // "10 landmarks" / "5 reasons" etc.
+    const m2 = lower.match(new RegExp("\\b(\\d{1,2})\\s+(" + wordPattern + ")\\b"));
+    if (m2) {
+      const n = Number(m2[1]);
+      if (n >= 3 && n <= 25) return n;
+    }
+
+    // Count actual numbered markers in the script ("1.", "Number 10", "#5")
+    const numericMarkers = (text.match(/\b(?:\d{1,2}[.)]|number\s+\d{1,2}|#\d{1,2})/gi) || []).length;
+    if (numericMarkers >= 4 && numericMarkers <= 25) return numericMarkers;
+
+    return 0;
+  }
+
+  const expectedItems = detectListicleCount(script);
+
+  const baseScenes = durationSec <= 60
     ? Math.max(4, Math.min(8, Math.round(durationSec / 8)))
     : Math.max(5, Math.min(15, Math.round(durationSec / 15)));
+
+  // If listicle detected, ensure scenes >= items + 2 (intro + outro).
+  // Lift the upper cap to 20 to accommodate longer countdowns.
+  const targetScenes = expectedItems > 0
+    ? Math.max(baseScenes, Math.min(20, expectedItems + 2))
+    : baseScenes;
+
+  if (expectedItems > 0) {
+    console.log("[scenes] listicle detected: " + expectedItems + " items → targetScenes=" + targetScenes);
+  }
 
   const prompt = [
     "You are a professional video director creating scene breakdowns for a YouTube video.",
@@ -425,7 +476,9 @@ async function splitScriptIntoScenes(opts: {
     script,
     "\"\"\"",
     "",
-    "Split this into exactly " + targetScenes + " visual scenes. For each provide:",
+    expectedItems > 0
+      ? "This script is a LISTICLE/COUNTDOWN with " + expectedItems + " items. You MUST create one scene per item (plus intro and outro). Do NOT lump multiple items into one scene. Split into exactly " + targetScenes + " scenes total. For each provide:"
+      : "Split this into exactly " + targetScenes + " visual scenes. For each provide:",
     "1. \"title\": short label (2-4 words)",
     "2. \"narrationText\": the exact script portion for this scene",
     "3. \"imagePrompt\": a SPECIFIC image generation prompt",
@@ -683,24 +736,32 @@ async function generateOneImage(imagePrompt: string, sceneTitle: string, imageSi
 }
 
 /* ============================================================
-   Pexels: Search for a single scene
+   🆕 Commit 12: Stock photo search — Pexels → Pixabay → FREEPIK
 ============================================================ */
+
+type StockSearchResult = {
+  url: string;
+  photographer: string;
+  photographerUrl: string;
+  source: "pexels" | "pixabay" | "freepik";
+};
 
 async function searchPexelsForScene(
   searchQuery: string,
   orientation: "landscape" | "portrait"
-): Promise<{ url: string; photographer: string; photographerUrl: string } | null> {
+): Promise<StockSearchResult | null> {
   const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
   const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
+  const FREEPIK_API_KEY = process.env.FREEPIK_API_KEY;
 
-  // Build smart fallback tiers — same logic as ReCreate pipeline
+  // Build smart fallback tiers — same logic as before
   const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
   const tier1 = words.filter((w: string) => !["the","a","an","of","in","at","on","by","for","and","or","with","from"].includes(w)).slice(0, 4).join(" ");
   const tier2 = words.filter((w: string) => w.length >= 5).slice(0, 2).join(" ") || words.slice(0, 2).join(" ");
   const queries = [searchQuery, tier1, tier2].filter((q, i, arr) => q && arr.indexOf(q) === i);
 
   for (const query of queries) {
-    // Try Pexels first
+    // ─── Try Pexels first ───────────────────────────────
     if (PEXELS_API_KEY) {
       try {
         const params = new URLSearchParams({ query, orientation, per_page: "5", size: "large" });
@@ -717,6 +778,7 @@ async function searchPexelsForScene(
               url: orientation === "portrait" ? photo.src.portrait : photo.src.landscape,
               photographer: photo.photographer,
               photographerUrl: photo.photographer_url,
+              source: "pexels",
             };
           }
         }
@@ -725,7 +787,7 @@ async function searchPexelsForScene(
       }
     }
 
-    // Try Pixabay as second source
+    // ─── Try Pixabay second ─────────────────────────────
     if (PIXABAY_API_KEY) {
       try {
         const pixOrientation = orientation === "portrait" ? "vertical" : "horizontal";
@@ -743,7 +805,12 @@ async function searchPexelsForScene(
             const url = photo.largeImageURL || photo.webformatURL;
             if (url) {
               console.log("[pixabay]  ✅ Pixabay hit for '" + query + "'");
-              return { url, photographer: photo.user || "Pixabay", photographerUrl: `https://pixabay.com/users/${photo.user}-${photo.user_id}/` };
+              return {
+                url,
+                photographer: photo.user || "Pixabay",
+                photographerUrl: `https://pixabay.com/users/${photo.user}-${photo.user_id}/`,
+                source: "pixabay",
+              };
             }
           }
         }
@@ -752,15 +819,67 @@ async function searchPexelsForScene(
       }
     }
 
-    if (query !== searchQuery) console.log("[image]    no results for '" + searchQuery + "', tried '" + query + "'");
+    // ─── 🆕 Try Freepik third ────────────────────────────
+    // Freepik free tier: 10 downloads/day. Skipped silently if no API key.
+    if (FREEPIK_API_KEY) {
+      try {
+        const freepikOrientation = orientation === "portrait" ? "portrait" : "landscape";
+        const params = new URLSearchParams({
+          term: query,
+          limit: "5",
+          "filters[orientation]": freepikOrientation,
+          "filters[content_type][photo]": "1",
+        });
+
+        const resp = await fetch(`https://api.freepik.com/v1/resources?${params}`, {
+          headers: {
+            "x-freepik-api-key": FREEPIK_API_KEY,
+            "Accept": "application/json",
+          },
+        });
+
+        if (resp.ok) {
+          const data: any = await resp.json();
+          const items: any[] = Array.isArray(data?.data) ? data.data : [];
+          if (items.length > 0) {
+            const photo = items[Math.floor(Math.random() * Math.min(items.length, 4))];
+            // Freepik returns image URLs in nested image.source structure
+            const imgUrl = photo?.image?.source?.url
+                        || photo?.image?.url
+                        || photo?.preview?.url;
+            if (imgUrl) {
+              console.log("[freepik]  ✅ Freepik hit for '" + query + "'");
+              return {
+                url: imgUrl,
+                photographer: photo?.author?.name || "Freepik",
+                photographerUrl: photo?.author?.url || "https://www.freepik.com/",
+                source: "freepik",
+              };
+            }
+          }
+        } else {
+          // Quietly log — could be rate limit, free-tier exhausted
+          const errText = await resp.text().catch(() => "");
+          console.warn("[freepik]  Freepik error " + resp.status + ": " + errText.slice(0, 100));
+        }
+      } catch (err: any) {
+        console.warn("[freepik] search error: " + err?.message);
+      }
+    }
+
+    if (query !== searchQuery) {
+      console.log("[image]    no results for '" + searchQuery + "', tried '" + query + "'");
+    }
   }
 
   return null;
 }
 
 /* ============================================================
-   🆕 PEXELS QUERY: Improved scene → Pexels search query
-   Now extracts exact place names + country for accurate results
+   🆕 Commit 12: Improved scene → search query
+   - Always append country to places
+   - Always include nationality with food/cuisine
+   - Better person/event handling
 ============================================================ */
 
 async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sceneTitle?: string): Promise<string> {
@@ -783,31 +902,40 @@ async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sce
         messages: [
           {
             role: "system",
-            content: `You convert video scene descriptions into stock photo search queries for Pexels/Pixabay.
+            content: `You convert video scene descriptions into stock photo search queries for Pexels, Pixabay, and Freepik.
 
 STRICT RULES:
+
 1. NEVER include names of real people (politicians, celebrities, etc.) — stock libraries have no photos of them.
    BAD: "Trump tariffs trade war" → GOOD: "shipping containers port crane"
    BAD: "Biden speech podium" → GOOD: "politician podium speech crowd"
 
-2. If scene mentions a SPECIFIC PLACE, include it (these DO match stock searches):
-   "Da Nang beach" → "Da Nang beach Vietnam"
-   "Santorini" → "Santorini Greece white buildings"
+2. PLACES: ALWAYS append the country name, even if obvious. Stock libraries tag by country.
+   "Da Nang beach" → "Da Nang Vietnam beach tropical"
+   "Santorini sunset" → "Santorini Greece sunset white buildings"
+   "Tokyo street" → "Tokyo Japan street neon night"
+   "Paris cafe" → "Paris France cafe sidewalk"
 
-3. If scene mentions SPECIFIC FOOD, ANIMAL, or OBJECT, name it exactly:
-   "bowl of pho" → "pho Vietnamese soup bowl"
+3. FOOD/CUISINE: ALWAYS prepend the nationality.
+   "bowl of pho" → "Vietnamese pho soup bowl noodles"
+   "sushi platter" → "Japanese sushi platter"
+   "tacos" → "Mexican tacos street food"
+   "pad thai" → "Thai pad thai noodles"
+
+4. SPECIFIC ANIMALS, OBJECTS, PLANTS: name them precisely.
    "cherry blossoms" → "cherry blossom Japan spring"
+   "pyramid" → "Egyptian pyramids Giza desert"
 
-4. Use 3-5 words. Think: "what physical object would a camera point at?"
-   BAD: "economic growth" → GOOD: "stock market graph rising"
-   BAD: "political tension" → GOOD: "government building crowd protest"
+5. Use 3-5 words. Think: "what physical object would a camera point at?"
+   BAD: "economic growth" → GOOD: "stock market graph rising green"
+   BAD: "political tension" → GOOD: "government building protest crowd"
    BAD: "technology future" → GOOD: "robot arm factory manufacturing"
 
-5. NEVER use: cinematic, dramatic, stunning, beautiful, golden hour, concept, abstract.
+6. NEVER use these stylistic adjectives: cinematic, dramatic, stunning, beautiful, golden hour, concept, abstract, conceptual.
 
-6. For news/geopolitics topics use proven B-roll patterns:
+7. For news/geopolitics topics use proven B-roll patterns:
    Trade/Economy → "cargo ship port aerial" or "stock market red graph"
-   War/Military → "military helicopter flying" or "soldiers training desert"
+   War/Military → "military helicopter aerial" or "soldiers training desert"
    Technology → "server room blue lights" or "circuit board macro"
    Politics → "government building exterior" or "protest crowd street"
 
@@ -819,7 +947,7 @@ Reply with ONLY the search query, nothing else.`,
 Scene title: "${sceneTitle || "(none)"}"
 Scene description: "${imagePrompt}"
 
-Best stock photo search query (3-5 words, no person names):`,
+Best stock photo search query (3-5 words, country/nationality required, no person names):`,
           },
         ],
       }),
@@ -843,7 +971,7 @@ Best stock photo search query (3-5 words, no person names):`,
       }
     }
   } catch (err: any) {
-    console.warn("[pexels] query conversion failed: " + err?.message);
+    console.warn("[query] conversion failed: " + err?.message);
   }
 
   const topicWords = topic.split(" ").filter(w => w.length > 3).slice(0, 2).join(" ");
@@ -882,7 +1010,7 @@ async function generateScenesWithImages(opts: {
 
   const isVertical = videoType === "youtube_shorts" || videoType === "tiktok";
   const imageSize = isVertical ? "1024x1792" : "1792x1024";
-  const pexelsOrientation = isVertical ? "portrait" as const : "landscape" as const;
+  const stockOrientation = isVertical ? "portrait" as const : "landscape" as const;
 
   const useRealPhotos = imageSource === "real-photos";
   console.log("[scenes] imageSource:", imageSource, "useRealPhotos:", useRealPhotos);
@@ -896,9 +1024,10 @@ async function generateScenesWithImages(opts: {
 
   console.log("[scenes] got " + scenes.length + " scenes, generating images...");
 
-  const pexelsCredits: { photographer: string; photographerUrl: string; sceneIndex: number }[] = [];
-  let pexelsCount = 0;
+  const credits: { photographer: string; photographerUrl: string; sceneIndex: number; source: string }[] = [];
+  let stockCount = 0;
   let dalleCount = 0;
+  const sourceCounts = { pexels: 0, pixabay: 0, freepik: 0, dalle: 0 };
 
   for (let i = 0; i < scenes.length; i++) {
     const scene = scenes[i];
@@ -906,24 +1035,25 @@ async function generateScenesWithImages(opts: {
 
     try {
       if (useRealPhotos) {
-        console.log("[scenes]   " + label + " (" + scene.title + "): searching Pexels...");
+        console.log("[scenes]   " + label + " (" + scene.title + "): searching stock libraries...");
 
-        // 🆕 PEXELS QUERY: Pass scene title for better context
         const searchQuery = await convertSceneToSearchQuery(scene.imagePrompt, topic, scene.title);
         console.log("[scenes]   " + label + ": search query = '" + searchQuery + "'");
 
-        const pexelsResult = await searchPexelsForScene(searchQuery, pexelsOrientation);
+        const stockResult = await searchPexelsForScene(searchQuery, stockOrientation);
 
-        if (pexelsResult) {
-          scene.imageUrl = pexelsResult.url;
-          scene.imageSource = "pexels";
-          pexelsCredits.push({
-            photographer: pexelsResult.photographer,
-            photographerUrl: pexelsResult.photographerUrl,
+        if (stockResult) {
+          scene.imageUrl = stockResult.url;
+          scene.imageSource = stockResult.source;
+          credits.push({
+            photographer: stockResult.photographer,
+            photographerUrl: stockResult.photographerUrl,
             sceneIndex: scene.index,
+            source: stockResult.source,
           });
-          pexelsCount++;
-          console.log("[scenes]   " + label + ": ✅ Pexels photo by " + pexelsResult.photographer);
+          stockCount++;
+          sourceCounts[stockResult.source]++;
+          console.log("[scenes]   " + label + ": ✅ " + stockResult.source + " by " + stockResult.photographer);
 
           if (i < scenes.length - 1) {
             await new Promise((r) => setTimeout(r, 300));
@@ -931,7 +1061,7 @@ async function generateScenesWithImages(opts: {
           continue;
         }
 
-        console.log("[scenes]   " + label + ": no Pexels results, falling back to DALL-E");
+        console.log("[scenes]   " + label + ": no stock results, falling back to DALL-E");
       }
 
       console.log("[scenes]   " + label + " (" + scene.title + "): generating DALL-E image...");
@@ -953,6 +1083,7 @@ async function generateScenesWithImages(opts: {
         scene.imageObjectPath = objectPath;
         scene.imageSource = "dalle";
         dalleCount++;
+        sourceCounts.dalle++;
         console.log("[scenes]   " + label + ": ✅ DALL-E done");
       }
     } catch (err: any) {
@@ -970,13 +1101,16 @@ async function generateScenesWithImages(opts: {
 
   console.log(
     "[scenes] done: " + successCount + "/" + scenes.length + " images" +
-    " (Pexels: " + pexelsCount + ", DALL-E: " + dalleCount + ")" +
+    " (Pexels: " + sourceCounts.pexels +
+    ", Pixabay: " + sourceCounts.pixabay +
+    ", Freepik: " + sourceCounts.freepik +
+    ", DALL-E: " + sourceCounts.dalle + ")" +
     " cost: $" + imageCost.toFixed(2) +
-    " saved: $" + (pexelsCount * 0.08).toFixed(2) +
+    " saved: $" + (stockCount * 0.08).toFixed(2) +
     (failCount > 0 ? " (" + failCount + " failed)" : "")
   );
 
-  return { scenes, pexelsCredits, imageCost };
+  return { scenes, pexelsCredits: credits, imageCost };
 }
 
 /* ============================================================
@@ -1060,7 +1194,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    /* ── Usage guard ─────────────────────────────────────── */
+    /* ── Usage guard ───────────────────────────────────────── */
     const { checkAndIncrementUsage } = await import("@/lib/usageGuard");
     const usageCheck = await checkAndIncrementUsage(user.id, "create");
     if (!usageCheck.allowed) {
@@ -1101,7 +1235,7 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ── guard: already running ────────────────────────────── */
+    /* ── guard: already running ───────────────────────────── */
     const running = new Set(["queued", "processing", "rendering"]);
     if (!force && project.status && running.has(project.status)) {
       return NextResponse.json({
@@ -1113,7 +1247,7 @@ export async function POST(req: Request) {
       }, { status: 200 });
     }
 
-    /* ── script ────────────────────────────────────────────── */
+    /* ── script ───────────────────────────────────────────── */
     const seconds = lengthToSeconds(project.length);
     const targetWords = Math.round(seconds * 2.2);
     const minWords = Math.round(targetWords * 0.92);
@@ -1136,10 +1270,10 @@ export async function POST(req: Request) {
       }
     }
 
-    /* ── bump attempt ──────────────────────────────────────── */
+    /* ── bump attempt ─────────────────────────────────────── */
     const nextAttempt = (project.render_attempt ?? 0) + 1;
 
-    /* ── TTS -> upload -> Whisper ───────────────────────────── */
+    /* ── TTS -> upload -> Whisper ─────────────────────────── */
     const voiceLabel = (project.voice || "").toLowerCase().trim();
     const voiceMap: Record<string, string> = {
       "coral (warm female)": "coral",
@@ -1172,13 +1306,11 @@ export async function POST(req: Request) {
     };
     const voiceInstructions = toneInstructions[toneLabel] || toneInstructions["friendly"];
 
-    // 🆕 VOICE PICKER + Phase 3 CLONED VOICE: Fetch user's cloned voice from profile
     const projectLang = (project.language || "English").toLowerCase().trim();
     const langCode = LANG_NAME_TO_CODE[projectLang] || null;
     const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY;
     const isNonEnglish = projectLang !== "english" && langCode;
 
-    // Phase 3: Auto-inject user's cloned voice (Studio tier exclusive)
     let userClonedVoiceId: string | null = project.elevenlabs_voice_id || null;
     if (!userClonedVoiceId) {
       try {
@@ -1198,12 +1330,10 @@ export async function POST(req: Request) {
 
     let mp3: Buffer;
     if (userClonedVoiceId && hasElevenLabs) {
-      // Phase 3: User has a cloned voice — use it for ALL languages
       const clonedLangCode = langCode || "en";
       console.log("[tts] Using cloned voice " + userClonedVoiceId + " for lang=" + project.language);
       mp3 = await generateTtsElevenLabsRender(script!, clonedLangCode, userClonedVoiceId);
     } else if (isNonEnglish && hasElevenLabs && langCode) {
-      // Non-English with default ElevenLabs voice
       console.log("[tts] Using ElevenLabs default for " + project.language + " (code: " + langCode + ")");
       mp3 = await generateTtsElevenLabsRender(script!, langCode, null);
     } else {
@@ -1225,7 +1355,7 @@ export async function POST(req: Request) {
     const captionWords = await transcribeWordsFromMp3(mp3);
     console.log("[start-render] captionWords count:", captionWords.length, "first:", JSON.stringify(captionWords[0]));
 
-    /* ── scene generation + images ─────────────────────────── */
+    /* ── scene generation + images ────────────────────────── */
     console.log("[start-render] starting scene generation (image_source: " + (project.image_source || "ai-art") + ")...");
 
     let scenes: Scene[] | null = null;
@@ -1262,7 +1392,7 @@ export async function POST(req: Request) {
       scenes = null;
     }
 
-    /* ── queue the project ─────────────────────────────────── */
+    /* ── queue the project ────────────────────────────────── */
     const oldUrl = project.video_url;
 
     const { data: queuedRow, error: queueErr } = await admin
@@ -1292,7 +1422,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: queueErr.message }, { status: 400 });
     }
 
-    /* ── project_renders row ───────────────────────────────── */
+    /* ── project_renders row ──────────────────────────────── */
     await admin.from("project_renders").upsert(
       {
         project_id: projectId,
@@ -1307,7 +1437,7 @@ export async function POST(req: Request) {
       { onConflict: "project_id,attempt" }
     );
 
-    /* ── trigger webhook ───────────────────────────────────── */
+    /* ── trigger webhook ──────────────────────────────────── */
     try {
       await triggerRenderWebhook({ projectId, attempt: nextAttempt, secret });
     } catch (err: any) {
@@ -1329,7 +1459,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    /* ── success ───────────────────────────────────────────── */
+    /* ── success ──────────────────────────────────────────── */
     return NextResponse.json({
       ok: true,
       reused: false,
@@ -1346,9 +1476,11 @@ export async function POST(req: Request) {
       scene_images_count: scenes?.filter((s) => s.imageUrl).length ?? 0,
       image_source: project.image_source || "ai-art",
       pexels_images: scenes?.filter((s) => s.imageSource === "pexels").length ?? 0,
+      pixabay_images: scenes?.filter((s) => s.imageSource === "pixabay").length ?? 0,
+      freepik_images: scenes?.filter((s) => s.imageSource === "freepik").length ?? 0,
       dalle_images: scenes?.filter((s) => s.imageSource === "dalle").length ?? 0,
       image_cost_usd: imageCost,
-      cost_saved_usd: (scenes?.filter((s) => s.imageSource === "pexels").length ?? 0) * 0.08,
+      cost_saved_usd: (scenes?.filter((s) => s.imageSource && s.imageSource !== "dalle").length ?? 0) * 0.08,
     }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });

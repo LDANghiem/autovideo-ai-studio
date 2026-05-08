@@ -1,23 +1,21 @@
 // ============================================================
 // FILE: src/app/dashboard/create/page.tsx
 // ============================================================
-// COMMIT 10 — Adds AI script feedback (Script Mode only)
+// COMMIT 12 — News-event detection warning
 //
-// What's new in Commit 10:
-//   - "Get feedback on my script" button below the script textarea
-//   - Loading state while feedback fetches
-//   - Inline expandable panel showing 6-category feedback
-//   - Each category: ✓ pass or ⚠ improve + concrete note
-//   - Brief OVERALL summary at the bottom
-//   - Dismissable / re-runnable
-//   - Suggestions only — never auto-edits the script
+// What's new in Commit 12:
+//   - Before submitting in real-photos mode, classify the topic/script
+//   - If classified as current_events or conflict_disaster, show a
+//     warning modal explaining stock photos handle these poorly
+//   - User can choose: switch to AI Art, or proceed anyway
+//   - Soft fail: classifier errors don't block submission
 //
-// Preserved from Commit 9:
+// Preserved from Commit 10:
 //   - Topic Mode / Script Mode toggle
-//   - All 12 native Vietnamese ElevenLabs voices
-//   - Language-aware voice picker
+//   - Editor's notes feedback panel (Script Mode only)
+//   - 12 native Vietnamese ElevenLabs voices
 //   - Word-count limits and live counter
-//   - "Show advanced" collapsible
+//   - Show advanced collapsible
 // ============================================================
 
 "use client";
@@ -54,7 +52,6 @@ type CreatePayload = {
 
 type Mode = "topic" | "script";
 
-// 🆕 Commit 10: Script feedback shape
 type FeedbackCategory = {
   name: "HOOK" | "PACING" | "SPECIFICITY" | "STRUCTURE" | "CTA" | "LENGTH";
   status: "pass" | "improve";
@@ -74,6 +71,9 @@ const CATEGORY_LABELS: Record<FeedbackCategory["name"], string> = {
   CTA: "Call to action",
   LENGTH: "Length fit",
 };
+
+// 🆕 Commit 12: classification result
+type ClassifyCategory = "evergreen" | "current_events" | "conflict_disaster";
 
 /* ============================================================
    [S2] Constants
@@ -128,7 +128,6 @@ const VIDEO_TYPES: Record<string, VideoTypeConfig> = {
   },
 };
 
-// ─── Voice picker types ───────────────────────────────────────
 type VoiceOption = {
   id: string;
   label: string;
@@ -219,11 +218,16 @@ export default function CreateProjectPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 🆕 Commit 10 — feedback state
   const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(true);
+
+  // 🆕 Commit 12 — news-event warning state
+  const [classifying, setClassifying] = useState(false);
+  const [warningCategory, setWarningCategory] = useState<ClassifyCategory | null>(null);
+  const [warningReason, setWarningReason] = useState<string>("");
+  const [warningProceed, setWarningProceed] = useState(false); // user has clicked "continue anyway"
 
   const { imageSource, setImageSource } = useImageSource("ai-art");
 
@@ -256,7 +260,6 @@ export default function CreateProjectPage() {
     }
   }, [language, isElevenLabsLanguage]);
 
-  // 🆕 Commit 10 — invalidate feedback when the script changes (it's stale now)
   useEffect(() => {
     if (feedback) {
       setFeedback(null);
@@ -264,6 +267,12 @@ export default function CreateProjectPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script]);
+
+  // 🆕 Commit 12 — invalidate warning when content/source changes
+  useEffect(() => {
+    setWarningCategory(null);
+    setWarningProceed(false);
+  }, [topic, topicInstructions, script, imageSource, mode]);
 
   const activeConfig = VIDEO_TYPES[videoType];
 
@@ -273,9 +282,6 @@ export default function CreateProjectPage() {
   const scriptOverSoft = scriptWordCount > SCRIPT_SOFT_LIMIT && !scriptOverHard;
   const scriptUnderMin = script.length > 0 && scriptWordCount < SCRIPT_MIN_WORDS;
 
-  /* ----------------------------------------------------------
-     Payload
-  ---------------------------------------------------------- */
   const payload: CreatePayload = useMemo(() => {
     const base: CreatePayload = {
       video_type: videoType,
@@ -306,7 +312,7 @@ export default function CreateProjectPage() {
   }, [mode, topic, topicInstructions, script, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
 
   /* ----------------------------------------------------------
-     🆕 Commit 10 — Get script feedback
+     Get script feedback (unchanged)
   ---------------------------------------------------------- */
   async function handleGetFeedback() {
     setFeedbackError(null);
@@ -352,6 +358,41 @@ export default function CreateProjectPage() {
   }
 
   /* ----------------------------------------------------------
+     🆕 Commit 12 — Classify before submit
+  ---------------------------------------------------------- */
+  async function classifyContent(): Promise<ClassifyCategory> {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return "evergreen"; // soft-fail
+
+      // Build text to classify based on mode
+      const text = mode === "topic"
+        ? [topic, topicInstructions].filter(Boolean).join(". ")
+        : script;
+
+      if (!text || text.trim().length < 10) return "evergreen";
+
+      const res = await fetch("/api/projects/script-classify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) return "evergreen";
+
+      setWarningReason(json?.reason || "");
+      return (json?.category || "evergreen") as ClassifyCategory;
+    } catch {
+      return "evergreen";
+    }
+  }
+
+  /* ----------------------------------------------------------
      Submit
   ---------------------------------------------------------- */
   async function handleSubmit(e: React.FormEvent) {
@@ -373,8 +414,25 @@ export default function CreateProjectPage() {
       }
     }
 
-    setBusy(true);
+    // 🆕 Commit 12 — classify if real-photos mode AND not yet acknowledged
+    if (imageSource === "real-photos" && !warningProceed) {
+      setClassifying(true);
+      const category = await classifyContent();
+      setClassifying(false);
 
+      if (category !== "evergreen") {
+        // Show warning, don't submit yet
+        setWarningCategory(category);
+        return;
+      }
+    }
+
+    // Proceed with submission
+    await submitProject();
+  }
+
+  async function submitProject() {
+    setBusy(true);
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -410,6 +468,22 @@ export default function CreateProjectPage() {
     }
   }
 
+  /* ----------------------------------------------------------
+     Warning modal handlers
+  ---------------------------------------------------------- */
+  function handleSwitchToAiArt() {
+    setImageSource("ai-art");
+    setWarningCategory(null);
+    setWarningProceed(false);
+    // Note: we do NOT auto-submit. User reviews the change and clicks Create again.
+  }
+
+  async function handleProceedAnyway() {
+    setWarningProceed(true);
+    setWarningCategory(null);
+    await submitProject();
+  }
+
   function handleReset() {
     setMode("topic");
     setShowAdvanced(false);
@@ -430,9 +504,10 @@ export default function CreateProjectPage() {
     setSelectedElevenLabsVoice(ELEVENLABS_VIETNAMESE_VOICES[0]);
     setFeedback(null);
     setFeedbackError(null);
+    setWarningCategory(null);
+    setWarningProceed(false);
   }
 
-  // Disable feedback button when the script isn't ready
   const canGetFeedback = mode === "script" &&
                          !feedbackBusy &&
                          !scriptUnderMin &&
@@ -581,7 +656,7 @@ export default function CreateProjectPage() {
               Your script is never rewritten. Ripple narrates it verbatim and produces visuals to match.
             </div>
 
-            {/* 🆕 Commit 10 — Get feedback button + panel */}
+            {/* Get feedback button + panel */}
             <div className="pt-2">
               <button
                 type="button"
@@ -808,16 +883,27 @@ export default function CreateProjectPage() {
         <div className="pt-2 flex items-center gap-3">
           <button
             type="submit"
-            disabled={busy || (mode === "script" && (scriptUnderMin || scriptOverHard))}
+            disabled={busy || classifying || (mode === "script" && (scriptUnderMin || scriptOverHard))}
             className="bg-black text-white rounded px-4 py-2 disabled:opacity-60"
           >
-            {busy ? "Creating..." : "Create Project"}
+            {classifying ? "Checking topic…" : busy ? "Creating..." : "Create Project"}
           </button>
-          <button type="button" onClick={handleReset} className="border rounded px-4 py-2" disabled={busy}>
+          <button type="button" onClick={handleReset} className="border rounded px-4 py-2" disabled={busy || classifying}>
             Reset
           </button>
         </div>
       </form>
+
+      {/* 🆕 Commit 12 — News-event warning modal */}
+      {warningCategory && (
+        <NewsEventWarningModal
+          category={warningCategory}
+          reason={warningReason}
+          onSwitchToAiArt={handleSwitchToAiArt}
+          onProceedAnyway={handleProceedAnyway}
+          onClose={() => setWarningCategory(null)}
+        />
+      )}
 
       {/* Project Summary */}
       <div className="mt-8 rounded border p-4 bg-gray-50">
@@ -858,7 +944,7 @@ export default function CreateProjectPage() {
           <div><b>Resolution:</b> {resolution}</div>
           <div>
             <b>Images:</b>{" "}
-            {imageSource === "real-photos" ? "📸 Real Photos (Pexels — free)" : "🎨 AI Art (DALL-E — $0.08/image)"}
+            {imageSource === "real-photos" ? "📸 Real Photos (stock libraries — free)" : "🎨 AI Art (DALL-E — $0.08/image)"}
           </div>
           <div><b>Music:</b> {music}</div>
           <div><b>Captions:</b> {captionStyle === "none" ? "None" : captionStyle === "block" ? "📺 Block (Netflix-style)" : captionStyle === "karaoke" ? "🎤 Karaoke (word highlight)" : "📝 Centered"}</div>
@@ -869,7 +955,7 @@ export default function CreateProjectPage() {
 }
 
 /* ============================================================
-   🆕 Commit 10 — FeedbackPanel component
+   FeedbackPanel component (unchanged from Commit 10)
 ============================================================ */
 function FeedbackPanel({
   feedback,
@@ -908,11 +994,15 @@ function FeedbackPanel({
                 {isPass ? "✓" : "⚠"}
               </span>
               <div className="flex-1 min-w-0">
-                <div className={
-                  "text-sm font-bold uppercase tracking-wider " +
-                  (isPass ? "text-green-700" : "text-amber-700")
-                }>
-                  {CATEGORY_LABELS[cat.name]}
+                <div>
+                  <span className={
+                    "inline-block text-xs font-extrabold uppercase tracking-wide px-2 py-0.5 rounded " +
+                    (isPass
+                      ? "bg-green-100 text-green-700"
+                      : "bg-amber-100 text-amber-700")
+                  }>
+                    {CATEGORY_LABELS[cat.name]}
+                  </span>
                 </div>
                 <div className="text-sm text-slate-200 mt-0.5 leading-relaxed">
                   {cat.note}
@@ -936,6 +1026,86 @@ function FeedbackPanel({
 
       <div className="pt-1 text-xs text-slate-500 italic">
         Suggestions only. Your script is never edited automatically.
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   🆕 Commit 12 — News-event warning modal
+============================================================ */
+function NewsEventWarningModal({
+  category,
+  reason,
+  onSwitchToAiArt,
+  onProceedAnyway,
+  onClose,
+}: {
+  category: ClassifyCategory;
+  reason: string;
+  onSwitchToAiArt: () => void;
+  onProceedAnyway: () => void;
+  onClose: () => void;
+}) {
+  const isConflict = category === "conflict_disaster";
+
+  const headline = isConflict
+    ? "Heads up — these topics are hard for stock photos"
+    : "Heads up — current events are hard for stock photos";
+
+  const body = isConflict
+    ? "Your content mentions conflict, war, or disaster. Stock libraries don't have photos of specific real-world events like missile strikes, casualties, or recent disasters — they tend to return generic or even celebratory imagery instead (e.g. fireworks for explosions). AI Art mode handles these topics much better."
+    : "Your content mentions current events, named real people, or recent news. Stock libraries can't represent these specifically — they'll return generic substitutes that may not match what you're saying. AI Art mode generates context-aware imagery that matches your script.";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-100 text-amber-700 text-xl">
+            ⚠
+          </span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">{headline}</h2>
+            {reason && (
+              <p className="text-xs text-gray-500 mt-0.5">Detected: {reason}</p>
+            )}
+          </div>
+        </div>
+
+        <p className="text-sm text-gray-700 leading-relaxed">{body}</p>
+
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+          <div className="font-medium text-sm text-purple-900 mb-1">
+            🎨 Recommended: Switch to AI Art
+          </div>
+          <p className="text-xs text-purple-800 leading-relaxed">
+            DALL-E generates images from your scene descriptions, so you&rsquo;ll
+            get visuals that match what you&rsquo;re saying. Costs $0.08 per image.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onSwitchToAiArt}
+            className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2.5 font-medium text-sm transition-colors"
+          >
+            Switch to AI Art
+          </button>
+          <button
+            type="button"
+            onClick={onProceedAnyway}
+            className="border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg px-4 py-2.5 text-sm transition-colors"
+          >
+            Continue with stock photos anyway
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
 // ✅ Smooth scene transitions with overlap (no black gaps)
 // ✅ Butter-smooth karaoke captions (no jitter)
 // ✅ Ken Burns pan/zoom on AI-generated scene images
+// 🆕 Editorial Centered captions (Sinek/TED-style) — Commit 13
 // ------------------------------------------------------------
 
 import React, { useMemo, useRef } from "react";
@@ -405,6 +406,133 @@ function BlockCaptions({ words, vertical }: { words: CaptionWord[]; vertical?: b
 }
 
 /** ============================================================
+ * 🆕 Centered Captions — Editorial / Sinek-style — Commit 13
+ *
+ * Premium TED-talk aesthetic:
+ *  - One line at a time, full sentence visible (no per-word highlight)
+ *  - Lifted to ~12% from bottom (lower third, breathing room)
+ *  - No background box — text floats directly on the video
+ *  - Soft white text (~92% opacity) with layered shadow for
+ *    readability against bright OR dark backgrounds
+ *  - Inter typeface, refined letter-spacing, modest size
+ *  - Smooth fade-in and fade-out between lines (no flicker)
+ *
+ * The layered text-shadow trick:
+ *   1. Soft semi-transparent dark glow (handles bright backgrounds)
+ *   2. Tight black drop (handles fine detail / busy textures)
+ *   3. Wider black halo (handles white/sky backgrounds)
+ *
+ * Together these mean the text stays readable regardless of what
+ * the underlying scene image looks like — without needing a
+ * background box that breaks the cinematic feel.
+ * ============================================================ */
+function CenteredCaptions({ words, vertical }: { words: CaptionWord[]; vertical?: boolean }) {
+  const frame = useCurrentFrame();
+  const { fps, height } = useVideoConfig();
+
+  // ALL hooks at the top — before any conditional returns
+  const prevLineRef = useRef(-1);
+
+  const filled = useMemo(() => fillGaps(words), [words]);
+  // Slightly fewer words per line than Block style — keeps each
+  // line short and cinematic, more like a film subtitle
+  const wordsPerLine = vertical ? 4 : 7;
+  const lines = useMemo(() => groupLines(filled, wordsPerLine), [filled, wordsPerLine]);
+  const t = frame / fps;
+
+  // Early exit after all hooks
+  if (lines.length === 0) return null;
+
+  // Find current line: last line whose start <= t
+  let lineIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (t >= lines[i].start - 0.05) {
+      lineIdx = i;
+    } else {
+      break;
+    }
+  }
+
+  if (lineIdx < 0) {
+    lineIdx = prevLineRef.current;
+  } else {
+    prevLineRef.current = lineIdx;
+  }
+
+  if (lineIdx < 0 || lineIdx >= lines.length) return null;
+  const line = lines[lineIdx];
+
+  // Smooth opacity: fade in when line appears, fade out when ending
+  const lineAge = t - line.start;
+  const lineRemaining = line.end - t;
+  let opacity = 0.92; // softened white at peak — Sinek aesthetic
+  if (lineAge < 0.25) {
+    // Fade in over 250ms
+    opacity = interpolate(lineAge, [0, 0.25], [0, 0.92], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+  }
+  if (lineRemaining < 0.2 && lineIdx < lines.length - 1) {
+    // Fade out over 200ms before next line takes over
+    opacity = interpolate(lineRemaining, [0, 0.2], [0, 0.92], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+  }
+
+  const lineText = line.words.map(w => w.word).join(" ");
+
+  // Sinek-style: lower third position (~12% from bottom).
+  // For vertical (Shorts/TikTok) we lift higher to clear the typical
+  // bottom UI overlay that platforms add (likes, share, etc.)
+  const bottomPosition = vertical
+    ? Math.round(height * 0.22)  // 22% from bottom for vertical
+    : Math.round(height * 0.12); // 12% from bottom for horizontal
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: bottomPosition,
+        display: "flex",
+        justifyContent: "center",
+        padding: vertical ? "0 40px" : "0 80px",
+        opacity,
+        // Smooth opacity transitions on top of frame-by-frame interpolation
+        transition: "opacity 0.1s ease-out",
+      }}
+    >
+      <div
+        style={{
+          textAlign: "center",
+          fontSize: vertical ? 46 : 40,
+          lineHeight: 1.35,
+          fontWeight: 500, // medium weight — refined, not bold
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          color: "rgba(255,255,255,0.95)",
+          letterSpacing: "0.005em",
+          maxWidth: vertical ? 900 : 1500,
+          // Layered shadow: handles bright AND dark backgrounds.
+          // No background box — pure floating text, Sinek-style.
+          textShadow: [
+            "0 2px 8px rgba(0,0,0,0.85)",   // tight drop — fine detail
+            "0 0 20px rgba(0,0,0,0.45)",    // soft glow — bright backgrounds
+            "0 1px 2px rgba(0,0,0,0.95)",   // crisp edge — keeps it sharp
+          ].join(", "),
+          // Slight word spacing for premium feel
+          wordSpacing: "0.05em",
+        }}
+      >
+        {lineText}
+      </div>
+    </div>
+  );
+}
+
+/** ============================================================
  * Karaoke Captions — smooth, no jitter
  *
  * Key improvements over previous version:
@@ -586,10 +714,15 @@ export const Video: React.FC<VideoProps> = (props) => {
         />
       ) : null}
 
-      {/* ── captions — style-aware ───────────────────────────── */}
+      {/* ── captions — style-aware dispatcher ────────────────────
+            🆕 Commit 13: 'centered' now properly routes to the new
+            CenteredCaptions (Sinek/TED-style). Previously fell
+            through to KaraokeCaptions due to missing case.        */}
       {words.length > 0 && captionStyle !== "none" ? (
         captionStyle === "block" ? (
           <BlockCaptions words={words} vertical={isVertical} />
+        ) : captionStyle === "centered" ? (
+          <CenteredCaptions words={words} vertical={isVertical} />
         ) : (
           <KaraokeCaptions words={words} vertical={isVertical} />
         )

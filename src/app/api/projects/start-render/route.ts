@@ -4,12 +4,29 @@
 // COMMIT 12 — Image quality (Freepik + news-event detection)
 // COMMIT 12.5 — Listicle scene splitting
 // COMMIT 14 — Cuisine query polish
-// COMMIT 14.5 — Whisper vocabulary hint (NEW) — fixes caption
-//   misspellings of Vietnamese dish names (e.g. "Bun Cha" was
-//   transcribed as "Banh Cha"). We pass the script as Whisper's
-//   `prompt` parameter so the model biases its decoding toward
-//   the expected vocabulary, dramatically improving accuracy on
-//   non-English words spoken with English-accented TTS.
+// COMMIT 14.5 — Whisper vocabulary hint
+// COMMIT 15 — Sanitizer whitelist (NEW)
+//
+// Fixes a bug where the Title-case sanitizer in
+// convertSceneToSearchQuery was stripping nationality words
+// (Vietnamese, Japanese, Mexican, etc.) from queries because
+// they match the same /^[A-Z][a-z]{2,}$/ pattern as person
+// names. This caused queries like "Vietnamese street food
+// market vendors" to become "street food market vendors",
+// resulting in wrong-country images (Brazilian, Thai, Taiwanese)
+// for Vietnamese cuisine videos.
+//
+// Diagnostic logs from today's investigation confirmed this:
+// GPT was reliably outputting "Vietnamese" on every cuisine
+// query, and our own sanitizer was stripping it on every one.
+//
+// Fix: maintain a whitelist of ~330 safe Title-cased words
+// (nationalities, place names, cultural descriptors). The
+// sanitizer now only strips Title-cased words that are NOT in
+// the whitelist, so person names still get stripped but
+// legitimate geographic/cultural anchors are preserved.
+//
+// REMOVED: temporary [diag] log lines from diagnostic build
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -100,6 +117,113 @@ function lengthToSeconds(lengthStr: string | null): number {
 
 function countWords(text: string): number {
   return (text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+/* ============================================================
+   🆕 Commit 15: Whitelist of safe Title-cased words
+   ────────────────────────────────────────────────────────────
+   Words in this set survive the person-name sanitizer in
+   convertSceneToSearchQuery. The list covers nationalities,
+   major place names, and cultural/religious/temporal
+   descriptors that get Title-cased in normal English.
+
+   All entries stored in lowercase for case-insensitive lookup.
+
+   Adding to this list is a 1-line change. If a customer's
+   query loses a legitimate word (e.g. a rare place name),
+   add it here and ship a small commit.
+============================================================ */
+const SAFE_TITLECASED_WORDS: Set<string> = new Set([
+  // ───────── Nationalities & Ethnicities (~210) ─────────
+  // Africa
+  "algerian","angolan","beninese","botswanan","burkinabe","burundian","cameroonian",
+  "cape","verdean","chadian","comoran","congolese","djiboutian","egyptian","equatorial",
+  "guinean","eritrean","ethiopian","gabonese","gambian","ghanaian","guinean","ivorian",
+  "kenyan","lesotho","liberian","libyan","malagasy","malawian","malian","mauritanian",
+  "mauritian","moroccan","mozambican","namibian","nigerien","nigerian","rwandan",
+  "senegalese","seychellois","sierra","leonean","somali","sudanese","tanzanian","togolese",
+  "tunisian","ugandan","zambian","zimbabwean","african","north","african",
+  "south","african","sub-saharan","saharan",
+  // Asia
+  "afghan","armenian","azerbaijani","bahraini","bangladeshi","bhutanese","bruneian",
+  "burmese","cambodian","chinese","cypriot","emirati","filipino","georgian","hong",
+  "konger","indian","indonesian","iranian","iraqi","israeli","japanese","jordanian",
+  "kazakh","khmer","korean","kuwaiti","kyrgyz","laotian","lao","lebanese","malaysian",
+  "maldivian","mongolian","myanmar","nepalese","nepali","omani","pakistani","palestinian",
+  "qatari","saudi","singaporean","sinhalese","sri","lankan","syrian","taiwanese",
+  "tajik","thai","tibetan","timorese","turkish","turkmen","uzbek","vietnamese","yemeni",
+  "asian","central","asian","east","asian","south","asian","southeast","asian","arabian","arab",
+  // Europe
+  "albanian","andorran","austrian","belarusian","belgian","bosnian","bulgarian",
+  "catalan","croatian","czech","danish","dutch","english","estonian","european",
+  "faroese","finnish","french","german","greek","greenlandic","hungarian","icelandic",
+  "irish","italian","kosovar","latvian","liechtensteiner","lithuanian","luxembourgish",
+  "macedonian","maltese","moldovan","monégasque","monegasque","montenegrin","norwegian",
+  "polish","portuguese","romanian","russian","san","marinese","scottish","serbian",
+  "slovak","slovenian","spanish","swedish","swiss","ukrainian","welsh","scandinavian",
+  "nordic","balkan","slavic","baltic","mediterranean","iberian","bavarian","sicilian",
+  "tuscan","catalonian","basque","galician","andalusian",
+  // Americas
+  "american","argentine","argentinian","bahamian","barbadian","belizean","bolivian",
+  "brazilian","canadian","chilean","colombian","costa","rican","cuban","dominican",
+  "ecuadorian","salvadoran","guatemalan","guyanese","haitian","honduran","jamaican",
+  "mexican","nicaraguan","panamanian","paraguayan","peruvian","puerto","rican","quebecois",
+  "surinamese","trinidadian","uruguayan","venezuelan","latin","hispanic","latino","latina",
+  "latinx","caribbean","mesoamerican","amazonian","andean","patagonian",
+  // Oceania
+  "australian","fijian","kiribati","marshallese","micronesian","nauruan","papuan",
+  "samoan","tongan","tuvaluan","vanuatuan","aboriginal","polynesian","melanesian",
+  "maori","new","zealander","kiwi","aussie","oceanic","pacific","islander",
+  // Indigenous / heritage descriptors used as Title-cased
+  "cherokee","navajo","apache","sioux","inuit","aleut","hawaiian","incan","aztec",
+  "mayan","zulu","maasai","tuareg","berber","bedouin","cossack","romani","kurdish",
+  "yoruba","igbo","hausa","amhara",
+
+  // ───────── Major cities & places (~100) ─────────
+  // Asian cities
+  "tokyo","kyoto","osaka","yokohama","beijing","shanghai","guangzhou","shenzhen",
+  "hong","kong","taipei","seoul","busan","pyongyang","bangkok","chiang","mai",
+  "phuket","hanoi","saigon","danang","singapore","kuala","lumpur","jakarta","bali",
+  "manila","yangon","phnom","penh","vientiane","dhaka","kolkata","mumbai","delhi",
+  "bangalore","chennai","jaipur","karachi","lahore","islamabad","kabul","tehran",
+  "baghdad","damascus","jerusalem","riyadh","mecca","medina","istanbul","ankara",
+  // European cities
+  "london","manchester","liverpool","edinburgh","glasgow","dublin","paris","lyon",
+  "marseille","nice","barcelona","madrid","seville","rome","milan","florence","venice",
+  "naples","athens","amsterdam","brussels","berlin","munich","frankfurt","hamburg",
+  "vienna","prague","budapest","warsaw","krakow","moscow","stockholm","oslo","helsinki",
+  "copenhagen","reykjavik","lisbon","porto","zurich","geneva",
+  // American cities
+  "newyork","boston","chicago","seattle","sanfrancisco","losangeles","miami","austin",
+  "denver","atlanta","philadelphia","washington","toronto","montreal","vancouver",
+  "mexicocity","havana","sansalvador","bogota","quito","lima","caracas","santiago",
+  "buenosaires","montevideo","saopaulo","riodejaneiro","brasilia",
+  // African / Middle East cities
+  "cairo","alexandria","tripoli","tunis","casablanca","marrakech","lagos","nairobi",
+  "kampala","capetown","johannesburg","addisababa","dubai","abudhabi","doha",
+  // Iconic geographic features
+  "sahara","kalahari","amazon","andes","alps","himalayas","alaska","arctic","antarctic",
+  "everest","kilimanjaro","mediterranean","atlantic","pacific","caribbean","baltic",
+  "balkans","scandinavia","siberia","mongolia","tibet","patagonia","gobi","savanna",
+
+  // ───────── Cultural / Religious / Temporal (~40) ─────────
+  "buddhist","catholic","christian","hindu","muslim","islamic","jewish","sikh","jain",
+  "shinto","taoist","confucian","orthodox","protestant","baptist","mormon","pagan",
+  "secular","atheist","evangelical","quaker",
+  "medieval","ancient","modern","contemporary","prehistoric","renaissance","baroque",
+  "gothic","romanesque","victorian","edwardian","georgian","colonial","ottoman",
+  "byzantine","mesozoic","jurassic","paleolithic","neolithic",
+]);
+
+/**
+ * Check if a Title-cased token is a safe whitelisted word
+ * (nationality, place name, or cultural descriptor).
+ *
+ * Case-insensitive: matches "Vietnamese", "vietnamese",
+ * or "VIETNAMESE" against the lowercase whitelist.
+ */
+function isSafeTitleCasedWord(tok: string): boolean {
+  return SAFE_TITLECASED_WORDS.has(tok.toLowerCase());
 }
 
 /* ============================================================
@@ -329,22 +453,8 @@ async function uploadAudioAndGetPublicUrl(opts: {
 
 /* ============================================================
    Whisper Captions — with vocabulary hint (Commit 14.5)
-   ────────────────────────────────────────────────────────────
-   The `prompt` parameter biases Whisper's decoding toward expected
-   vocabulary. By passing the script as a hint, Whisper produces
-   much more accurate transcriptions of non-English words (Vietnamese
-   dishes like Bun Cha, Pho, Goi Cuon) even when the TTS voice
-   pronounces them imperfectly with English phonetics.
-   
-   Whisper's prompt is limited to ~224 tokens (~1000 chars). For long
-   scripts we use a smart slice: start of script + end of script,
-   which biases both intro AND recap word recognition.
 ============================================================ */
 
-/**
- * Build a vocabulary hint for Whisper from the script.
- * Returns a string limited to ~200 tokens / ~800 chars.
- */
 function buildWhisperHint(script: string | null | undefined): string {
   if (!script) return "";
   const trimmed = script.trim();
@@ -355,8 +465,6 @@ function buildWhisperHint(script: string | null | undefined): string {
     return trimmed;
   }
 
-  // Long script: take first half + last half of budget.
-  // This biases both intro vocabulary AND recap/outro vocabulary.
   const half = Math.floor(HINT_MAX_CHARS / 2);
   const start = trimmed.slice(0, half);
   const end = trimmed.slice(-half);
@@ -378,12 +486,6 @@ async function transcribeWordsFromMp3(
   fd.append("timestamp_granularities[]", "word");
   fd.append("timestamp_granularities[]", "segment");
 
-  // 🆕 Commit 14.5 — vocabulary hint
-  // Pass the script (or smart slice) so Whisper biases toward expected words.
-  // This dramatically improves accuracy on non-English vocabulary like
-  // Vietnamese dish names ("Bun Cha", "Goi Cuon", "Pho", etc.) which
-  // Whisper would otherwise transcribe phonetically based on the TTS
-  // voice's English-accented pronunciation.
   const hint = buildWhisperHint(scriptHint);
   if (hint) {
     fd.append("prompt", hint);
@@ -454,10 +556,6 @@ async function splitScriptIntoScenes(opts: {
   const isVertical = videoType === "youtube_shorts" || videoType === "tiktok";
   const aspectRatio = isVertical ? "9:16 portrait (vertical)" : "16:9 landscape";
 
-  // Detect listicle/countdown structure.
-  // For "top N" / "N reasons" / "N ways" scripts, we MUST create at
-  // least N+2 scenes (one per item plus intro/outro), otherwise the
-  // image will freeze on an early item while the script counts down.
   function detectListicleCount(text: string): number {
     if (!text) return 0;
     const lower = text.toLowerCase();
@@ -465,20 +563,17 @@ async function splitScriptIntoScenes(opts: {
     const listicleWords = ["landmarks","reasons","ways","tips","places","items","facts","things","mistakes","secrets","steps","habits","foods","cities","countries","destinations","people","myths","truths","signs","examples","ideas","strategies","tricks","ports","cars","movies","books","songs","apps","sites","brands","products","wonders","hacks","rules","lessons","types","kinds"];
     const wordPattern = listicleWords.join("|");
 
-    // "top 10 X"
     const m1 = lower.match(/top\s+(\d{1,2})\b/);
     if (m1) {
       const n = Number(m1[1]);
       if (n >= 3 && n <= 25) return n;
     }
-    // "10 landmarks" / "5 reasons" etc.
     const m2 = lower.match(new RegExp("\\b(\\d{1,2})\\s+(" + wordPattern + ")\\b"));
     if (m2) {
       const n = Number(m2[1]);
       if (n >= 3 && n <= 25) return n;
     }
 
-    // Count actual numbered markers in the script ("1.", "Number 10", "#5")
     const numericMarkers = (text.match(/\b(?:\d{1,2}[.)]|number\s+\d{1,2}|#\d{1,2})/gi) || []).length;
     if (numericMarkers >= 4 && numericMarkers <= 25) return numericMarkers;
 
@@ -491,8 +586,6 @@ async function splitScriptIntoScenes(opts: {
     ? Math.max(4, Math.min(8, Math.round(durationSec / 8)))
     : Math.max(5, Math.min(15, Math.round(durationSec / 15)));
 
-  // If listicle detected, ensure scenes >= items + 2 (intro + outro).
-  // Lift the upper cap to 20 to accommodate longer countdowns.
   const targetScenes = expectedItems > 0
     ? Math.max(baseScenes, Math.min(20, expectedItems + 2))
     : baseScenes;
@@ -704,7 +797,7 @@ async function splitScriptIntoScenes(opts: {
 }
 
 /* ============================================================
-   Image Generation (DALL-E) — with retry + fallback prompt
+   Image Generation (DALL-E)
 ============================================================ */
 
 async function callImageApi(imagePrompt: string, imageSize?: string): Promise<Buffer> {
@@ -776,7 +869,7 @@ async function generateOneImage(imagePrompt: string, sceneTitle: string, imageSi
 }
 
 /* ============================================================
-   Stock photo search — Pexels → Pixabay → FREEPIK (Commit 12)
+   Stock photo search — Pexels → Pixabay → FREEPIK
 ============================================================ */
 
 type StockSearchResult = {
@@ -794,14 +887,12 @@ async function searchPexelsForScene(
   const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
   const FREEPIK_API_KEY = process.env.FREEPIK_API_KEY;
 
-  // Build smart fallback tiers
   const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
   const tier1 = words.filter((w: string) => !["the","a","an","of","in","at","on","by","for","and","or","with","from"].includes(w)).slice(0, 4).join(" ");
   const tier2 = words.filter((w: string) => w.length >= 5).slice(0, 2).join(" ") || words.slice(0, 2).join(" ");
   const queries = [searchQuery, tier1, tier2].filter((q, i, arr) => q && arr.indexOf(q) === i);
 
   for (const query of queries) {
-    // ─── Try Pexels first ───────────────────────────────
     if (PEXELS_API_KEY) {
       try {
         const params = new URLSearchParams({ query, orientation, per_page: "5", size: "large" });
@@ -827,7 +918,6 @@ async function searchPexelsForScene(
       }
     }
 
-    // ─── Try Pixabay second ─────────────────────────────
     if (PIXABAY_API_KEY) {
       try {
         const pixOrientation = orientation === "portrait" ? "vertical" : "horizontal";
@@ -859,8 +949,6 @@ async function searchPexelsForScene(
       }
     }
 
-    // ─── Try Freepik third ──────────────────────────────
-    // Freepik free tier: 10 downloads/day. Skipped silently if no API key.
     if (FREEPIK_API_KEY) {
       try {
         const freepikOrientation = orientation === "portrait" ? "portrait" : "landscape";
@@ -914,7 +1002,11 @@ async function searchPexelsForScene(
 }
 
 /* ============================================================
-   Improved scene → search query (Commit 12 + Commit 14)
+   Improved scene → search query
+   🆕 Commit 15 — sanitizer now uses whitelist instead of
+   blindly stripping all Title-cased words. "Vietnamese",
+   "Japanese", etc. are preserved; person names like "Trump",
+   "Biden" are still stripped.
 ============================================================ */
 
 async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sceneTitle?: string): Promise<string> {
@@ -1011,12 +1103,18 @@ Best stock photo search query (3-5 words, country/nationality required, no perso
     if (query && query.length > 0 && query.length < 80) {
       const cleaned = query.replace(/^["']|["']$/g, "").trim();
       if (cleaned.length > 0) {
-        // Sanitize: strip Title-cased words that look like person names
+        // 🆕 Commit 15: Sanitize Title-cased tokens using a
+        // whitelist instead of blindly stripping all of them.
+        // Person names get stripped; nationalities, place names,
+        // and cultural descriptors are preserved.
         const tokens = cleaned.split(/\s+/);
         const sanitized = tokens.filter((tok: string) => {
           if (tok.length <= 2) return true;
           if (tok === tok.toUpperCase()) return true; // keep acronyms like GDP, NATO
-          if (/^[A-Z][a-z]{2,}$/.test(tok)) return false; // drop likely person names
+          if (/^[A-Z][a-z]{2,}$/.test(tok)) {
+            // Title-cased — only keep if it's a known safe word
+            return isSafeTitleCasedWord(tok);
+          }
           return true;
         });
         return sanitized.length >= 2 ? sanitized.join(" ") : cleaned;
@@ -1404,9 +1502,6 @@ export async function POST(req: Request) {
         mp3,
       });
 
-    // 🆕 Commit 14.5: Pass the script to Whisper as a vocabulary hint.
-    // Massively improves accuracy on non-English words (Vietnamese
-    // dishes, place names, etc.) that the TTS voice mispronounces.
     const captionWords = await transcribeWordsFromMp3(mp3, script);
     console.log("[start-render] captionWords count:", captionWords.length, "first:", JSON.stringify(captionWords[0]));
 

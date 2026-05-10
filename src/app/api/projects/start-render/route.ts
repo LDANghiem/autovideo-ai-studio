@@ -1,22 +1,15 @@
 // ============================================================
 // FILE: src/app/api/projects/start-render/route.ts
 // ============================================================
-// COMMIT 12 — Image quality improvements
-//
-// CHANGES vs previous version:
-//   1. searchPexelsForScene now calls a third source after
-//      Pexels and Pixabay: FREEPIK (free tier or paid).
-//      If FREEPIK_API_KEY is not set, Freepik is silently skipped.
-//
-//   2. convertSceneToSearchQuery prompt refined:
-//      - Always append country name to place searches
-//      - Always include nationality with food/cuisine
-//      - Better handling of person/event vagueness
-//
-// EVERYTHING ELSE IS UNCHANGED from the previous version.
-// All existing logic for script gen, TTS (OpenAI + ElevenLabs),
-// caption transcription, scene splitting, DALL-E generation,
-// audio upload, webhook trigger, project queueing — all preserved.
+// COMMIT 12 — Image quality (Freepik + news-event detection)
+// COMMIT 12.5 — Listicle scene splitting
+// COMMIT 14 — Cuisine query polish
+// COMMIT 14.5 — Whisper vocabulary hint (NEW) — fixes caption
+//   misspellings of Vietnamese dish names (e.g. "Bun Cha" was
+//   transcribed as "Banh Cha"). We pass the script as Whisper's
+//   `prompt` parameter so the model biases its decoding toward
+//   the expected vocabulary, dramatically improving accuracy on
+//   non-English words spoken with English-accented TTS.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -335,10 +328,45 @@ async function uploadAudioAndGetPublicUrl(opts: {
 }
 
 /* ============================================================
-   Whisper Captions
+   Whisper Captions — with vocabulary hint (Commit 14.5)
+   ────────────────────────────────────────────────────────────
+   The `prompt` parameter biases Whisper's decoding toward expected
+   vocabulary. By passing the script as a hint, Whisper produces
+   much more accurate transcriptions of non-English words (Vietnamese
+   dishes like Bun Cha, Pho, Goi Cuon) even when the TTS voice
+   pronounces them imperfectly with English phonetics.
+   
+   Whisper's prompt is limited to ~224 tokens (~1000 chars). For long
+   scripts we use a smart slice: start of script + end of script,
+   which biases both intro AND recap word recognition.
 ============================================================ */
 
-async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
+/**
+ * Build a vocabulary hint for Whisper from the script.
+ * Returns a string limited to ~200 tokens / ~800 chars.
+ */
+function buildWhisperHint(script: string | null | undefined): string {
+  if (!script) return "";
+  const trimmed = script.trim();
+  if (!trimmed) return "";
+
+  const HINT_MAX_CHARS = 800;
+  if (trimmed.length <= HINT_MAX_CHARS) {
+    return trimmed;
+  }
+
+  // Long script: take first half + last half of budget.
+  // This biases both intro vocabulary AND recap/outro vocabulary.
+  const half = Math.floor(HINT_MAX_CHARS / 2);
+  const start = trimmed.slice(0, half);
+  const end = trimmed.slice(-half);
+  return start + " ... " + end;
+}
+
+async function transcribeWordsFromMp3(
+  mp3: Buffer,
+  scriptHint?: string | null
+): Promise<CaptionWord[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
 
@@ -349,6 +377,18 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
   fd.append("response_format", "verbose_json");
   fd.append("timestamp_granularities[]", "word");
   fd.append("timestamp_granularities[]", "segment");
+
+  // 🆕 Commit 14.5 — vocabulary hint
+  // Pass the script (or smart slice) so Whisper biases toward expected words.
+  // This dramatically improves accuracy on non-English vocabulary like
+  // Vietnamese dish names ("Bun Cha", "Goi Cuon", "Pho", etc.) which
+  // Whisper would otherwise transcribe phonetically based on the TTS
+  // voice's English-accented pronunciation.
+  const hint = buildWhisperHint(scriptHint);
+  if (hint) {
+    fd.append("prompt", hint);
+    console.log("[whisper] vocabulary hint length:", hint.length, "chars");
+  }
 
   const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -395,7 +435,7 @@ async function transcribeWordsFromMp3(mp3: Buffer): Promise<CaptionWord[]> {
 }
 
 /* ============================================================
-   Scene Splitting (GPT)
+   Scene Splitting (GPT) — with listicle detection (Commit 12.5)
 ============================================================ */
 
 async function splitScriptIntoScenes(opts: {
@@ -414,7 +454,7 @@ async function splitScriptIntoScenes(opts: {
   const isVertical = videoType === "youtube_shorts" || videoType === "tiktok";
   const aspectRatio = isVertical ? "9:16 portrait (vertical)" : "16:9 landscape";
 
-  // 🆕 Commit 12.5 — Detect listicle/countdown structure.
+  // Detect listicle/countdown structure.
   // For "top N" / "N reasons" / "N ways" scripts, we MUST create at
   // least N+2 scenes (one per item plus intro/outro), otherwise the
   // image will freeze on an early item while the script counts down.
@@ -736,7 +776,7 @@ async function generateOneImage(imagePrompt: string, sceneTitle: string, imageSi
 }
 
 /* ============================================================
-   🆕 Commit 12: Stock photo search — Pexels → Pixabay → FREEPIK
+   Stock photo search — Pexels → Pixabay → FREEPIK (Commit 12)
 ============================================================ */
 
 type StockSearchResult = {
@@ -754,7 +794,7 @@ async function searchPexelsForScene(
   const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
   const FREEPIK_API_KEY = process.env.FREEPIK_API_KEY;
 
-  // Build smart fallback tiers — same logic as before
+  // Build smart fallback tiers
   const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
   const tier1 = words.filter((w: string) => !["the","a","an","of","in","at","on","by","for","and","or","with","from"].includes(w)).slice(0, 4).join(" ");
   const tier2 = words.filter((w: string) => w.length >= 5).slice(0, 2).join(" ") || words.slice(0, 2).join(" ");
@@ -819,7 +859,7 @@ async function searchPexelsForScene(
       }
     }
 
-    // ─── 🆕 Try Freepik third ────────────────────────────
+    // ─── Try Freepik third ──────────────────────────────
     // Freepik free tier: 10 downloads/day. Skipped silently if no API key.
     if (FREEPIK_API_KEY) {
       try {
@@ -843,7 +883,6 @@ async function searchPexelsForScene(
           const items: any[] = Array.isArray(data?.data) ? data.data : [];
           if (items.length > 0) {
             const photo = items[Math.floor(Math.random() * Math.min(items.length, 4))];
-            // Freepik returns image URLs in nested image.source structure
             const imgUrl = photo?.image?.source?.url
                         || photo?.image?.url
                         || photo?.preview?.url;
@@ -858,7 +897,6 @@ async function searchPexelsForScene(
             }
           }
         } else {
-          // Quietly log — could be rate limit, free-tier exhausted
           const errText = await resp.text().catch(() => "");
           console.warn("[freepik]  Freepik error " + resp.status + ": " + errText.slice(0, 100));
         }
@@ -876,10 +914,7 @@ async function searchPexelsForScene(
 }
 
 /* ============================================================
-   🆕 Commit 12: Improved scene → search query
-   - Always append country to places
-   - Always include nationality with food/cuisine
-   - Better person/event handling
+   Improved scene → search query (Commit 12 + Commit 14)
 ============================================================ */
 
 async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sceneTitle?: string): Promise<string> {
@@ -916,11 +951,22 @@ STRICT RULES:
    "Tokyo street" → "Tokyo Japan street neon night"
    "Paris cafe" → "Paris France cafe sidewalk"
 
-3. FOOD/CUISINE: ALWAYS prepend the nationality.
-   "bowl of pho" → "Vietnamese pho soup bowl noodles"
-   "sushi platter" → "Japanese sushi platter"
-   "tacos" → "Mexican tacos street food"
-   "pad thai" → "Thai pad thai noodles"
+3. FOOD/CUISINE: ALWAYS prepend the nationality. NEVER translate cultural dish names to generic concepts — preserve the original name AND add nationality.
+   FAMOUS DISHES (preserve name + nationality):
+     "bowl of pho" → "Vietnamese pho soup bowl noodles"
+     "sushi platter" → "Japanese sushi platter"
+     "tacos" → "Mexican tacos street food"
+     "pad thai" → "Thai pad thai noodles"
+   LESSER-KNOWN DISHES (CRITICAL — keep the original name, do not generalize):
+     "che" → "Vietnamese che dessert beans coconut" (NOT "sweet dessert bowl")
+     "hu tieu" → "Vietnamese hu tieu noodle soup" (NOT "noodle soup")
+     "banh xeo" → "Vietnamese banh xeo crispy pancake" (NOT "savory pancake")
+     "com tam" → "Vietnamese com tam broken rice grilled pork" (NOT "rice plate")
+     "goi cuon" → "Vietnamese goi cuon fresh spring rolls rice paper" (NOT "spring rolls" — would match Chinese egg rolls)
+     "nem ran" → "Vietnamese nem ran fried spring rolls" (NOT "fried rolls")
+     "ca phe trung" → "Vietnamese egg coffee Hanoi cafe" (NOT "coffee cup")
+     "bun cha" → "Vietnamese bun cha grilled pork noodles" (NOT "noodles bowl")
+   The pattern: original-name + nationality + 1-2 visual descriptors.
 
 4. SPECIFIC ANIMALS, OBJECTS, PLANTS: name them precisely.
    "cherry blossoms" → "cherry blossom Japan spring"
@@ -938,6 +984,12 @@ STRICT RULES:
    War/Military → "military helicopter aerial" or "soldiers training desert"
    Technology → "server room blue lights" or "circuit board macro"
    Politics → "government building exterior" or "protest crowd street"
+
+8. TOPIC-CONTEXT FALLBACK: If the topic mentions a specific country or cuisine, AND the scene is a generic intro/outro/recap (no specific subject named), the query MUST include that country qualifier.
+   Topic="Best Vietnamese street food" + Scene="recap of foods" → "Vietnamese street food market vendors" (NOT "street food market" — would match Turkish/generic markets)
+   Topic="10 wonders of Egypt" + Scene="closing thoughts" → "Egypt monuments desert" (NOT "ancient ruins")
+   Topic="Tokyo travel guide" + Scene="introduction" → "Tokyo Japan skyline neon" (NOT "city skyline")
+   This is critical — generic scenes often pull wrong-country imagery without a country anchor.
 
 Reply with ONLY the search query, nothing else.`,
           },
@@ -1352,7 +1404,10 @@ export async function POST(req: Request) {
         mp3,
       });
 
-    const captionWords = await transcribeWordsFromMp3(mp3);
+    // 🆕 Commit 14.5: Pass the script to Whisper as a vocabulary hint.
+    // Massively improves accuracy on non-English words (Vietnamese
+    // dishes, place names, etc.) that the TTS voice mispronounces.
+    const captionWords = await transcribeWordsFromMp3(mp3, script);
     console.log("[start-render] captionWords count:", captionWords.length, "first:", JSON.stringify(captionWords[0]));
 
     /* ── scene generation + images ────────────────────────── */

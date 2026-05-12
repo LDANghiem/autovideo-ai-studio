@@ -5,28 +5,20 @@
 // COMMIT 12.5 — Listicle scene splitting
 // COMMIT 14 — Cuisine query polish
 // COMMIT 14.5 — Whisper vocabulary hint
-// COMMIT 15 — Sanitizer whitelist (NEW)
+// COMMIT 15 — Sanitizer whitelist
+// COMMIT 16a — Audio-first static-image video support (NEW)
 //
-// Fixes a bug where the Title-case sanitizer in
-// convertSceneToSearchQuery was stripping nationality words
-// (Vietnamese, Japanese, Mexican, etc.) from queries because
-// they match the same /^[A-Z][a-z]{2,}$/ pattern as person
-// names. This caused queries like "Vietnamese street food
-// market vendors" to become "street food market vendors",
-// resulting in wrong-country images (Brazilian, Thai, Taiwanese)
-// for Vietnamese cuisine videos.
+// Adds support for video_type === "audio_static": a single
+// user-provided image stretched across the full video duration,
+// with normal narration + captions but NO scene splitting and
+// NO Pexels/DALL-E image generation.
 //
-// Diagnostic logs from today's investigation confirmed this:
-// GPT was reliably outputting "Vietnamese" on every cuisine
-// query, and our own sanitizer was stripping it on every one.
+// Use case: motivational, podcast, audiobook, sleep meditation —
+// any audio-heavy content where the visual is brand texture
+// rather than a story device.
 //
-// Fix: maintain a whitelist of ~330 safe Title-cased words
-// (nationalities, place names, cultural descriptors). The
-// sanitizer now only strips Title-cased words that are NOT in
-// the whitelist, so person names still get stripped but
-// legitimate geographic/cultural anchors are preserved.
-//
-// REMOVED: temporary [diag] log lines from diagnostic build
+// Cost: image generation cost drops from ~$0.08 per scene to
+// $0.00 (image is provided). Saves $0.40–$2.00 on long-form.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -48,7 +40,7 @@ type Scene = {
   startSec: number;
   endSec: number;
   transition: "crossfade" | "fade-black" | "slide-left" | "zoom-in";
-  imageSource?: "pexels" | "pixabay" | "freepik" | "dalle";
+  imageSource?: "pexels" | "pixabay" | "freepik" | "dalle" | "upload";
 };
 
 type SceneSplitResult = {
@@ -87,6 +79,9 @@ type ProjectRow = {
   scenes: Scene[] | null;
   image_source: string | null;
   elevenlabs_voice_id: string | null;
+  // 🆕 Commit 16a — Audio-first static video fields
+  static_image_url: string | null;
+  static_image_source: string | null;
 };
 
 function nowIso() {
@@ -120,22 +115,10 @@ function countWords(text: string): number {
 }
 
 /* ============================================================
-   🆕 Commit 15: Whitelist of safe Title-cased words
-   ────────────────────────────────────────────────────────────
-   Words in this set survive the person-name sanitizer in
-   convertSceneToSearchQuery. The list covers nationalities,
-   major place names, and cultural/religious/temporal
-   descriptors that get Title-cased in normal English.
-
-   All entries stored in lowercase for case-insensitive lookup.
-
-   Adding to this list is a 1-line change. If a customer's
-   query loses a legitimate word (e.g. a rare place name),
-   add it here and ship a small commit.
+   Whitelist of safe Title-cased words (Commit 15)
 ============================================================ */
 const SAFE_TITLECASED_WORDS: Set<string> = new Set([
-  // ───────── Nationalities & Ethnicities (~210) ─────────
-  // Africa
+  // Nationalities & Ethnicities
   "algerian","angolan","beninese","botswanan","burkinabe","burundian","cameroonian",
   "cape","verdean","chadian","comoran","congolese","djiboutian","egyptian","equatorial",
   "guinean","eritrean","ethiopian","gabonese","gambian","ghanaian","guinean","ivorian",
@@ -144,7 +127,6 @@ const SAFE_TITLECASED_WORDS: Set<string> = new Set([
   "senegalese","seychellois","sierra","leonean","somali","sudanese","tanzanian","togolese",
   "tunisian","ugandan","zambian","zimbabwean","african","north","african",
   "south","african","sub-saharan","saharan",
-  // Asia
   "afghan","armenian","azerbaijani","bahraini","bangladeshi","bhutanese","bruneian",
   "burmese","cambodian","chinese","cypriot","emirati","filipino","georgian","hong",
   "konger","indian","indonesian","iranian","iraqi","israeli","japanese","jordanian",
@@ -153,7 +135,6 @@ const SAFE_TITLECASED_WORDS: Set<string> = new Set([
   "qatari","saudi","singaporean","sinhalese","sri","lankan","syrian","taiwanese",
   "tajik","thai","tibetan","timorese","turkish","turkmen","uzbek","vietnamese","yemeni",
   "asian","central","asian","east","asian","south","asian","southeast","asian","arabian","arab",
-  // Europe
   "albanian","andorran","austrian","belarusian","belgian","bosnian","bulgarian",
   "catalan","croatian","czech","danish","dutch","english","estonian","european",
   "faroese","finnish","french","german","greek","greenlandic","hungarian","icelandic",
@@ -163,50 +144,40 @@ const SAFE_TITLECASED_WORDS: Set<string> = new Set([
   "slovak","slovenian","spanish","swedish","swiss","ukrainian","welsh","scandinavian",
   "nordic","balkan","slavic","baltic","mediterranean","iberian","bavarian","sicilian",
   "tuscan","catalonian","basque","galician","andalusian",
-  // Americas
   "american","argentine","argentinian","bahamian","barbadian","belizean","bolivian",
   "brazilian","canadian","chilean","colombian","costa","rican","cuban","dominican",
   "ecuadorian","salvadoran","guatemalan","guyanese","haitian","honduran","jamaican",
   "mexican","nicaraguan","panamanian","paraguayan","peruvian","puerto","rican","quebecois",
   "surinamese","trinidadian","uruguayan","venezuelan","latin","hispanic","latino","latina",
   "latinx","caribbean","mesoamerican","amazonian","andean","patagonian",
-  // Oceania
   "australian","fijian","kiribati","marshallese","micronesian","nauruan","papuan",
   "samoan","tongan","tuvaluan","vanuatuan","aboriginal","polynesian","melanesian",
   "maori","new","zealander","kiwi","aussie","oceanic","pacific","islander",
-  // Indigenous / heritage descriptors used as Title-cased
   "cherokee","navajo","apache","sioux","inuit","aleut","hawaiian","incan","aztec",
   "mayan","zulu","maasai","tuareg","berber","bedouin","cossack","romani","kurdish",
   "yoruba","igbo","hausa","amhara",
-
-  // ───────── Major cities & places (~100) ─────────
-  // Asian cities
+  // Major cities & places
   "tokyo","kyoto","osaka","yokohama","beijing","shanghai","guangzhou","shenzhen",
   "hong","kong","taipei","seoul","busan","pyongyang","bangkok","chiang","mai",
   "phuket","hanoi","saigon","danang","singapore","kuala","lumpur","jakarta","bali",
   "manila","yangon","phnom","penh","vientiane","dhaka","kolkata","mumbai","delhi",
   "bangalore","chennai","jaipur","karachi","lahore","islamabad","kabul","tehran",
   "baghdad","damascus","jerusalem","riyadh","mecca","medina","istanbul","ankara",
-  // European cities
   "london","manchester","liverpool","edinburgh","glasgow","dublin","paris","lyon",
   "marseille","nice","barcelona","madrid","seville","rome","milan","florence","venice",
   "naples","athens","amsterdam","brussels","berlin","munich","frankfurt","hamburg",
   "vienna","prague","budapest","warsaw","krakow","moscow","stockholm","oslo","helsinki",
   "copenhagen","reykjavik","lisbon","porto","zurich","geneva",
-  // American cities
   "newyork","boston","chicago","seattle","sanfrancisco","losangeles","miami","austin",
   "denver","atlanta","philadelphia","washington","toronto","montreal","vancouver",
   "mexicocity","havana","sansalvador","bogota","quito","lima","caracas","santiago",
   "buenosaires","montevideo","saopaulo","riodejaneiro","brasilia",
-  // African / Middle East cities
   "cairo","alexandria","tripoli","tunis","casablanca","marrakech","lagos","nairobi",
   "kampala","capetown","johannesburg","addisababa","dubai","abudhabi","doha",
-  // Iconic geographic features
   "sahara","kalahari","amazon","andes","alps","himalayas","alaska","arctic","antarctic",
   "everest","kilimanjaro","mediterranean","atlantic","pacific","caribbean","baltic",
   "balkans","scandinavia","siberia","mongolia","tibet","patagonia","gobi","savanna",
-
-  // ───────── Cultural / Religious / Temporal (~40) ─────────
+  // Cultural / Religious / Temporal
   "buddhist","catholic","christian","hindu","muslim","islamic","jewish","sikh","jain",
   "shinto","taoist","confucian","orthodox","protestant","baptist","mormon","pagan",
   "secular","atheist","evangelical","quaker",
@@ -215,13 +186,6 @@ const SAFE_TITLECASED_WORDS: Set<string> = new Set([
   "byzantine","mesozoic","jurassic","paleolithic","neolithic",
 ]);
 
-/**
- * Check if a Title-cased token is a safe whitelisted word
- * (nationality, place name, or cultural descriptor).
- *
- * Case-insensitive: matches "Vietnamese", "vietnamese",
- * or "VIETNAMESE" against the lowercase whitelist.
- */
 function isSafeTitleCasedWord(tok: string): boolean {
   return SAFE_TITLECASED_WORDS.has(tok.toLowerCase());
 }
@@ -797,6 +761,60 @@ async function splitScriptIntoScenes(opts: {
 }
 
 /* ============================================================
+   🆕 Commit 16a: Build a single Scene for audio-static videos
+   ────────────────────────────────────────────────────────────
+   When video_type === "audio_static", we skip scene splitting
+   entirely. Instead we build a single Scene object that uses
+   the user-provided image for the full video duration.
+   
+   The existing SceneRenderer in Video.tsx will handle this:
+   - One scene means no transitions between scenes
+   - The KenBurnsImage component animates the single image
+   - Captions render normally based on caption_words timing
+   
+   Returns one Scene spanning [0, durationSec], with
+   imageUrl=staticImageUrl and imageSource=staticImageSource.
+============================================================ */
+
+function buildSingleSceneForStatic(opts: {
+  topic: string;
+  durationSec: number;
+  staticImageUrl: string;
+  staticImageSource: string;
+}): Scene[] {
+  const { topic, durationSec, staticImageUrl, staticImageSource } = opts;
+
+  // Validate that the source string is one of the allowed values.
+  // Default to 'upload' if it's an unknown string.
+  const validSources = ["upload", "pexels", "pixabay", "freepik", "dalle"] as const;
+  type ValidSource = typeof validSources[number];
+  const sourceTyped: ValidSource = validSources.includes(staticImageSource as ValidSource)
+    ? (staticImageSource as ValidSource)
+    : "upload";
+
+  const scene: Scene = {
+    index: 0,
+    title: topic || "Audio video",
+    narrationText: "",
+    imagePrompt: "Static image provided by user for audio-first video",
+    imageUrl: staticImageUrl,
+    imageObjectPath: null, // image is at staticImageUrl; we don't track object path here
+    startSec: 0,
+    endSec: durationSec,
+    transition: "fade-black",
+    imageSource: sourceTyped,
+  };
+
+  console.log(
+    "[scenes] audio_static: single scene built, " +
+    "duration=" + durationSec + "s, " +
+    "image=" + staticImageUrl.slice(0, 80) + "..."
+  );
+
+  return [scene];
+}
+
+/* ============================================================
    Image Generation (DALL-E)
 ============================================================ */
 
@@ -1003,10 +1021,6 @@ async function searchPexelsForScene(
 
 /* ============================================================
    Improved scene → search query
-   🆕 Commit 15 — sanitizer now uses whitelist instead of
-   blindly stripping all Title-cased words. "Vietnamese",
-   "Japanese", etc. are preserved; person names like "Trump",
-   "Biden" are still stripped.
 ============================================================ */
 
 async function convertSceneToSearchQuery(imagePrompt: string, topic: string, sceneTitle?: string): Promise<string> {
@@ -1103,16 +1117,11 @@ Best stock photo search query (3-5 words, country/nationality required, no perso
     if (query && query.length > 0 && query.length < 80) {
       const cleaned = query.replace(/^["']|["']$/g, "").trim();
       if (cleaned.length > 0) {
-        // 🆕 Commit 15: Sanitize Title-cased tokens using a
-        // whitelist instead of blindly stripping all of them.
-        // Person names get stripped; nationalities, place names,
-        // and cultural descriptors are preserved.
         const tokens = cleaned.split(/\s+/);
         const sanitized = tokens.filter((tok: string) => {
           if (tok.length <= 2) return true;
-          if (tok === tok.toUpperCase()) return true; // keep acronyms like GDP, NATO
+          if (tok === tok.toUpperCase()) return true;
           if (/^[A-Z][a-z]{2,}$/.test(tok)) {
-            // Title-cased — only keep if it's a known safe word
             return isSafeTitleCasedWord(tok);
           }
           return true;
@@ -1364,6 +1373,7 @@ export async function POST(req: Request) {
     }
 
     /* ── load project ──────────────────────────────────────── */
+    // 🆕 Commit 16a: include static_image_url, static_image_source
     const { data: project, error: projErr } = await admin
       .from("projects")
       .select(
@@ -1372,7 +1382,8 @@ export async function POST(req: Request) {
         "pending_video_url,active_job_id,render_attempt," +
         "voice_provider,voice_id,audio_url,audio_object_path," +
         "caption_words,scenes,video_type,image_source," +
-        "elevenlabs_voice_id"
+        "elevenlabs_voice_id," +
+        "static_image_url,static_image_source"
       )
       .eq("id", projectId)
       .eq("user_id", user.id)
@@ -1395,6 +1406,19 @@ export async function POST(req: Request) {
         render_attempt: project.render_attempt ?? 0,
         audio_url: project.audio_url ?? null,
       }, { status: 200 });
+    }
+
+    /* ── 🆕 Commit 16a: audio_static validation ─────────────
+       For audio_static videos, the user must have selected an image
+       before submitting. If static_image_url is missing, fail fast
+       with a clear error so the frontend can guide them. */
+    const projectVideoType = (project as any).video_type ?? "conventional";
+    const isAudioStatic = projectVideoType === "audio_static";
+
+    if (isAudioStatic && (!project.static_image_url || project.static_image_url.trim().length === 0)) {
+      return NextResponse.json({
+        error: "Audio-static videos require a static_image_url. Please choose or upload an image first."
+      }, { status: 400 });
     }
 
     /* ── script ───────────────────────────────────────────── */
@@ -1505,41 +1529,65 @@ export async function POST(req: Request) {
     const captionWords = await transcribeWordsFromMp3(mp3, script);
     console.log("[start-render] captionWords count:", captionWords.length, "first:", JSON.stringify(captionWords[0]));
 
-    /* ── scene generation + images ────────────────────────── */
-    console.log("[start-render] starting scene generation (image_source: " + (project.image_source || "ai-art") + ")...");
+    /* ── 🆕 Commit 16a: branch for scene generation ────────
+       For audio_static videos, build a single Scene with the
+       user-provided image and skip Pexels/DALL-E entirely.
+       For all other video types, use the normal scene pipeline. */
+    console.log("[start-render] video_type: " + projectVideoType +
+                (isAudioStatic ? " (audio-first static)" : " (normal scene generation)"));
 
     let scenes: Scene[] | null = null;
     let pexelsCredits: any[] = [];
     let imageCost = 0;
 
-    try {
-      const result = await generateScenesWithImages({
-        script: script!,
-        captionWords,
-        topic: project.topic ?? "Untitled",
-        style: project.style ?? "cinematic",
-        tone: project.tone ?? "friendly",
-        durationSec: seconds,
-        videoType: (project as any).video_type ?? "conventional",
-        userId: user.id,
-        projectId,
-        attempt: nextAttempt,
-        supabaseUrl: SUPABASE_URL,
-        admin,
-        imageBucket: process.env.SCENE_IMAGE_BUCKET || "scene-images",
-        imageSource: project.image_source || "ai-art",
-      });
+    if (isAudioStatic) {
+      // Audio-first static: skip scene splitting + image generation
+      try {
+        scenes = buildSingleSceneForStatic({
+          topic: project.topic ?? "Audio video",
+          durationSec: seconds,
+          staticImageUrl: project.static_image_url!, // validated above
+          staticImageSource: project.static_image_source ?? "upload",
+        });
+        pexelsCredits = []; // no stock attribution for static
+        imageCost = 0;       // no image generation cost
+        console.log("[start-render] audio_static: 1 scene, $0 image cost");
+      } catch (err: any) {
+        console.error("[start-render] AUDIO_STATIC SCENE BUILD FAILED:", err?.message);
+        scenes = null;
+      }
+    } else {
+      // Normal video: split script into scenes + generate per-scene images
+      console.log("[start-render] starting scene generation (image_source: " + (project.image_source || "ai-art") + ")...");
+      try {
+        const result = await generateScenesWithImages({
+          script: script!,
+          captionWords,
+          topic: project.topic ?? "Untitled",
+          style: project.style ?? "cinematic",
+          tone: project.tone ?? "friendly",
+          durationSec: seconds,
+          videoType: projectVideoType,
+          userId: user.id,
+          projectId,
+          attempt: nextAttempt,
+          supabaseUrl: SUPABASE_URL,
+          admin,
+          imageBucket: process.env.SCENE_IMAGE_BUCKET || "scene-images",
+          imageSource: project.image_source || "ai-art",
+        });
 
-      scenes = result.scenes;
-      pexelsCredits = result.pexelsCredits;
-      imageCost = result.imageCost;
+        scenes = result.scenes;
+        pexelsCredits = result.pexelsCredits;
+        imageCost = result.imageCost;
 
-      const imgCount = scenes ? scenes.filter((s) => s.imageUrl).length : 0;
-      console.log("[start-render] scenes: " + (scenes ? scenes.length : 0) + ", images: " + imgCount);
-    } catch (err: any) {
-      console.error("[start-render] SCENE GENERATION FAILED:", err?.message);
-      console.error("[start-render] stack:", err?.stack);
-      scenes = null;
+        const imgCount = scenes ? scenes.filter((s) => s.imageUrl).length : 0;
+        console.log("[start-render] scenes: " + (scenes ? scenes.length : 0) + ", images: " + imgCount);
+      } catch (err: any) {
+        console.error("[start-render] SCENE GENERATION FAILED:", err?.message);
+        console.error("[start-render] stack:", err?.stack);
+        scenes = null;
+      }
     }
 
     /* ── queue the project ────────────────────────────────── */
@@ -1624,7 +1672,7 @@ export async function POST(req: Request) {
       caption_words_count: captionWords.length,
       scene_count: scenes?.length ?? 0,
       scene_images_count: scenes?.filter((s) => s.imageUrl).length ?? 0,
-      image_source: project.image_source || "ai-art",
+      image_source: isAudioStatic ? "static" : (project.image_source || "ai-art"),
       pexels_images: scenes?.filter((s) => s.imageSource === "pexels").length ?? 0,
       pixabay_images: scenes?.filter((s) => s.imageSource === "pixabay").length ?? 0,
       freepik_images: scenes?.filter((s) => s.imageSource === "freepik").length ?? 0,

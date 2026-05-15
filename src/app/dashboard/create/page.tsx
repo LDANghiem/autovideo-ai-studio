@@ -28,6 +28,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 import { useImageSource } from "@/lib/useImageSource";
 import ImageSourceToggle from "@/components/ImageSourceToggle";
+import UpgradeModal from "@/components/UpgradeModal";
 
 /* ============================================================
    [S1] Types
@@ -93,7 +94,12 @@ type VideoTypeConfig = {
   defaultResolution: string;
   resolutionOptions: string[];
   aspectRatio: string;
+  // 🆕 Commit 16c — tier gating + length cap
+  minTier?: "free" | "creator" | "studio";
+  maxMinutesByTier?: { creator?: number; studio?: number };
 };
+
+type Plan = "free" | "creator" | "studio";
 
 const VIDEO_TYPES: Record<string, VideoTypeConfig> = {
   conventional: {
@@ -125,6 +131,22 @@ const VIDEO_TYPES: Record<string, VideoTypeConfig> = {
     defaultResolution: "1080p",
     resolutionOptions: ["720p", "1080p"],
     aspectRatio: "9:16",
+  },
+  // 🆕 Commit 16c — audio over a single static image
+  audio_static: {
+    label: "Audio + Image",
+    description: "Long-form audio over a static image. Great for podcasts, voiceover, music.",
+    icon: "🎙️",
+    lengthOptions: [
+      "60 seconds", "2 minutes", "3 minutes", "5 minutes", "8 minutes",
+      "10 minutes", "12 minutes", "16 minutes", "20 minutes", "24 minutes", "30 minutes",
+    ],
+    defaultLength: "5 minutes",
+    defaultResolution: "1080p",
+    resolutionOptions: ["720p", "1080p"],
+    aspectRatio: "16:9",
+    minTier: "creator",
+    maxMinutesByTier: { creator: 10, studio: 30 },
   },
 };
 
@@ -218,6 +240,11 @@ export default function CreateProjectPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 🆕 Commit 16c — user plan + upgrade modal
+  const [plan, setPlan] = useState<Plan>("free");
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeTargetTier, setUpgradeTargetTier] = useState<"creator" | "studio">("creator");
+
   const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -237,6 +264,25 @@ export default function CreateProjectPage() {
   const isElevenLabsLanguage = currentLangConfig?.useElevenLabs ?? false;
   const isVietnamese = language === "Vietnamese";
   const elevenLabsVoices = isVietnamese ? ELEVENLABS_VIETNAMESE_VOICES : ELEVENLABS_OTHER_VOICES;
+
+  // 🆕 Commit 16c — fetch user plan
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user?.id;
+      if (!userId) return;
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("plan")
+        .eq("id", userId)
+        .single();
+      if (cancelled) return;
+      const p = (profile?.plan as Plan) || "free";
+      setPlan(p);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const config = VIDEO_TYPES[videoType];
@@ -575,10 +621,46 @@ export default function CreateProjectPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {Object.entries(VIDEO_TYPES).map(([key, config]) => {
               const isActive = videoType === key;
+
+              // 🆕 Commit 16c — tier gate logic
+              const requiredTier = config.minTier;
+              const isLocked =
+                (requiredTier === "creator" && plan === "free") ||
+                (requiredTier === "studio" && plan !== "studio");
+
+              const handleClick = () => {
+                if (isLocked) {
+                  setUpgradeTargetTier(requiredTier === "studio" ? "studio" : "creator");
+                  setUpgradeModalOpen(true);
+                  return;
+                }
+                setVideoType(key);
+              };
+
               return (
-                <button key={key} type="button" onClick={() => setVideoType(key)}
-                  className={"flex flex-col items-center gap-1 p-4 rounded-xl border-2 transition-all " +
-                    (isActive ? "border-blue-500 bg-blue-50 shadow-sm" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50")}>
+                <button
+                  key={key}
+                  type="button"
+                  onClick={handleClick}
+                  className={
+                    "relative flex flex-col items-center gap-1 p-4 rounded-xl border-2 transition-all " +
+                    (isLocked
+                      ? "border-gray-200 bg-gray-50 opacity-75 hover:opacity-100 hover:border-purple-300"
+                      : isActive
+                        ? "border-blue-500 bg-blue-50 shadow-sm"
+                        : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50")
+                  }
+                >
+                  {requiredTier && (
+                    <span className={
+                      "absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md shadow-sm " +
+                      (requiredTier === "studio"
+                        ? "bg-amber-400 text-amber-950 border border-amber-300"
+                        : "bg-purple-500 text-white border border-purple-400")
+                    }>
+                      {isLocked ? "🔒 " : ""}{requiredTier === "studio" ? "Studio" : "Creator"}
+                    </span>
+                  )}
                   <span className="text-2xl">{config.icon}</span>
                   <span className={"font-semibold text-sm " + (isActive ? "text-blue-700" : "text-gray-800")}>{config.label}</span>
                   <span className="text-xs text-gray-500 text-center">{config.description}</span>
@@ -893,6 +975,18 @@ export default function CreateProjectPage() {
           </button>
         </div>
       </form>
+
+      {/* 🆕 Commit 16c — Upgrade modal */}
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onClose={() => setUpgradeModalOpen(false)}
+        feature={
+          upgradeTargetTier === "studio"
+            ? "Studio features"
+            : "Audio + Image"
+        }
+        requiredTier={upgradeTargetTier}
+      />
 
       {/* 🆕 Commit 12 — News-event warning modal */}
       {warningCategory && (

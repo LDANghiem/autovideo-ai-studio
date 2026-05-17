@@ -123,10 +123,27 @@ export async function POST(req: Request) {
     }
 
     // Video type
-    const validTypes = ["conventional", "youtube_shorts", "tiktok"];
+    const validTypes = ["conventional", "youtube_shorts", "tiktok", "audio_static"];
     const video_type = validTypes.includes(body?.video_type)
       ? body.video_type
       : "conventional";
+
+    // 🆕 Commit 16d — audio_static fields
+    const validStaticSources = ["upload", "pexels", "pixabay", "freepik"];
+    const rawStaticUrl = String(body?.static_image_url || "").trim();
+    const rawStaticSource = String(body?.static_image_source || "").trim();
+    const static_image_url = rawStaticUrl.length > 0 ? rawStaticUrl : null;
+    const static_image_source = validStaticSources.includes(rawStaticSource)
+      ? rawStaticSource
+      : null;
+
+    // 🆕 Commit 16d — block audio_static without an image
+    if (video_type === "audio_static" && !static_image_url) {
+      return NextResponse.json(
+        { error: "Audio + Image videos require an image. Please upload one or select from Pexels." },
+        { status: 400 }
+      );
+    }
 
     // 🆕 SCRIPT MODE: Word count limits per safety
     let scriptWordCount = 0;
@@ -186,6 +203,10 @@ export async function POST(req: Request) {
       topic_instructions,
       video_type,
       image_source,
+
+      // 🆕 Commit 16d — audio_static image fields
+      static_image_url,
+      static_image_source,
 
       status: "draft",
 

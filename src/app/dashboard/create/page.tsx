@@ -29,6 +29,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useImageSource } from "@/lib/useImageSource";
 import ImageSourceToggle from "@/components/ImageSourceToggle";
 import UpgradeModal from "@/components/UpgradeModal";
+import StaticImagePicker, { StaticImageSelection } from "@/components/StaticImagePicker";
 
 /* ============================================================
    [S1] Types
@@ -49,6 +50,9 @@ type CreatePayload = {
   image_source: string;
   elevenlabs_voice_id?: string;
   elevenlabs_voice_name?: string;
+  // 🆕 Commit 16d — audio_static
+  static_image_url?: string | null;
+  static_image_source?: string | null;
 };
 
 type Mode = "topic" | "script";
@@ -245,6 +249,9 @@ export default function CreateProjectPage() {
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeTargetTier, setUpgradeTargetTier] = useState<"creator" | "studio">("creator");
 
+  // 🆕 Commit 16d — audio_static image selection
+  const [staticImage, setStaticImage] = useState<StaticImageSelection | null>(null);
+
   const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -293,6 +300,12 @@ export default function CreateProjectPage() {
     setResolution(config.defaultResolution);
     if (videoType === "tiktok") { setStyle("energetic"); setTone("excited"); }
     else if (videoType === "youtube_shorts") { setStyle("modern"); setTone("friendly"); }
+    else if (videoType === "audio_static") {
+      // 🆕 Commit 16d — audio_static forces Centered captions
+      setStyle("modern");
+      setTone("friendly");
+      setCaptionStyle("centered");
+    }
     else { setStyle("modern"); setTone("friendly"); }
   }, [videoType, mode]);
 
@@ -354,8 +367,14 @@ export default function CreateProjectPage() {
       base.elevenlabs_voice_name = selectedElevenLabsVoice.label;
     }
 
+    // 🆕 Commit 16d — audio_static fields
+    if (videoType === "audio_static" && staticImage) {
+      base.static_image_url = staticImage.url;
+      base.static_image_source = staticImage.source;
+    }
+
     return base;
-  }, [mode, topic, topicInstructions, script, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice]);
+  }, [mode, topic, topicInstructions, script, videoType, style, voice, length, resolution, language, tone, music, captionStyle, imageSource, isElevenLabsLanguage, selectedElevenLabsVoice, staticImage]);
 
   /* ----------------------------------------------------------
      Get script feedback (unchanged)
@@ -559,6 +578,39 @@ export default function CreateProjectPage() {
                          !scriptUnderMin &&
                          !scriptOverHard &&
                          scriptWordCount >= SCRIPT_MIN_WORDS;
+
+  // 🆕 Commit 16d — audio_static helpers
+  const isAudioStatic = videoType === "audio_static";
+
+  // What's the user's max minutes for audio_static, given their tier?
+  const audioStaticMaxMin =
+    isAudioStatic && activeConfig.maxMinutesByTier
+      ? (plan === "studio"
+          ? activeConfig.maxMinutesByTier.studio ?? 30
+          : activeConfig.maxMinutesByTier.creator ?? 10)
+      : 30;
+
+  // Parse selected length string ("10 minutes" / "60 seconds") into minutes
+  function parseLengthToMinutes(s: string): number {
+    const lower = s.toLowerCase();
+    const sec = lower.match(/(\d+)\s*sec/);
+    if (sec) return Number(sec[1]) / 60;
+    const min = lower.match(/(\d+)\s*min/);
+    if (min) return Number(min[1]);
+    return 0;
+  }
+
+  const selectedMinutes = parseLengthToMinutes(length);
+  const overTierCap = isAudioStatic && selectedMinutes > audioStaticMaxMin;
+  const missingStaticImage = isAudioStatic && !staticImage;
+
+  // Can the form be submitted?
+  const submitBlocked =
+    busy ||
+    classifying ||
+    (mode === "script" && (scriptUnderMin || scriptOverHard)) ||
+    overTierCap ||
+    missingStaticImage;
 
   /* ============================================================
      [S4] Render
@@ -789,8 +841,19 @@ export default function CreateProjectPage() {
           </div>
         )}
 
-        {/* Image Source Toggle */}
-        <ImageSourceToggle imageSource={imageSource} onChange={setImageSource} disabled={busy} />
+        {/* Image Source Toggle — hidden for audio_static */}
+        {!isAudioStatic && (
+          <ImageSourceToggle imageSource={imageSource} onChange={setImageSource} disabled={busy} />
+        )}
+
+        {/* 🆕 Commit 16d — Static Image Picker (audio_static only) */}
+        {isAudioStatic && (
+          <StaticImagePicker
+            selected={staticImage}
+            onChange={setStaticImage}
+            disabled={busy}
+          />
+        )}
 
         {/* CORE SETTINGS GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -871,10 +934,34 @@ export default function CreateProjectPage() {
           {mode === "topic" && (
             <>
               <div className="space-y-2">
-                <label className="font-medium">Video Length</label>
+                <label className="font-medium">
+                  Video Length
+                  {isAudioStatic && (
+                    <span className="ml-2 text-xs font-normal text-gray-500">
+                      (your {plan === "studio" ? "Studio" : "Creator"} cap: {audioStaticMaxMin} min)
+                    </span>
+                  )}
+                </label>
                 <select value={length} onChange={(e) => setLength(e.target.value)} className="w-full border rounded px-3 py-2">
                   {activeConfig.lengthOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
                 </select>
+                {overTierCap && (
+                  <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1.5 border border-red-200">
+                    Exceeds your {plan === "studio" ? "Studio" : "Creator"} cap of {audioStaticMaxMin} min.{" "}
+                    {plan !== "studio" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUpgradeTargetTier("studio");
+                          setUpgradeModalOpen(true);
+                        }}
+                        className="underline font-medium text-red-800 hover:text-red-900"
+                      >
+                        Upgrade to Studio for 30 min
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -890,8 +977,23 @@ export default function CreateProjectPage() {
           )}
 
           <div className="space-y-2">
-            <label className="font-medium">Caption Style</label>
-            <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value)} className="w-full border rounded px-3 py-2">
+            <label className="font-medium">
+              Caption Style
+              {isAudioStatic && (
+                <span className="ml-2 text-xs font-normal text-amber-600">
+                  🔒 Locked to Centered for Audio + Image
+                </span>
+              )}
+            </label>
+            <select
+              value={captionStyle}
+              onChange={(e) => setCaptionStyle(e.target.value)}
+              disabled={isAudioStatic}
+              className={
+                "w-full border rounded px-3 py-2 " +
+                (isAudioStatic ? "bg-gray-100 cursor-not-allowed text-gray-500" : "")
+              }
+            >
               <option value="none">None</option>
               <option value="block">Block (Netflix-style)</option>
               <option value="karaoke">Karaoke (word highlight)</option>
@@ -961,11 +1063,18 @@ export default function CreateProjectPage() {
           )}
         </div>
 
+        {/* 🆕 Commit 16d — Missing image inline error */}
+        {missingStaticImage && (
+          <div className="text-sm text-red-700 bg-red-50 rounded px-3 py-2 border border-red-200">
+            Please upload an image or select one from Pexels above before creating your video.
+          </div>
+        )}
+
         {/* Actions */}
         <div className="pt-2 flex items-center gap-3">
           <button
             type="submit"
-            disabled={busy || classifying || (mode === "script" && (scriptUnderMin || scriptOverHard))}
+            disabled={submitBlocked}
             className="bg-black text-white rounded px-4 py-2 disabled:opacity-60"
           >
             {classifying ? "Checking topic…" : busy ? "Creating..." : "Create Project"}

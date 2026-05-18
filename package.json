@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@heroicons/react": "^2.2.0",
     "@remotion/bundler": "^4.0.419",
     "@remotion/renderer": "^4.0.419",

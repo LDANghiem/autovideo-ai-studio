@@ -30,6 +30,7 @@ import { useImageSource } from "@/lib/useImageSource";
 import ImageSourceToggle from "@/components/ImageSourceToggle";
 import UpgradeModal from "@/components/UpgradeModal";
 import StaticImagePicker, { StaticImageSelection } from "@/components/StaticImagePicker";
+import TranslateScriptModal, { TranslationResult } from "@/components/TranslateScriptModal";
 
 /* ============================================================
    [S1] Types
@@ -251,6 +252,14 @@ export default function CreateProjectPage() {
 
   // 🆕 Commit 16d — audio_static image selection
   const [staticImage, setStaticImage] = useState<StaticImageSelection | null>(null);
+
+  // 🆕 Commit 17b — Translate script modal
+  const [translateModalOpen, setTranslateModalOpen] = useState(false);
+
+  function handleTranslated(result: TranslationResult) {
+    setScript(result.translatedText);
+    setLanguage(result.targetLanguage); // 🆕 17b: auto-switch language silently (Decision 2: B)
+  }
 
   const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -790,8 +799,8 @@ export default function CreateProjectPage() {
               Your script is never rewritten. Ripple narrates it verbatim and produces visuals to match.
             </div>
 
-            {/* Get feedback button + panel */}
-            <div className="pt-2">
+            {/* Get feedback + Translate buttons */}
+            <div className="pt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={handleGetFeedback}
@@ -814,7 +823,23 @@ export default function CreateProjectPage() {
                   <>📋 Get editor&rsquo;s notes</>
                 )}
               </button>
-              <span className="ml-3 text-xs text-gray-500">
+
+              {/* 🆕 Commit 17b — Translate button */}
+              <button
+                type="button"
+                onClick={() => setTranslateModalOpen(true)}
+                disabled={scriptUnderMin || scriptOverHard || script.trim().length < 50}
+                className={
+                  "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-all " +
+                  (!scriptUnderMin && !scriptOverHard && script.trim().length >= 50
+                    ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-400"
+                    : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed")
+                }
+              >
+                🌍 Translate this
+              </button>
+
+              <span className="ml-1 text-xs text-gray-500">
                 Optional. Suggestions only — your script is never rewritten.
               </span>
             </div>
@@ -1084,7 +1109,14 @@ export default function CreateProjectPage() {
           </button>
         </div>
       </form>
-
+      {/* 🆕 Commit 17b — Translate modal */}
+      <TranslateScriptModal
+        open={translateModalOpen}
+        onClose={() => setTranslateModalOpen(false)}
+        scriptText={script}
+        currentLanguage={language}
+        onTranslated={handleTranslated}
+      />
       {/* 🆕 Commit 16c — Upgrade modal */}
       <UpgradeModal
         open={upgradeModalOpen}

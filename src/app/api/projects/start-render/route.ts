@@ -218,12 +218,20 @@ Constraints:
 
 ${hasInstructions ? "Additional topic instructions:\n" + instructions!.trim() + "\n" : ""}
 
-Output format (plain text, no markdown):
-1) Title (1 line)
-2) Hook (1-2 lines)
-3) Main script (multiple short paragraphs; detailed)
-4) Quick recap (1-2 lines)
-5) Call to action (1 line)
+Write the script as ONE continuous piece of flowing narration — exactly the words the narrator will speak, nothing else.
+
+The narration should naturally include:
+- An opening hook that grabs attention (but do NOT write the word "Hook" or any label)
+- The main content in clear, detailed paragraphs
+- A brief recap near the end (but do NOT write "Recap" or "Summary")
+- A closing call to action (but do NOT write "Call to action" or any label)
+
+CRITICAL — no labels, headers, or structural markers:
+- Do NOT write section names like "Hook:", "Title:", "Main script:", "Quick recap:", "Call to action:", "Intro:", "Outro:", "Body:", or any similar label.
+- Do NOT number the sections.
+- Do NOT use markdown headers (#), bold (**), or bullet points.
+- Output ONLY the spoken words, as flowing prose paragraphs separated by blank lines.
+- Every word you write WILL be read aloud by a text-to-speech voice, so write only what should be spoken.
 
 Important:
 - If the topic says a specific number (e.g. "5 tips", "10 places", "3 reasons"), you MUST cover EXACTLY that many items. Do not skip any.
@@ -231,7 +239,50 @@ Important:
 - Avoid filler and repetition, but do not be brief.
 `.trim();
 }
+/* ============================================================
+   🆕 Strip section labels from generated scripts
+   ────────────────────────────────────────────────────────────
+   Safety net for the script-header bug: even with prompt
+   instructions, GPT occasionally prefixes lines with labels
+   like "Hook:", "Call to action:", etc. These get read aloud
+   by TTS and shown in captions. Strip them before TTS.
+============================================================ */
+function stripSectionLabels(script: string): string {
+  if (!script) return script;
 
+  // Labels GPT sometimes emits at the start of a line, optionally
+  // numbered ("1) Hook:", "2. Main script:") and case-insensitive.
+  const LABELS = [
+    "title", "hook", "intro", "introduction", "main script", "main",
+    "body", "script", "quick recap", "recap", "summary", "conclusion",
+    "outro", "call to action", "cta", "closing",
+  ];
+
+  const labelPattern = new RegExp(
+    "^\\s*(?:\\d+[\\.\\)]\\s*)?(?:" + LABELS.join("|") + ")\\s*[:\\-–—]\\s*",
+    "i"
+  );
+
+  const cleaned = script
+    .split("\n")
+    .map((line) => {
+      // Remove a leading label like "Hook:" or "3) Call to action -"
+      let out = line.replace(labelPattern, "");
+      // Also handle a line that is ONLY a label (e.g. "Hook" on its own line)
+      const onlyLabel = new RegExp(
+        "^\\s*(?:\\d+[\\.\\)]\\s*)?(?:" + LABELS.join("|") + ")\\s*$",
+        "i"
+      );
+      if (onlyLabel.test(out)) out = "";
+      return out;
+    })
+    .join("\n")
+    // Collapse 3+ blank lines down to a max of 2
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned;
+}
 async function generateScriptWithOpenAI(p: ProjectRow) {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -280,6 +331,13 @@ async function generateScriptWithOpenAI(p: ProjectRow) {
 
   if (words < minWords) {
     console.warn("[start-render] script still short: " + words + " (min " + minWords + ")");
+  }
+
+  // 🆕 Strip any section labels GPT may have emitted before TTS
+  const beforeStrip = script;
+  script = stripSectionLabels(script);
+  if (script !== beforeStrip) {
+    console.log("[start-render] stripped section labels from script");
   }
 
   return script;

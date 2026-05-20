@@ -256,9 +256,32 @@ export default function CreateProjectPage() {
   // 🆕 Commit 17b — Translate script modal
   const [translateModalOpen, setTranslateModalOpen] = useState(false);
 
+  // 🆕 Commit 17c — Translation state for Undo + warning banner
+  type TranslationState = {
+    originalText: string;
+    originalLanguage: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+  };
+  const [activeTranslation, setActiveTranslation] = useState<TranslationState | null>(null);
+
   function handleTranslated(result: TranslationResult) {
+    // Save the pre-translation state so user can Undo
+    setActiveTranslation({
+      originalText: result.originalText,
+      originalLanguage: language, // current language before we change it
+      sourceLanguage: result.sourceLanguage,
+      targetLanguage: result.targetLanguage,
+    });
     setScript(result.translatedText);
-    setLanguage(result.targetLanguage); // 🆕 17b: auto-switch language silently (Decision 2: B)
+    setLanguage(result.targetLanguage); // 🆕 17b: auto-switch language silently
+  }
+
+  function handleUndoTranslation() {
+    if (!activeTranslation) return;
+    setScript(activeTranslation.originalText);
+    setLanguage(activeTranslation.originalLanguage);
+    setActiveTranslation(null);
   }
 
   const [feedback, setFeedback] = useState<ScriptFeedback | null>(null);
@@ -758,6 +781,29 @@ export default function CreateProjectPage() {
         {/* SCRIPT MODE FIELD */}
         {mode === "script" && (
           <div className="space-y-2">
+
+            {/* 🆕 Commit 17c — Translation warning banner with Undo */}
+            {activeTranslation && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 flex items-start gap-3">
+                <span className="text-lg flex-shrink-0">🤖</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-amber-900">
+                    AI-translated from {activeTranslation.sourceLanguage} to {activeTranslation.targetLanguage}
+                  </div>
+                  <div className="text-xs text-amber-800 mt-0.5">
+                    Always review before rendering — especially proper nouns, idioms, and cultural references.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUndoTranslation}
+                  className="flex-shrink-0 text-xs font-medium text-amber-900 hover:text-amber-950 underline whitespace-nowrap"
+                >
+                  Undo translation
+                </button>
+              </div>
+            )}
+
             <div className="flex items-end justify-between gap-3">
               <label className="font-medium">Your Script</label>
               <div className={

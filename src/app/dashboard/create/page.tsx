@@ -797,9 +797,9 @@ export default function CreateProjectPage() {
                 <button
                   type="button"
                   onClick={handleUndoTranslation}
-                  className="flex-shrink-0 text-xs font-medium text-amber-900 hover:text-amber-950 underline whitespace-nowrap"
+                  className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-700 hover:shadow whitespace-nowrap"
                 >
-                  Undo translation
+                  ↩ Undo translation
                 </button>
               </div>
             )}

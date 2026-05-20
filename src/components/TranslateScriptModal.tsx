@@ -62,15 +62,32 @@ export default function TranslateScriptModal({
   const [limitReached, setLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ used: number; limit: number | null } | null>(null);
 
-  // Reset state when modal opens
+  // Reset state when modal opens + fetch current usage
   useEffect(() => {
     if (open) {
       setError(null);
       setLimitReached(false);
       setUsageInfo(null);
       setSourceLanguage(currentLanguage || "English");
-      // Auto-pick a sensible target (not the same as source)
       setTargetLanguage(currentLanguage === "Vietnamese" ? "English" : "Vietnamese");
+
+      // 🆕 Commit 17d — fetch usage so we can show the counter
+      (async () => {
+        try {
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token;
+          if (!token) return;
+          const res = await fetch("/api/projects/translate-usage", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const json = await res.json();
+          if (res.ok) {
+            setUsageInfo({ used: json.used, limit: json.limit });
+          }
+        } catch {
+          // Soft fail — counter just won't show
+        }
+      })();
     }
   }, [open, currentLanguage]);
 
@@ -158,7 +175,7 @@ export default function TranslateScriptModal({
               ⏳
             </span>
             <div className="flex-1">
-              <h2 className="font-semibold text-gray-900">
+              <h2 className="text-lg font-bold text-gray-900">
                 Translation limit reached
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
@@ -171,11 +188,11 @@ export default function TranslateScriptModal({
             Your free monthly quota refreshes on the 1st. For more translations now, upgrade to Creator (30/month) or Studio (unlimited).
           </p>
 
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
-            <div className="text-sm font-medium text-purple-900">
+          <div className="bg-purple-100 border border-purple-300 rounded-lg p-3 space-y-2">
+            <div className="text-sm font-bold text-purple-950">
               🌍 Why translate matters
             </div>
-            <p className="text-xs text-purple-800 leading-relaxed">
+            <p className="text-xs text-purple-900 leading-relaxed">
               Reach audiences in 13 languages with native-sounding voices. Perfect for motivational content, podcasts, and bilingual marketing.
             </p>
           </div>
@@ -219,10 +236,22 @@ export default function TranslateScriptModal({
             🌍
           </span>
           <div className="flex-1">
-            <h2 className="font-semibold text-gray-900">Translate script</h2>
+            <h2 className="text-lg font-bold text-gray-900">Translate script</h2>
             <p className="text-xs text-gray-500 mt-0.5">
               Translate to any of 13 supported languages. AI translation — please review before rendering.
             </p>
+            {/* 🆕 Commit 17d — usage counter */}
+            {usageInfo && (
+              <div className="mt-1.5 text-xs">
+                {usageInfo.limit === null ? (
+                  <span className="text-purple-600 font-medium">✦ Unlimited translations (Studio)</span>
+                ) : (
+                  <span className={usageInfo.used >= usageInfo.limit ? "text-red-600 font-medium" : "text-gray-600"}>
+                    {usageInfo.used} of {usageInfo.limit} translations used this month
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

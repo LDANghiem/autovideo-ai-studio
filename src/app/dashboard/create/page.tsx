@@ -31,6 +31,7 @@ import ImageSourceToggle from "@/components/ImageSourceToggle";
 import UpgradeModal from "@/components/UpgradeModal";
 import StaticImagePicker, { StaticImageSelection } from "@/components/StaticImagePicker";
 import TranslateScriptModal, { TranslationResult } from "@/components/TranslateScriptModal";
+import { BRAND, SURFACE, TEXT, BORDER, FONT, SHADOW } from "@/lib/design-tokens";
 
 /* ============================================================
    [S1] Types
@@ -648,16 +649,42 @@ export default function CreateProjectPage() {
      [S4] Render
   ============================================================ */
   return (
-    <div className="max-w-3xl mx-auto p-6">
+    <div
+      className="min-h-screen"
+      style={{ background: SURFACE.base }}
+    >
+      <div className="max-w-3xl mx-auto p-6">
 
-      <UsageBanner pipeline="create" className="mb-6" />
+        <UsageBanner pipeline="create" className="mb-6" />
 
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Create Project</h1>
-        <button onClick={() => router.push("/dashboard")} className="border rounded px-3 py-2" type="button">
-          Back
-        </button>
-      </div>
+        <div className="flex items-center justify-between mb-6">
+          <h1
+            className="text-2xl font-bold"
+            style={{ color: TEXT.primary, fontFamily: FONT.heading }}
+          >
+            Create Project
+          </h1>
+          <button
+            onClick={() => router.push("/dashboard")}
+            type="button"
+            className="rounded-lg px-4 py-2 text-sm font-medium transition-all"
+            style={{
+              background: "transparent",
+              color: TEXT.secondary,
+              border: `1px solid ${BORDER.default}`,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+              e.currentTarget.style.color = TEXT.primary;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = TEXT.secondary;
+            }}
+          >
+            Back
+          </button>
+        </div>
 
       {error && (
         <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">{error}</div>
@@ -1146,11 +1173,29 @@ export default function CreateProjectPage() {
           <button
             type="submit"
             disabled={submitBlocked}
-            className="bg-black text-white rounded px-4 py-2 disabled:opacity-60"
+            className="rounded-lg px-5 py-2.5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              background: submitBlocked
+                ? "rgba(255,107,90,0.3)"
+                : `linear-gradient(135deg, ${BRAND.coral} 0%, ${BRAND.amber} 100%)`,
+              color: TEXT.onBrand,
+              boxShadow: submitBlocked ? "none" : SHADOW.cta,
+              fontFamily: FONT.heading,
+            }}
           >
             {classifying ? "Checking topic…" : busy ? "Creating..." : "Create Project"}
           </button>
-          <button type="button" onClick={handleReset} className="border rounded px-4 py-2" disabled={busy || classifying}>
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={busy || classifying}
+            className="rounded-lg px-4 py-2.5 text-sm font-medium transition-all disabled:opacity-50"
+            style={{
+              background: "transparent",
+              color: TEXT.secondary,
+              border: `1px solid ${BORDER.default}`,
+            }}
+          >
             Reset
           </button>
         </div>
@@ -1230,6 +1275,7 @@ export default function CreateProjectPage() {
           <div><b>Music:</b> {music}</div>
           <div><b>Captions:</b> {captionStyle === "none" ? "None" : captionStyle === "block" ? "📺 Block (Netflix-style)" : captionStyle === "karaoke" ? "🎤 Karaoke (word highlight)" : "📝 Centered"}</div>
         </div>
+      </div>
       </div>
     </div>
   );

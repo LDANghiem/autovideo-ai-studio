@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
+import { PLANS } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,12 +41,8 @@ const SUPPORTED_LANGUAGES = [
   "Arabic", "Indonesian", "Thai",
 ];
 
-// ─── Tier limits (translations per calendar month) ─────────────
-const TIER_LIMITS: Record<string, number> = {
-  free: 2,
-  creator: 30,
-  studio: Number.POSITIVE_INFINITY,
-};
+// ─── Tier limits now live in PLANS (src/lib/stripe.ts) ─────────
+// 999999 = effectively unlimited (codebase convention)
 
 // ─── Validation limits ─────────────────────────────────────────
 const MIN_CHARS = 50;
@@ -184,7 +181,8 @@ export async function POST(req: NextRequest) {
       .single();
 
     const plan = (profile?.plan as string) || "free";
-    const limit = TIER_LIMITS[plan] ?? TIER_LIMITS.free;
+    const planKey = PLANS[plan] ? plan : "free";
+    const limit = PLANS[planKey].limits.translate;
 
     // Count translations this calendar month
     const monthStart = new Date();
@@ -251,7 +249,7 @@ export async function POST(req: NextRequest) {
       translated_text,
       warnings,
       used: used + 1,
-      limit: Number.isFinite(limit) ? limit : null,
+      limit: limit >= 999999 ? null : limit, // null = unlimited
     });
 
   } catch (err: any) {

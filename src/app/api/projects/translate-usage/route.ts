@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { PLANS } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +17,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const TIER_LIMITS: Record<string, number> = {
-  free: 2,
-  creator: 30,
-  studio: Number.POSITIVE_INFINITY,
-};
+// Tier limits now live in PLANS (src/lib/stripe.ts)
 
 export async function GET(req: NextRequest) {
   try {
@@ -38,7 +35,8 @@ export async function GET(req: NextRequest) {
       .single();
 
     const plan = (profile?.plan as string) || "free";
-    const limit = TIER_LIMITS[plan] ?? TIER_LIMITS.free;
+    const planKey = PLANS[plan] ? plan : "free";
+    const limit = PLANS[planKey].limits.translate;
 
     const monthStart = new Date();
     monthStart.setUTCDate(1);
@@ -52,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       used: count ?? 0,
-      limit: Number.isFinite(limit) ? limit : null, // null = unlimited
+      limit: limit >= 999999 ? null : limit, // null = unlimited
       plan,
     });
   } catch (err: any) {

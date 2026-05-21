@@ -8,6 +8,7 @@ export interface PlanLimits {
   shorts: number;
   dub: number;
   create: number;
+  translate: number;        // 🆕 monthly script translations (Infinity-as-999999 = unlimited)
   maxVideoLengthSec: number;
   resolution: string;
   watermark: boolean;
@@ -32,7 +33,8 @@ export const PLANS: Record<string, PlanDef> = {
     limits: {
       shorts: 3,
       dub: 2,
-      create: 2,
+      create: 3,            // 🆕 was 2 — small bump for the funnel
+      translate: 5,         // 🆕 5 translations/mo on free
       maxVideoLengthSec: 60,
       resolution: "720p",
       watermark: true,
@@ -41,14 +43,15 @@ export const PLANS: Record<string, PlanDef> = {
   creator: {
     id: "creator",
     name: "Creator",
-    price: 19,
+    price: 15,              // 🆕 was 19 — undercut the field
     priceIdMonthly: null,
     priceIdAnnual: null,
     limits: {
       shorts: 30,
       dub: 20,
-      create: 15,
-      maxVideoLengthSec: 180,
+      create: 40,           // 🆕 was 15 — generous standard-video allowance
+      translate: 999999,    // 🆕 unlimited translations (Claude cost is trivial)
+      maxVideoLengthSec: 600, // 🆕 was 180 — 10 min, matches audio_static cap
       resolution: "1080p",
       watermark: false,
     },
@@ -56,14 +59,15 @@ export const PLANS: Record<string, PlanDef> = {
   studio: {
     id: "studio",
     name: "Studio",
-    price: 49,
+    price: 39,              // 🆕 was 49 — competitive for an unknown brand
     priceIdMonthly: null,
     priceIdAnnual: null,
     limits: {
       shorts: 999999,
       dub: 999999,
-      create: 999999,
-      maxVideoLengthSec: 99999,
+      create: 999999,       // standard videos unlimited
+      translate: 999999,    // 🆕 unlimited translations
+      maxVideoLengthSec: 1800, // 🆕 was 99999 — real 30 min cap, matches audio_static
       resolution: "1080p",
       watermark: false,
     },

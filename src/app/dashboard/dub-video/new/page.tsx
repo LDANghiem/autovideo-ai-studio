@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import CaptionStylePicker, { type CaptionConfig } from "@/components/CaptionStylePicker";
+import StaticImagePicker, { type StaticImageSelection } from "@/components/StaticImagePicker";
 
 /* ── Ripple palette ─────────────────────────────────────────── */
 const CORAL = "#FF6B5A";
@@ -258,6 +259,10 @@ export default function DubVideoNewPage() {
 
   // Source mode
   const [sourceMode, setSourceMode] = useState<SourceMode>("youtube");
+
+  // 🆕 D1 — Output mode: keep original video frames, or audio over a static image
+  const [outputMode, setOutputMode] = useState<"video" | "static_image">("video");
+  const [staticImage, setStaticImage] = useState<StaticImageSelection | null>(null);
 
   // YouTube URL (for youtube + partial modes)
   const [url, setUrl] = useState("");
@@ -945,6 +950,69 @@ export default function DubVideoNewPage() {
               );
             })}
           </div>
+        </section>
+
+        {/* ════════════════════════════════════════════════════
+            🆕 D1 — OUTPUT MODE: keep video, or audio + static image
+        ════════════════════════════════════════════════════ */}
+        <section className="mb-6">
+          <label
+            className="block text-xs font-semibold mb-3 uppercase tracking-wider"
+            style={labelStyle}
+          >
+            Output
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { mode: "video" as const, icon: "🎞️", label: "Keep original video", desc: "Dub over the source footage" },
+              { mode: "static_image" as const, icon: "🖼️", label: "Audio + static image", desc: "Replace footage with one image" },
+            ]).map(({ mode, icon, label, desc }) => {
+              const isSelected = outputMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => { setOutputMode(mode); setError(""); }}
+                  className="p-3 rounded-xl text-left transition-all duration-200"
+                  style={{
+                    border: isSelected
+                      ? "1px solid rgba(255,107,90,0.5)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    background: isSelected ? "rgba(255,107,90,0.10)" : "rgba(255,255,255,0.02)",
+                    boxShadow: isSelected ? "0 4px 16px -4px rgba(255,107,90,0.35)" : "none",
+                  }}
+                >
+                  <div className="text-lg mb-1">{icon}</div>
+                  <div
+                    className="text-sm font-semibold"
+                    style={{
+                      color: isSelected ? CORAL_SOFT : "#F5F2ED",
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <div className="text-[10px] mt-0.5" style={{ color: isSelected ? "rgba(255,139,122,0.7)" : "#5A5762" }}>
+                    {desc}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* When static-image output is chosen, show the image picker */}
+          {outputMode === "static_image" && (
+            <div className="mt-4">
+              <p className="text-[11px] mb-3 leading-relaxed" style={{ color: "#8B8794" }}>
+                Your source video is still used for its audio — we transcribe and dub the spoken
+                words, then play the new narration over the image you choose below.
+              </p>
+              <StaticImagePicker
+                selected={staticImage}
+                onChange={setStaticImage}
+                disabled={submitting}
+              />
+            </div>
+          )}
         </section>
 
         {/* Caption Style */}

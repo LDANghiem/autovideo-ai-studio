@@ -96,8 +96,10 @@ export async function POST(req: NextRequest) {
             keep_original_audio: project.keep_original_audio,
             original_audio_volume: project.original_audio_volume,
             // New fields for partial dub + upload
-            start_time: project.start_time || null,
-            end_time: project.end_time || null,
+            // Use nullish coalescing (??) NOT || — start_time can legitimately be 0 (0:00),
+            // and 0 || null === null would wrongly drop a valid zero start.
+            start_time: project.start_time ?? null,
+            end_time: project.end_time ?? null,
           }),
         });
 

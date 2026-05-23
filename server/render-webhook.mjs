@@ -1057,7 +1057,7 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
 }
 
 /* ── [DUB STEP 6] Burn captions + replace audio ───────────── */
-async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, translatedSegments, captionStyle, workDir, captionPosition = "bottom") {
+async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, translatedSegments, captionStyle, workDir, captionPosition = "bottom", outputMode = "video", staticImageUrl = null) {
   await updateDubStatus(projectId, "assembling", 80);
 
   const srtFile = path.join(workDir, "vietnamese.srt");
@@ -1077,42 +1077,84 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
   console.log("[dub] SRT file created with", segs.length, "subtitles");
 
   const noSubsFile = path.join(workDir, "output-no-subs.mp4");
-  console.log("[dub] replacing audio + stripping embedded subtitle streams + blurring hardcoded caption zone...");
 
-  // Step A: strip soft subtitle streams + swap audio (fast copy)
-  const noSubsRaw = path.join(workDir, "output-no-subs-raw.mp4");
-  await execAsync(
-    `ffmpeg -i "${videoFile}" -i "${finalAudioFile}" ` +
-    `-c:v copy -c:a aac -map 0:v -map 1:a -sn -shortest -y "${noSubsRaw}"`
-  );
+  if (outputMode === "static_image" && staticImageUrl) {
+  
+    // No source frames to swap onto or erase captions from. Instead, build the
+    // base video by looping a single still image for the dubbed audio's duration.
+    // The existing caption-burning block below then runs UNCHANGED on this video.
+    console.log("[dub] STATIC IMAGE output — building base video from image + dubbed audio");
 
-  // Step B: detect video dimensions, then blur bottom ~12% where hardcoded captions live
-  let dubW = 1280, dubH = 720;
-  try {
-    const { stdout: dimOut } = await execAsync(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${noSubsRaw}"`
-    );
-    const [dw, dh] = dimOut.trim().split(",").map(Number);
-    if (dw > 0 && dh > 0) { dubW = dw; dubH = dh; }
-  } catch {}
+    // Download the static image
+    const imageFile = path.join(workDir, "static-image.jpg");
+    try {
+      const imgRes = await fetch(staticImageUrl);
+      if (!imgRes.ok) throw new Error(`image download failed (${imgRes.status})`);
+      fs.writeFileSync(imageFile, Buffer.from(await imgRes.arrayBuffer()));
+      console.log("[dub] static image downloaded:", (fs.statSync(imageFile).size / 1024).toFixed(0), "KB");
+    } catch (imgErr) {
+      throw new Error(`Static image download failed: ${imgErr?.message || imgErr}`);
+    }
 
-  const captionZoneH = Math.round(dubH * 0.14);  // bottom 14% — covers most hardcoded caption bars
-  const captionZoneY = dubH - captionZoneH;
-
-  // Use delogo (black fill) on caption zone — faster than blur, works reliably
-  // delogo: x,y,w,h of the region to erase
-  try {
+    // Loop the image for the full audio duration. -tune stillimage + -shortest
+    // length-matches the video to the audio. scale+pad fits any image into a clean
+    // 1280x720 frame (letterboxed if needed). We use 720p — NOT 1080p — to match the
+    // footage path (which downloads at height<=720), so the shared caption-burning
+    // code below produces identically-sized captions. At 1080p the assScaleFactor
+    // (videoHeight/384) made captions ~1.5x too large.
     await execAsync(
-      `ffmpeg -i "${noSubsRaw}" ` +
-      `-vf "delogo=x=0:y=${captionZoneY}:w=${dubW}:h=${captionZoneH}:show=0" ` +
-      `-c:v libx264 -preset fast -crf 20 -c:a copy -y "${noSubsFile}"`
+      `ffmpeg -loop 1 -i "${imageFile}" -i "${finalAudioFile}" ` +
+      `-c:v libx264 -tune stillimage -preset fast -crf 20 -pix_fmt yuv420p ` +
+      `-c:a aac -b:a 192k -shortest ` +
+      `-vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1" ` +
+      `-y "${noSubsFile}"`
     );
-    console.log(`[dub] ✅ hardcoded caption zone erased (bottom ${captionZoneH}px of ${dubH}px)`);
-    try { fs.unlinkSync(noSubsRaw); } catch {}
-  } catch (delogoErr) {
-    // delogo not available on all ffmpeg builds — fall back to original
-    console.log("[dub] delogo unavailable, using raw strip only:", (delogoErr?.message || "").slice(0, 100));
-    fs.renameSync(noSubsRaw, noSubsFile);
+
+    if (!fs.existsSync(noSubsFile)) {
+      throw new Error("Static image base video creation failed");
+    }
+    console.log("[dub] ✅ static image base video built");
+    try { fs.unlinkSync(imageFile); } catch {}
+
+  } else {
+    // ═══ DEFAULT — KEEP ORIGINAL VIDEO (existing behavior, unchanged) ═══
+    console.log("[dub] replacing audio + stripping embedded subtitle streams + blurring hardcoded caption zone...");
+
+    // Step A: strip soft subtitle streams + swap audio (fast copy)
+    const noSubsRaw = path.join(workDir, "output-no-subs-raw.mp4");
+    await execAsync(
+      `ffmpeg -i "${videoFile}" -i "${finalAudioFile}" ` +
+      `-c:v copy -c:a aac -map 0:v -map 1:a -sn -shortest -y "${noSubsRaw}"`
+    );
+
+    // Step B: detect video dimensions, then blur bottom ~12% where hardcoded captions live
+    let dubW = 1280, dubH = 720;
+    try {
+      const { stdout: dimOut } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${noSubsRaw}"`
+      );
+      const [dw, dh] = dimOut.trim().split(",").map(Number);
+      if (dw > 0 && dh > 0) { dubW = dw; dubH = dh; }
+    } catch {}
+
+    const captionZoneH = Math.round(dubH * 0.14);  // bottom 14% — covers most hardcoded caption bars
+    const captionZoneY = dubH - captionZoneH;
+
+    // Use delogo (black fill) on caption zone — faster than blur, works reliably
+    // delogo: x,y,w,h of the region to erase
+    try {
+      await execAsync(
+        `ffmpeg -i "${noSubsRaw}" ` +
+        `-vf "delogo=x=0:y=${captionZoneY}:w=${dubW}:h=${captionZoneH}:show=0" ` +
+        `-c:v libx264 -preset fast -crf 20 -c:a copy -y "${noSubsFile}"`
+      );
+      console.log(`[dub] ✅ hardcoded caption zone erased (bottom ${captionZoneH}px of ${dubH}px)`);
+      try { fs.unlinkSync(noSubsRaw); } catch {}
+    } catch (delogoErr) {
+      // delogo not available on all ffmpeg builds — fall back to original
+      console.log("[dub] delogo unavailable, using raw strip only:", (delogoErr?.message || "").slice(0, 100));
+      fs.renameSync(noSubsRaw, noSubsFile);
+    }
   }
 
   const finalOutputFile = path.join(workDir, "final-output.mp4");
@@ -1146,7 +1188,8 @@ async function dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, tran
   }
 
   const assScaleFactor = videoHeight / 384;
-  const fontSize = Math.round(desiredFontPx * assScaleFactor);
+  // 🆕 trim ~15% for a leaner, less screen-dominating caption
+  const fontSize = Math.round(desiredFontPx * assScaleFactor * 0.85);
   const scaledMarginV = Math.round(marginV * assScaleFactor);
   const scaledOutline = Math.max(1, Math.round(outlineSize * assScaleFactor));
   const scaledMarginLR = Math.round(50 * assScaleFactor);
@@ -1294,14 +1337,14 @@ function buildCaptionStyle({ captionStyle, captionPosition = "bottom", fontSize,
       ].join(",");
 
     case "highlight":
-      // Yellow background bar — news style
+      // Yellow background bar — news style (leaner: non-bold)
       return [
-        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=1`,
+        `FontSize=${fontSize}`, `FontName=Arial`, `Bold=0`,
         `PrimaryColour=&H00000000`,   // black text
         `BackColour=&H00FFFF00`,       // solid yellow bg  (AABBGGRR → 00FFFF00 = opaque yellow)
         `OutlineColour=&H00000000`, `Outline=0`, `Shadow=0`,
         `MarginV=${marginV}`, `MarginL=${marginL}`, `MarginR=${marginR}`,
-        `Alignment=${finalAlignment}`, `BorderStyle=4`, `Spacing=2`,
+        `Alignment=${finalAlignment}`, `BorderStyle=4`, `Spacing=1`,
       ].join(",");
 
     case "fade":
@@ -1563,7 +1606,7 @@ async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyl
       await dubStep5_MixAudio(projectId, narrationFile, audioFile, keepOriginal, originalVolume, workDir, durationSec);
 
     const { finalOutputFile, srtFile } =
-      await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir, captionPosition);
+      await dubStep6_AssembleVideo(projectId, videoFile, finalAudioFile, syncedSegments, captionStyle, workDir, captionPosition, outputMode, staticImageUrl);
 
     // Apply watermark for free-tier users
     const watermarkedDubFile = await applyWatermarkIfNeeded(userId, finalOutputFile, workDir);

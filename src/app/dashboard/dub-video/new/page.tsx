@@ -285,7 +285,7 @@ export default function DubVideoNewPage() {
   const [langCode, setLangCode] = useState("vi");
   const [voiceId, setVoiceId] = useState("");
   const [captionConfig, setCaptionConfig] = useState<CaptionConfig>({ style: "classic", position: "bottom" });
-  const [keepOriginal, setKeepOriginal] = useState(true);
+  const [keepOriginal, setKeepOriginal] = useState(false);
   const [originalVolume, setOriginalVolume] = useState(0.15);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");

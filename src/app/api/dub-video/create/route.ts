@@ -43,6 +43,9 @@ export async function POST(req: NextRequest) {
       start_time = null,
       end_time = null,
       uploaded_file_name = null,
+      // 🆕 D2 — output mode + static image
+      output_mode = "video",
+      static_image_url = null,
     } = body;
 
     if (!source_url) {
@@ -106,6 +109,9 @@ export async function POST(req: NextRequest) {
         // New fields
         start_time: start_time,
         end_time: end_time,
+        // 🆕 D2 — output mode + static image
+        output_mode,
+        static_image_url,
         status: "draft",
         progress_pct: 0,
       })

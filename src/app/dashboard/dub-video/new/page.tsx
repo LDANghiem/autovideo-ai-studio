@@ -428,6 +428,12 @@ export default function DubVideoNewPage() {
       if (!url) { setError("Please enter a YouTube URL."); return; }
     }
 
+    // 🆕 D2 — static-image output requires an image
+    if (outputMode === "static_image" && !staticImage?.url) {
+      setError("Please choose a static image (upload or Pexels) for audio-over-image output.");
+      return;
+    }
+
     if (sourceMode === "partial") {
       const startSec = parseTimeToSeconds(startTime);
       const endSec = parseTimeToSeconds(endTime);
@@ -474,6 +480,9 @@ export default function DubVideoNewPage() {
           start_time: startSec,
           end_time: endSec,
           uploaded_file_name: sourceMode === "upload" ? uploadFile?.name : null,
+          // 🆕 D2 — output mode + static image
+          output_mode: outputMode,
+          static_image_url: outputMode === "static_image" ? (staticImage?.url ?? null) : null,
         }),
       });
       const createData = await createRes.json();

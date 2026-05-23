@@ -1517,7 +1517,7 @@ async function dubStep7_Upload(projectId, userId, finalOutputFile, srtFile) {
 /* ── Main dub orchestrator ─────────────────────────────────── */
 /* v2: Accepts opts for sourceType, startTime, endTime          */
 async function runDub(projectId, sourceUrl, targetLanguage, voiceId, captionStyle, keepOriginal, originalVolume, targetLanguageCode, opts = {}) {
-  const { sourceType = "youtube", startTime = null, endTime = null, captionPosition = "bottom" } = opts;
+  const { sourceType = "youtube", startTime = null, endTime = null, captionPosition = "bottom", outputMode = "video", staticImageUrl = null } = opts;
 
   console.log("[dub] ═══════════════════════════════════════");
   console.log("[dub] Starting dub pipeline for project:", projectId);
@@ -1658,6 +1658,9 @@ app.post("/dub", async (req, res) => {
     original_audio_volume,
     start_time,
     end_time,
+    // 🆕 D2 — output mode + static image
+    output_mode,
+    static_image_url,
   } = req.body || {};
 
   if (!project_id) return jsonError(res, 400, "Missing project_id");
@@ -1686,6 +1689,9 @@ app.post("/dub", async (req, res) => {
           startTime: typeof start_time === "number" ? start_time : null,
           endTime: typeof end_time === "number" ? end_time : null,
           captionPosition: caption_position || "bottom",
+          // 🆕 D2 — output mode + static image (consumed in D3)
+          outputMode: output_mode || "video",
+          staticImageUrl: static_image_url || null,
         }
       );
     } catch (e) {

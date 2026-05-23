@@ -100,6 +100,9 @@ export async function POST(req: NextRequest) {
             // and 0 || null === null would wrongly drop a valid zero start.
             start_time: project.start_time ?? null,
             end_time: project.end_time ?? null,
+            // 🆕 D2 — output mode + static image
+            output_mode: project.output_mode ?? "video",
+            static_image_url: project.static_image_url ?? null,
           }),
         });
 

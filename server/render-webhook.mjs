@@ -1010,7 +1010,6 @@ async function dubStep4b_SyncCaptions(projectId, narrationFile, translatedSegmen
 }
 
 
-
 /* ── [DUB STEP 5] Mix audio tracks with ffmpeg ────────────── */
 async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, keepOriginal, originalVolume, workDir, videoDurationSec) {
   await updateDubStatus(projectId, "assembling", 70);
@@ -1022,19 +1021,28 @@ async function dubStep5_MixAudio(projectId, narrationFile, originalAudioFile, ke
     console.log("[dub] mixing audio — original at", Math.round(vol * 100) + "% volume");
 
     const durationFlag = videoDurationSec > 0 ? `-t ${videoDurationSec.toFixed(2)}` : "";
+    // Use amix with normalize=0 so it does NOT rebalance the inputs — the volumes
+    // we set are respected literally. Narration stays at full level; original sits
+    // quietly underneath at `vol`. (Default amix normalization was averaging the two,
+    // making both sound roughly equal even at volume=0.15.)
     await execAsync(
       `ffmpeg -i "${narrationFile}" -i "${originalAudioFile}" ` +
-      `-filter_complex "[1:a]volume=${vol}[quiet];[0:a][quiet]amix=inputs=2:duration=first:dropout_transition=2" ` +
+      `-filter_complex "[1:a]volume=${vol}[quiet];[0:a][quiet]amix=inputs=2:duration=first:dropout_transition=2:normalize=0" ` +
       `${durationFlag} -y "${finalAudioFile}"`
     );
   } else {
     console.log("[dub] using narration only (no original audio mix)");
     if (videoDurationSec > 0) {
+      // Narration is WAV (pcm_s16le); output is .mp3 — must RE-ENCODE, not copy.
+      // `-c copy` fails because PCM can't live in an MP3 container.
       await execAsync(
-        `ffmpeg -i "${narrationFile}" -t ${videoDurationSec.toFixed(2)} -c copy -y "${finalAudioFile}"`
+        `ffmpeg -i "${narrationFile}" -t ${videoDurationSec.toFixed(2)} -c:a libmp3lame -b:a 192k -y "${finalAudioFile}"`
       );
     } else {
-      fs.copyFileSync(narrationFile, finalAudioFile);
+      // No duration cap — still must encode WAV -> MP3, not raw-copy.
+      await execAsync(
+        `ffmpeg -i "${narrationFile}" -c:a libmp3lame -b:a 192k -y "${finalAudioFile}"`
+      );
     }
   }
 

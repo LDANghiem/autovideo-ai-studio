@@ -29,23 +29,23 @@ const PLANS_UI = [
     features: [
       "AI Shorts — 3/month",
       "Dub Video — 2/month",
-      "Create Video — 2/month",
+      "Create Video — 3/month",
+      "Script translation — 5/month",
       "Thumbnail creator",
       "5 caption styles",
+      "Up to 1 min videos",
       "720p export",
-      "Ripple watermark",
     ],
     locked: [
       "No watermark",
-      "Voice cloning",
-      "YouTube auto-publish",
-      "Batch scheduler",
+      "1080p export",
+      "Unlimited translations",
     ],
   },
   {
     id: "creator",
     name: "Creator",
-    price: { monthly: 19, annual: 15 },
+    price: { monthly: 15, annual: 150 },
     desc: "For solo creators publishing 3-5x per week.",
     color: "#FFA94D",
     accentBg: "rgba(255,169,77,0.10)",
@@ -54,42 +54,34 @@ const PLANS_UI = [
     features: [
       "AI Shorts — 30/month",
       "Dub Video — 20/month",
-      "Create Video — 15/month",
+      "Create Video — 40/month",
+      "Unlimited script translations",
       "No watermark",
       "1080p export",
-      "Up to 3min videos",
-      "YouTube auto-publish",
-      "Custom intro/outro",
+      "Up to 10 min videos",
       "Vietnamese SEO generator",
       "Unified video library",
     ],
     locked: [
-      "Voice cloning",
-      "Batch scheduler",
-      "Dual-language captions",
-      "Analytics dashboard",
+      "Unlimited videos",
+      "Voice cloning — coming soon",
     ],
   },
   {
     id: "studio",
     name: "Studio",
-    price: { monthly: 49, annual: 39 },
-    desc: "For agencies and channels publishing daily.",
+    price: { monthly: 39, annual: 390 },
+    desc: "For agencies and creators publishing daily.",
     color: "#FF6B5A",
     accentBg: "rgba(255,107,90,0.10)",
     accentBorder: "rgba(255,107,90,0.35)",
     features: [
-      "Unlimited videos",
       "Everything in Creator",
-      "Voice cloning",
-      "Batch scheduler (7-day queue)",
-      "Dual-language captions (VI + EN)",
-      "YouTube analytics dashboard",
-      "Multi-platform export",
-      "Priority rendering (2x faster)",
-      "Brand kit",
-      "Zalo share integration",
-      "API access",
+      "Unlimited AI Shorts",
+      "Unlimited Dub videos",
+      "Unlimited Create videos",
+      "Up to 30 min videos",
+      "Voice cloning — coming soon",
     ],
     locked: [],
   },
@@ -336,7 +328,7 @@ export default function BillingPage() {
           </button>
           <span className="text-sm" style={{ color: "#8B8794" }}>
             Annual{" "}
-            <span className="font-semibold" style={{ color: "#FF8B7A" }}>save 20%</span>
+            <span className="font-semibold" style={{ color: "#FF8B7A" }}>2 months free</span>
           </span>
         </div>
 
@@ -409,9 +401,11 @@ export default function BillingPage() {
                     >
                       ${price}
                     </span>
-                    <span className="text-sm" style={{ color: "#5A5762" }}>/mo</span>
+                    <span className="text-sm" style={{ color: "#5A5762" }}>
+                      {billing === "annual" && price > 0 ? "/yr" : "/mo"}
+                    </span>
                     {billing === "annual" && price > 0 && (
-                      <span className="ml-2 text-xs" style={{ color: "#5DD39E" }}>billed annually</span>
+                      <span className="ml-2 text-xs" style={{ color: "#5DD39E" }}>2 months free</span>
                     )}
                   </div>
                   <p className="text-xs mb-4" style={{ color: "#8B8794" }}>{p.desc}</p>
